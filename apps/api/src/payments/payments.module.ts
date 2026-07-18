@@ -71,6 +71,16 @@ const METHOD_FOR: Record<PaymentChannel, PaymentMethod> = {
   CARD: 'CARD',
 };
 
+/**
+ * The year a reference carries.
+ *
+ * Was hardcoded to 2026, which would have printed "RCP-2026-00041" on a receipt issued in
+ * January 2027. The sequence itself is global and never resets, so no number can collide — only
+ * the label was wrong, which is exactly the kind of thing nobody notices until a parent queries a
+ * receipt.
+ */
+const refYear = () => new Date().getFullYear();
+
 @Injectable()
 export class PaymentsService {
   constructor(private db: PrismaService) {}
@@ -442,7 +452,7 @@ export class PaymentsService {
           data: {
             schoolId: intent.schoolId,
             ledgerEntryId: entry.id,
-            number: `RCP-2026-${String(rcpSeq).padStart(5, '0')}`,
+            number: `RCP-${refYear()}-${String(rcpSeq).padStart(5, '0')}`,
           },
         });
       } catch (e) {

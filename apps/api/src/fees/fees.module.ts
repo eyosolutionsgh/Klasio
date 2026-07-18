@@ -163,6 +163,16 @@ class TopUpDto {
   @IsString() @MinLength(3) reference: string;
 }
 
+/**
+ * The year a reference carries.
+ *
+ * Was hardcoded to 2026, which would have printed "RCP-2026-00041" on a receipt issued in
+ * January 2027. The sequence itself is global and never resets, so no number can collide — only
+ * the label was wrong, which is exactly the kind of thing nobody notices until a parent queries a
+ * receipt.
+ */
+const refYear = () => new Date().getFullYear();
+
 @Injectable()
 export class FeesService {
   constructor(
@@ -358,7 +368,7 @@ export class FeesService {
       if (invoiced.has(st.id)) continue;
       const lines = [...baseLines, ...(extrasFor.get(st.id) ?? [])];
       const total = lines.reduce((a, l) => a + l.amount, 0);
-      const number = `INV-2026-${String(count + created + 1).padStart(4, '0')}`;
+      const number = `INV-${refYear()}-${String(count + created + 1).padStart(4, '0')}`;
       await this.db.invoice.create({
         data: {
           schoolId: auth.schoolId,
@@ -698,7 +708,7 @@ export class FeesService {
         termId: term?.id,
         type: dto.type,
         amount: dto.amount,
-        reference: `${dto.type === 'WAIVER' ? 'WVR' : 'DSC'}-2026-${String(seq).padStart(5, '0')}`,
+        reference: `${dto.type === 'WAIVER' ? 'WVR' : 'DSC'}-${refYear()}-${String(seq).padStart(5, '0')}`,
         note: dto.reason,
         createdById: auth.sub,
       },
@@ -740,7 +750,7 @@ export class FeesService {
         type: 'PAYMENT',
         amount: dto.amount,
         method: dto.method,
-        reference: `PAY-2026-${String(paySeq).padStart(5, '0')}`,
+        reference: `PAY-${refYear()}-${String(paySeq).padStart(5, '0')}`,
         note: dto.note,
         createdById: auth.sub,
       },
@@ -749,7 +759,7 @@ export class FeesService {
       data: {
         schoolId: auth.schoolId,
         ledgerEntryId: entry.id,
-        number: `RCP-2026-${String(rcpSeq).padStart(5, '0')}`,
+        number: `RCP-${refYear()}-${String(rcpSeq).padStart(5, '0')}`,
       },
     });
     await this.db.audit(auth.schoolId, auth.sub, 'payment.record', 'Student', dto.studentId, {
@@ -802,7 +812,7 @@ export class FeesService {
         depositedAt: new Date(dto.depositedAt),
         proofKey,
         note: dto.note ?? null,
-        reference: `DEP-2026-${String(seq).padStart(5, '0')}`,
+        reference: `DEP-${refYear()}-${String(seq).padStart(5, '0')}`,
         submittedById: auth.sub,
       },
     });
@@ -893,7 +903,7 @@ export class FeesService {
         data: {
           schoolId: auth.schoolId,
           ledgerEntryId: entry.id,
-          number: `RCP-2026-${String(rcpSeq).padStart(5, '0')}`,
+          number: `RCP-${refYear()}-${String(rcpSeq).padStart(5, '0')}`,
         },
       });
     } catch (e) {
