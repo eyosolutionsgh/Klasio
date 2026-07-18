@@ -868,12 +868,25 @@ export class AssessmentService {
       headRemark: report.headRemark,
       publishedAt: report.publishedAt,
       generatedAt: report.generatedAt,
+      // Same reason as the PDF: the on-screen card labels the columns with these.
+      weights: {
+        sba: school.sbaWeight ?? DEFAULT_SBA_WEIGHT,
+        exam: school.examWeight ?? DEFAULT_EXAM_WEIGHT,
+      },
     };
   }
 
   async reportCardPdf(auth: AuthUser, studentId: string, termId: string) {
-    const card = await this.reportCard(auth, studentId, termId);
-    return reportCardPdf(card as unknown as ReportCardData);
+    const [card, weights] = await Promise.all([
+      this.reportCard(auth, studentId, termId),
+      this.weights(auth),
+    ]);
+    // The column headers name the split, so they have to be the school's own — printing a fixed
+    // 30/70 on a school that uses 40/60 contradicts the marks beside it.
+    return reportCardPdf({
+      ...(card as unknown as ReportCardData),
+      weights: { sba: weights.sbaWeight, exam: weights.examWeight },
+    });
   }
 
   /** Broadsheet / tabulation sheet: students × subjects with totals, positions and class ranking. */

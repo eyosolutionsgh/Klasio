@@ -14,6 +14,8 @@ interface Line {
   position: number | null;
 }
 interface Card {
+  /** The school's own split, so the column headings match the marks beneath them. */
+  weights?: { sba: number; exam: number };
   schemeKind: 'GES_CLASSIC' | 'NACCA_BANDS' | 'EARLY_YEARS';
   schemeName: string;
   template: 'GES' | 'MODERN';
@@ -153,11 +155,15 @@ export default async function ReportCardPage({
                 <>
                   <th className="border border-mist px-2 py-2 font-medium">
                     Class Score
-                    <span className="block normal-case tracking-normal text-oat">(30%)</span>
+                    <span className="block normal-case tracking-normal text-oat">
+                      ({card.weights?.sba ?? 30}%)
+                    </span>
                   </th>
                   <th className="border border-mist px-2 py-2 font-medium">
                     Exam Score
-                    <span className="block normal-case tracking-normal text-oat">(70%)</span>
+                    <span className="block normal-case tracking-normal text-oat">
+                      ({card.weights?.exam ?? 70}%)
+                    </span>
                   </th>
                 </>
               )}

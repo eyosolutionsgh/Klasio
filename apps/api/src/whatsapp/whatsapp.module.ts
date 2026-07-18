@@ -3,6 +3,9 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
+  Req,
+  UnauthorizedException,
   Injectable,
   Module,
   NotFoundException,
@@ -11,6 +14,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { IsString, MinLength } from 'class-validator';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { PrismaService, withTenant } from '../prisma/prisma.service';
 import {
   AuthUser,
@@ -262,9 +266,42 @@ export class WhatsAppController {
     throw new BadRequestException('Verification failed');
   }
 
+  /**
+   * Meta's inbound callback.
+   *
+   * Signature-verified, which it previously was not. An unauthenticated webhook here is worse
+   * than it looks: besides letting anyone inject messages into any school's inbox attributed to
+   * any number, it sets `windowExpiresAt` — and that window is the ONE checkpoint enforcing
+   * "the school never opens a conversation". Forge an inbound message and you have forced the
+   * door open. See common/whatsapp-window.ts.
+   */
   @Public()
   @Post('webhook/:schoolId')
-  async inbound(@Param('schoolId') schoolId: string, @Body() payload: unknown) {
+  async inbound(
+    @Param('schoolId') schoolId: string,
+    @Body() payload: unknown,
+    @Req() req: { rawBody?: Buffer },
+    @Headers('x-hub-signature-256') signature?: string,
+  ) {
+    const appSecret = process.env.WHATSAPP_APP_SECRET;
+    if (!appSecret) {
+      // Fail closed. An unverifiable callback is not a callback we can act on.
+      throw new BadRequestException('WhatsApp callbacks are not configured');
+    }
+    const body = req.rawBody ?? Buffer.from(JSON.stringify(payload));
+    const expected = 'sha256=' + createHmac('sha256', appSecret).update(body).digest('hex');
+    const given = signature ?? '';
+    // Constant-time: a length mismatch would otherwise leak through the comparison itself.
+    if (
+      given.length !== expected.length ||
+      !timingSafeEqual(Buffer.from(given), Buffer.from(expected))
+    ) {
+      throw new UnauthorizedException('Bad signature');
+    }
+    return this.handleInbound(schoolId, payload);
+  }
+
+  private async handleInbound(schoolId: string, payload: unknown) {
     // Meta nests messages several levels deep and will happily deliver status-only callbacks
     // that contain none. Walk defensively and ignore anything that is not a text message.
     const body = payload as {

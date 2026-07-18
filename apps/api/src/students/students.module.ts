@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Body,
   Controller,
   Delete,
@@ -160,6 +161,12 @@ export class StudentsService {
     // child's page while the nurse who holds `students.medical` gained nothing from it.
     const mayReadMedical = auth.permissions?.includes('students.medical') ?? false;
     const mayReadFees = auth.permissions?.includes('fees.view') ?? false;
+    // Seeing who a child's guardians are is part of the record; their contact details and
+    // custody status are not.
+    const mayReadGuardians =
+      (auth.permissions?.includes('students.guardians') ||
+        auth.permissions?.includes('pickup.view')) ??
+      false;
 
     const [ledger, attendance] = await Promise.all([
       this.db.ledgerEntry.findMany({
@@ -207,12 +214,15 @@ export class StudentsService {
       guardians: s.guardians.map((g) => ({
         id: g.guardianId,
         name: `${g.guardian.firstName} ${g.guardian.lastName}`,
-        phone: g.guardian.phone,
+        // Contact details and the custody flag need their own permission, like medical notes
+        // above. custodyFlag in particular is a child-safety field: BLOCKED says a named adult
+        // must not collect this child, and that is not something every role should read.
+        phone: mayReadGuardians ? g.guardian.phone : undefined,
         relationship: g.relationship,
         isPrimary: g.isPrimary,
-        canPickup: g.canPickup,
-        custodyFlag: g.custodyFlag,
-        whatsappOptIn: g.guardian.whatsappOptIn,
+        canPickup: mayReadGuardians ? g.canPickup : undefined,
+        custodyFlag: mayReadGuardians ? g.custodyFlag : undefined,
+        whatsappOptIn: mayReadGuardians ? g.guardian.whatsappOptIn : undefined,
         /** Other students who share this guardian — 0 means the edit affects this child only. */
         alsoGuardianTo: Math.max(0, g.guardian._count.students - 1),
       })),
@@ -262,7 +272,9 @@ export class StudentsService {
    * counter. The unique index is the real guarantee; this just turns its error into a number
    * that works.
    */
-  private async nextAdmissionNo(schoolId: string, levelId: string | null): Promise<string> {
+  // Public because the bulk importer needs the same numbering. It had its own copy that
+  // hardcoded "BA-" and counted rows — both bugs this method exists to avoid.
+  async nextAdmissionNo(schoolId: string, levelId: string | null): Promise<string> {
     const [school, level] = await Promise.all([
       this.db.school.findUniqueOrThrow({
         where: { id: schoolId },
@@ -489,7 +501,9 @@ export class StudentsService {
     });
     await this.db.audit(auth.schoolId, auth.sub, 'guardian.update', 'Student', studentId, {
       guardianId,
-      ...dto,
+      // Contact details are not copied into the audit detail: it is readable by anyone with
+      // audit.view, including roles that deliberately hold no student permissions.
+      fields: Object.keys(dto),
     });
     return { ok: true };
   }
@@ -534,8 +548,38 @@ export class StudentsService {
   async update(auth: AuthUser, id: string, dto: UpdateStudentDto) {
     const existing = await this.db.student.findFirst({ where: { id, schoolId: auth.schoolId } });
     if (!existing) throw new NotFoundException('Student not found');
-    const student = await this.db.student.update({ where: { id }, data: dto });
-    await this.db.audit(auth.schoolId, auth.sub, 'student.update', 'Student', id, dto as object);
+
+    // Writing a medical note needs the medical permission, not merely the one to edit a record.
+    // The permission's own label says "See and record medical notes"; gating only the read half
+    // let a registrar author a child's medical history.
+    if (dto.medicalNotes !== undefined && !auth.permissions?.includes('students.medical')) {
+      throw new ForbiddenException('You do not have permission to record medical notes');
+    }
+
+    const student = await this.db.student.update({
+      where: { id },
+      data: dto,
+      // Never the whole row: it carries medicalNotes and portalPinHash, and returning them on an
+      // unrelated edit would undo the field gating detail() goes to lengths to enforce.
+      select: {
+        id: true,
+        admissionNo: true,
+        firstName: true,
+        lastName: true,
+        otherNames: true,
+        gender: true,
+        dateOfBirth: true,
+        classId: true,
+        status: true,
+      },
+    });
+    // The audit detail is read back by anyone with audit.view, so a medical note must not be
+    // copied into it verbatim — recording that it changed is enough.
+    const { medicalNotes, ...auditable } = dto;
+    await this.db.audit(auth.schoolId, auth.sub, 'student.update', 'Student', id, {
+      ...auditable,
+      ...(medicalNotes !== undefined ? { medicalNotes: '(changed)' } : {}),
+    });
     return student;
   }
 

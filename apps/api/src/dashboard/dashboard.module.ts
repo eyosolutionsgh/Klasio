@@ -76,12 +76,22 @@ export class DashboardService {
       studentCount,
       staffCount,
       classCount,
-      fees: {
-        invoiced: inv,
-        collected: col,
-        outstanding: money(inv - col),
-        rate: inv > 0 ? col / inv : 0,
-      },
+      /**
+       * Gate the figures, not the page.
+       *
+       * The dashboard is where every role lands, so it cannot require a money permission — but
+       * the term's revenue and outstanding balance on it plainly can. It had no gate at all,
+       * which showed the school's finances to every teacher, the librarian, the nurse, and the
+       * IT administrator who holds no money permission precisely by design.
+       */
+      fees: auth.permissions?.includes('fees.view')
+        ? {
+            invoiced: inv,
+            collected: col,
+            outstanding: money(inv - col),
+            rate: inv > 0 ? col / inv : 0,
+          }
+        : undefined,
       attendance,
       announcements,
     };

@@ -152,6 +152,14 @@ const ordinal = (n: number) => {
 
 export interface ReportCardData {
   schemeKind: 'GES_CLASSIC' | 'NACCA_BANDS' | 'EARLY_YEARS';
+  /**
+   * The school's own split, for the column headers.
+   *
+   * These were printed as a fixed "Class (30%) / Exam (70%)" while the weighting is per-school
+   * configurable — so a school on 40/60 handed parents a report card whose headings contradicted
+   * its own marks. Defaults keep the GES convention for callers that do not pass them.
+   */
+  weights?: { sba: number; exam: number };
   /** Layout choice (docs/02 §2.3). GES is the statutory-looking default. */
   template?: 'GES' | 'MODERN';
   school: DocSchool;
@@ -287,8 +295,8 @@ export function reportCardPdf(card: ReportCardData): Promise<Buffer> {
       ]
     : [
         { header: 'Subject', width: width * 0.26 },
-        { header: 'Class (30%)', width: width * 0.12, align: 'center' },
-        { header: 'Exam (70%)', width: width * 0.12, align: 'center' },
+        { header: `Class (${card.weights?.sba ?? 30}%)`, width: width * 0.12, align: 'center' },
+        { header: `Exam (${card.weights?.exam ?? 70}%)`, width: width * 0.12, align: 'center' },
         { header: 'Total', width: width * 0.1, align: 'center' },
         { header: 'Grade', width: width * 0.1, align: 'center' },
         { header: 'Pos.', width: width * 0.08, align: 'center' },

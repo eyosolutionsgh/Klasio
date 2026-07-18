@@ -94,7 +94,15 @@ export class PaymentsService {
 
   /** Resolve the gateway for a school, falling back to the mock when none is connected. */
   async providerFor(schoolId: string, preferred?: GatewayProvider): Promise<PaymentProvider> {
-    if (preferred === 'MOCK') return new MockProvider();
+    if (preferred === 'MOCK') {
+      // The client may ask for the mock, so this must obey the same production rule as the
+      // fallback below — otherwise a staff member creates a MOCK intent in production and
+      // self-signs a callback to mint a receipt for money that never moved.
+      if (process.env.NODE_ENV === 'production' && process.env.ALLOW_MOCK_PAYMENTS !== 'true') {
+        throw new BadRequestException('The test payment provider is not available here');
+      }
+      return new MockProvider();
+    }
     const accounts = await this.db.gatewayAccount.findMany({
       where: { schoolId, active: true },
       orderBy: { createdAt: 'asc' },

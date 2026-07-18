@@ -381,8 +381,22 @@ export class BillingController {
       Data?: { ClientReference?: string; TransactionId?: string; Status?: string };
     };
 
-    // Paystack signs; verify before trusting anything in the payload.
-    if (process.env.PLATFORM_GATEWAY === 'PAYSTACK') {
+    /**
+     * Authenticate the callback. Never trust the body.
+     *
+     * This previously verified only when PLATFORM_GATEWAY was PAYSTACK — so with it unset, or set
+     * to HUBTEL, the route authenticated nothing. A school owner could read their own invoice
+     * reference from the subscribe response and POST a fake "success" here to award themselves a
+     * paid tier for free. payments.module.ts already had the right answer for an unsigned
+     * gateway: re-query the provider and treat its answer as authoritative.
+     */
+    if (process.env.PLATFORM_GATEWAY !== 'PAYSTACK') {
+      throw new BadRequestException(
+        'This callback cannot be verified. Configure PLATFORM_GATEWAY=PAYSTACK, or settle the ' +
+          'subscription from the vendor console.',
+      );
+    }
+    {
       const secret = process.env.PLATFORM_GATEWAY_SECRET ?? '';
       const ok = new PaystackProvider({ secret }).verifyWebhookSignature(
         { 'x-paystack-signature': signature },

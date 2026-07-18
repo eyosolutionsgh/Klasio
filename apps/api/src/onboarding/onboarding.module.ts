@@ -13,6 +13,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Gender, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { StudentsModule, StudentsService } from '../students/students.module';
 import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
 import { enrolmentHeadroom, studentCapFor } from '../common/entitlements';
 import { parseXlsx, templateXlsx, TemplateSpec } from '../common/export';
@@ -105,7 +106,10 @@ interface ImportResult {
 
 @Injectable()
 export class OnboardingService {
-  constructor(private db: PrismaService) {}
+  constructor(
+    private db: PrismaService,
+    private students: StudentsService,
+  ) {}
 
   template(kind: Kind) {
     const spec = TEMPLATES[kind];
@@ -144,7 +148,8 @@ export class OnboardingService {
   ): Promise<ImportResult> {
     const classes = await this.db.classRoom.findMany({ where: { schoolId: auth.schoolId } });
     const classByName = new Map(classes.map((c) => [c.name.toLowerCase(), c.id]));
-    let seq = await this.db.student.count({ where: { schoolId: auth.schoolId } });
+    // The school's number format may include a level code, so keep the class → level mapping.
+    const levelOfClass = new Map(classes.map((c) => [c.id, c.levelId]));
     const errors: { row: number; message: string }[] = [];
     let imported = 0;
 
@@ -198,11 +203,17 @@ export class OnboardingService {
       }
 
       headroom--;
-      seq++;
+      // Numbered by the school's own format, exactly as a single enrolment is. This path used to
+      // stamp "BA-" — the demo school's initials — on every student at every school, and derive
+      // the sequence from a row count, which reuses a withdrawn child's number.
+      const admissionNo = await this.students.nextAdmissionNo(
+        auth.schoolId,
+        levelOfClass.get(classId) ?? null,
+      );
       const student = await this.db.student.create({
         data: {
           schoolId: auth.schoolId,
-          admissionNo: `BA-${String(seq).padStart(4, '0')}`,
+          admissionNo,
           firstName,
           lastName,
           otherNames: r['Other Names'] || null,
@@ -367,5 +378,9 @@ export class OnboardingController {
   }
 }
 
-@Module({ controllers: [OnboardingController], providers: [OnboardingService] })
+@Module({
+  imports: [StudentsModule],
+  controllers: [OnboardingController],
+  providers: [OnboardingService],
+})
 export class OnboardingModule {}

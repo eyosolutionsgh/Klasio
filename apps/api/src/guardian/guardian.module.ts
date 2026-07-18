@@ -159,7 +159,11 @@ export class GuardianService {
           createdById: 'system',
         },
       });
-      console.log(`[guardian OTP] ${maskMsisdn(phone)} → ${code}`);
+      // Development only. A sign-in code in a log file is a sign-in code anyone with log access
+      // can use — request one for a known parent's number and you are that parent.
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[guardian OTP] ${maskMsisdn(phone)} → ${code}`);
+      }
       return generic;
     });
   }
