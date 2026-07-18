@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import PrintButton from '@/components/PrintButton';
+import DownloadButton from '@/components/DownloadButton';
 
 interface Line {
   subject: string;
@@ -12,6 +13,8 @@ interface Line {
   position: number | null;
 }
 interface Card {
+  schemeKind: 'GES_CLASSIC' | 'NACCA_BANDS' | 'EARLY_YEARS';
+  schemeName: string;
   school: { name: string; motto: string | null; address: string | null; phone: string | null };
   student: { name: string; admissionNo: string; className: string | null; gender: string };
   term: { name: string; year: string; nextTermBegins: string | null };
@@ -37,6 +40,8 @@ export default async function ReportCardPage({
 }) {
   const { studentId, termId } = await params;
   const card = await api<Card>(`/assessment/reports/${studentId}/${termId}`);
+  const earlyYears = card.schemeKind === 'EARLY_YEARS';
+  const gradeHeader = card.schemeKind === 'GES_CLASSIC' ? 'Grade' : 'Proficiency';
 
   return (
     <div>
@@ -44,7 +49,16 @@ export default async function ReportCardPage({
         <Link href="/reports" className="text-[13px] text-oat hover:text-forest transition">
           ← Back to reports
         </Link>
-        <PrintButton />
+        <div className="flex items-center gap-2">
+          <DownloadButton
+            path={`/assessment/reports/${studentId}/${termId}/pdf`}
+            filename={`report-${card.student.admissionNo}-${termId}.pdf`}
+            label="Download PDF"
+            variant="ghost"
+            tip="Server-generated PDF report card"
+          />
+          <PrintButton />
+        </div>
       </div>
 
       {/* Print-faithful GES-style terminal report */}
@@ -75,12 +89,16 @@ export default async function ReportCardPage({
             <span className="text-oat">Class:</span>{' '}
             <span className="font-medium">{card.student.className}</span>
           </p>
-          <p>
-            <span className="text-oat">Position in Class:</span>{' '}
-            <span className="font-medium tabular">
-              {card.classPosition ? `${ordinal(card.classPosition)} out of ${card.classSize}` : '—'}
-            </span>
-          </p>
+          {!earlyYears && (
+            <p>
+              <span className="text-oat">Position in Class:</span>{' '}
+              <span className="font-medium tabular">
+                {card.classPosition
+                  ? `${ordinal(card.classPosition)} out of ${card.classSize}`
+                  : '—'}
+              </span>
+            </p>
+          )}
           <p>
             <span className="text-oat">Attendance:</span>{' '}
             <span className="font-medium tabular">
@@ -104,18 +122,28 @@ export default async function ReportCardPage({
         <table className="w-full text-sm mt-6 border-collapse">
           <thead>
             <tr className="text-[10.5px] uppercase tracking-widest bg-parchment">
-              <th className="border border-mist px-3 py-2 text-left font-medium">Subject</th>
-              <th className="border border-mist px-2 py-2 font-medium">
-                Class Score
-                <span className="block normal-case tracking-normal text-oat">(30%)</span>
+              <th className="border border-mist px-3 py-2 text-left font-medium">
+                {earlyYears ? 'Learning Area' : 'Subject'}
               </th>
+              {!earlyYears && (
+                <>
+                  <th className="border border-mist px-2 py-2 font-medium">
+                    Class Score
+                    <span className="block normal-case tracking-normal text-oat">(30%)</span>
+                  </th>
+                  <th className="border border-mist px-2 py-2 font-medium">
+                    Exam Score
+                    <span className="block normal-case tracking-normal text-oat">(70%)</span>
+                  </th>
+                </>
+              )}
               <th className="border border-mist px-2 py-2 font-medium">
-                Exam Score
-                <span className="block normal-case tracking-normal text-oat">(70%)</span>
+                {earlyYears ? 'Assessment' : 'Total'}
               </th>
-              <th className="border border-mist px-2 py-2 font-medium">Total</th>
-              <th className="border border-mist px-2 py-2 font-medium">Grade</th>
-              <th className="border border-mist px-2 py-2 font-medium">Position</th>
+              <th className="border border-mist px-2 py-2 font-medium">{gradeHeader}</th>
+              {!earlyYears && (
+                <th className="border border-mist px-2 py-2 font-medium">Position</th>
+              )}
               <th className="border border-mist px-3 py-2 text-left font-medium">Remark</th>
             </tr>
           </thead>
@@ -123,35 +151,43 @@ export default async function ReportCardPage({
             {card.lines.map((l) => (
               <tr key={l.subject}>
                 <td className="border border-mist px-3 py-1.5 font-medium">{l.subject}</td>
-                <td className="border border-mist px-2 py-1.5 text-center tabular">
-                  {l.sba30.toFixed(1)}
-                </td>
-                <td className="border border-mist px-2 py-1.5 text-center tabular">
-                  {l.exam70.toFixed(1)}
-                </td>
+                {!earlyYears && (
+                  <>
+                    <td className="border border-mist px-2 py-1.5 text-center tabular">
+                      {l.sba30.toFixed(1)}
+                    </td>
+                    <td className="border border-mist px-2 py-1.5 text-center tabular">
+                      {l.exam70.toFixed(1)}
+                    </td>
+                  </>
+                )}
                 <td className="border border-mist px-2 py-1.5 text-center tabular font-medium">
-                  {l.total.toFixed(1)}
+                  {earlyYears ? `${l.total.toFixed(0)}%` : l.total.toFixed(1)}
                 </td>
                 <td className="border border-mist px-2 py-1.5 text-center font-display">
                   {l.grade}
                 </td>
-                <td className="border border-mist px-2 py-1.5 text-center tabular">
-                  {l.position ? ordinal(l.position) : '—'}
-                </td>
+                {!earlyYears && (
+                  <td className="border border-mist px-2 py-1.5 text-center tabular">
+                    {l.position ? ordinal(l.position) : '—'}
+                  </td>
+                )}
                 <td className="border border-mist px-3 py-1.5">{l.remark}</td>
               </tr>
             ))}
           </tbody>
-          <tfoot>
-            <tr className="bg-parchment/60">
-              <td className="border border-mist px-3 py-2 font-medium">Overall Total</td>
-              <td className="border border-mist" colSpan={2} />
-              <td className="border border-mist px-2 py-2 text-center tabular font-display text-base">
-                {card.overallTotal.toFixed(1)}
-              </td>
-              <td className="border border-mist" colSpan={3} />
-            </tr>
-          </tfoot>
+          {!earlyYears && (
+            <tfoot>
+              <tr className="bg-parchment/60">
+                <td className="border border-mist px-3 py-2 font-medium">Overall Total</td>
+                <td className="border border-mist" colSpan={2} />
+                <td className="border border-mist px-2 py-2 text-center tabular font-display text-base">
+                  {card.overallTotal.toFixed(1)}
+                </td>
+                <td className="border border-mist" colSpan={3} />
+              </tr>
+            </tfoot>
+          )}
         </table>
 
         <section className="mt-6 space-y-4 text-sm">

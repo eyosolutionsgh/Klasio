@@ -16,6 +16,19 @@ interface ClassOpt {
   name: string;
   studentCount: number;
 }
+interface Broadsheet {
+  className: string;
+  termName?: string;
+  earlyYears: boolean;
+  subjects: { id: string; name: string; code: string }[];
+  rows: {
+    admissionNo: string;
+    name: string;
+    cells: { total: number | null }[];
+    overallTotal: number;
+    position: number | null;
+  }[];
+}
 
 const ordinal = (n: number) => {
   const s = ['th', 'st', 'nd', 'rd'];
@@ -30,6 +43,7 @@ export default function ReportsPage() {
   const [rows, setRows] = useState<ReportRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [broadsheet, setBroadsheet] = useState<Broadsheet | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -51,7 +65,17 @@ export default function ReportsPage() {
 
   useEffect(() => {
     load();
+    setBroadsheet(null);
   }, [load]);
+
+  async function toggleBroadsheet() {
+    if (broadsheet) {
+      setBroadsheet(null);
+      return;
+    }
+    const res = await fetch(`/api/proxy/assessment/broadsheet?classId=${classId}&termId=${termId}`);
+    if (res.ok) setBroadsheet(await res.json());
+  }
 
   async function generate() {
     setBusy(true);
@@ -104,8 +128,88 @@ export default function ReportsPage() {
         >
           {busy ? 'Computing…' : 'Generate reports'}
         </button>
+        <button
+          onClick={toggleBroadsheet}
+          disabled={!classId || !termId}
+          className="rounded-lg border border-mist text-forest text-sm font-medium px-5 py-2 hover:bg-forest-mist transition disabled:opacity-50"
+        >
+          {broadsheet ? 'Hide broadsheet' : 'View broadsheet'}
+        </button>
+        {classId && termId && (
+          <span className="flex items-center gap-1 text-[13px]">
+            <span className="text-oat">Export:</span>
+            {(['csv', 'xlsx', 'pdf'] as const).map((f) => (
+              <a
+                key={f}
+                href={`/api/proxy/assessment/broadsheet/export?classId=${classId}&termId=${termId}&format=${f}`}
+                className="rounded-md border border-mist px-2.5 py-1 text-forest hover:bg-forest-mist transition uppercase"
+              >
+                {f}
+              </a>
+            ))}
+          </span>
+        )}
         {message && <p className="text-sm text-oat">{message}</p>}
       </div>
+
+      {broadsheet && (
+        <div className="card mt-6 overflow-x-auto rise rise-2">
+          <table className="w-full text-[13px] border-collapse">
+            <thead>
+              <tr className="text-[10.5px] uppercase tracking-wider bg-parchment/60">
+                <th className="border border-mist px-2 py-2 text-left font-medium">Adm.</th>
+                <th className="border border-mist px-2 py-2 text-left font-medium">Name</th>
+                {broadsheet.subjects.map((s) => (
+                  <th
+                    key={s.id}
+                    className="border border-mist px-2 py-2 font-medium"
+                    title={s.name}
+                  >
+                    {s.code}
+                  </th>
+                ))}
+                {!broadsheet.earlyYears && (
+                  <>
+                    <th className="border border-mist px-2 py-2 font-medium">Total</th>
+                    <th className="border border-mist px-2 py-2 font-medium">Pos.</th>
+                  </>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {broadsheet.rows.map((r) => (
+                <tr key={r.admissionNo}>
+                  <td className="border border-mist px-2 py-1.5 tabular text-oat">
+                    {r.admissionNo}
+                  </td>
+                  <td className="border border-mist px-2 py-1.5 font-medium whitespace-nowrap">
+                    {r.name}
+                  </td>
+                  {r.cells.map((c, i) => (
+                    <td key={i} className="border border-mist px-2 py-1.5 text-center tabular">
+                      {c.total == null
+                        ? '—'
+                        : broadsheet.earlyYears
+                          ? Math.round(c.total)
+                          : c.total.toFixed(0)}
+                    </td>
+                  ))}
+                  {!broadsheet.earlyYears && (
+                    <>
+                      <td className="border border-mist px-2 py-1.5 text-center tabular font-medium">
+                        {r.overallTotal.toFixed(0)}
+                      </td>
+                      <td className="border border-mist px-2 py-1.5 text-center tabular">
+                        {r.position ?? '—'}
+                      </td>
+                    </>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <div className="card mt-6 overflow-hidden rise rise-3">
         <table className="w-full text-sm">

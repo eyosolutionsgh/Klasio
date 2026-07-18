@@ -9,11 +9,16 @@ import {
   Param,
   Post,
   Query,
+  StreamableFile,
 } from '@nestjs/common';
 import { IsArray, IsNumber, IsString, Max, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, Roles } from '../common/auth';
+import { reportCardPdf, ReportCardData, broadsheetPdf, BroadsheetData } from '../common/pdf';
+import { toCsv, toXlsx } from '../common/export';
+
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 class ScoreEntryDto {
   @IsString() studentId: string;
@@ -124,11 +129,31 @@ export class AssessmentService {
     return { saved };
   }
 
-  /** Compute GES terminal reports for a class+term: SBA→30, exam→70, grades, positions. */
-  async generateReports(auth: AuthUser, dto: GenerateReportsDto) {
-    const [students, components, subjects, scheme, scores, term] = await Promise.all([
+  /** Standard competition ranking (ties share a position) over id→total pairs, highest first. */
+  private rank(entries: { id: string; total: number }[]): Map<string, number> {
+    const sorted = [...entries].sort((a, b) => b.total - a.total);
+    const map = new Map<string, number>();
+    sorted.forEach((e, i) => {
+      const pos = i > 0 && sorted[i - 1].total === e.total ? map.get(sorted[i - 1].id)! : i + 1;
+      map.set(e.id, pos);
+    });
+    return map;
+  }
+
+  /**
+   * Core class-results computation shared by report generation and the broadsheet.
+   * GES/NaCCA use SBA→30, exam→70; the grading scheme (per the class's level, falling back to
+   * GES) decides the grade/band label. Early-years levels are observation-scale: no exam
+   * weighting, no class positions.
+   */
+  private async computeClassResults(auth: AuthUser, classId: string, termId: string) {
+    const [classRoom, students, components, subjects, scores, term] = await Promise.all([
+      this.db.classRoom.findFirst({
+        where: { id: classId, schoolId: auth.schoolId },
+        include: { level: { include: { gradingScheme: true } } },
+      }),
       this.db.student.findMany({
-        where: { schoolId: auth.schoolId, classId: dto.classId, status: 'ACTIVE' },
+        where: { schoolId: auth.schoolId, classId, status: 'ACTIVE' },
         orderBy: { lastName: 'asc' },
       }),
       this.components(auth),
@@ -136,14 +161,21 @@ export class AssessmentService {
         where: { schoolId: auth.schoolId },
         orderBy: [{ isCore: 'desc' }, { name: 'asc' }],
       }),
-      this.db.gradingScheme.findFirst({ where: { schoolId: auth.schoolId, kind: 'GES_CLASSIC' } }),
       this.db.score.findMany({
-        where: { schoolId: auth.schoolId, termId: dto.termId, student: { classId: dto.classId } },
+        where: { schoolId: auth.schoolId, termId, student: { classId } },
       }),
-      this.db.term.findFirst({ where: { id: dto.termId } }),
+      this.db.term.findFirst({ where: { id: termId } }),
     ]);
     if (!term) throw new NotFoundException('Term not found');
-    if (!scheme) throw new BadRequestException('No GES grading scheme configured');
+    if (!classRoom) throw new NotFoundException('Class not found');
+
+    const scheme =
+      classRoom.level.gradingScheme ??
+      (await this.db.gradingScheme.findFirst({
+        where: { schoolId: auth.schoolId, kind: 'GES_CLASSIC' },
+      }));
+    if (!scheme) throw new BadRequestException('No grading scheme configured for this level');
+    const earlyYears = scheme.kind === 'EARLY_YEARS';
     const bands = scheme.bands as unknown as Band[];
     const gradeFor = (total: number) =>
       bands.find((b) => total >= b.min && total <= b.max) ?? bands[bands.length - 1];
@@ -180,15 +212,24 @@ export class AssessmentService {
           ? scoreKey.get(`${st.id}:${sub.id}:${examComponent.id}`)
           : undefined;
         if (!hasAny && examRaw == null) continue;
-        const sba30 = sbaMax > 0 ? (sbaRaw / sbaMax) * SBA_WEIGHT : 0;
+        // Early-years: total is a straight percentage of the observation components (no 30/70 split).
+        const sba30 = earlyYears
+          ? sbaMax > 0
+            ? (sbaRaw / sbaMax) * 100
+            : 0
+          : sbaMax > 0
+            ? (sbaRaw / sbaMax) * SBA_WEIGHT
+            : 0;
         const exam70 =
-          examComponent && examRaw != null ? (examRaw / examComponent.maxScore) * EXAM_WEIGHT : 0;
+          earlyYears || !examComponent || examRaw == null
+            ? 0
+            : (examRaw / examComponent.maxScore) * EXAM_WEIGHT;
         lines.push({
           subjectId: sub.id,
           subject: sub.name,
           sba30: Math.round(sba30 * 10) / 10,
           exam70: Math.round(exam70 * 10) / 10,
-          total: Math.round((sba30 + exam70) * 10) / 10,
+          total: Math.round((earlyYears ? sba30 : sba30 + exam70) * 10) / 10,
         });
       }
       perStudent.set(st.id, lines);
@@ -202,16 +243,8 @@ export class AssessmentService {
           id: st.id,
           total: perStudent.get(st.id)?.find((l) => l.subjectId === sub.id)?.total,
         }))
-        .filter((e): e is { id: string; total: number } => e.total != null)
-        .sort((a, b) => b.total - a.total);
-      const rankMap = new Map<string, number>();
-      entries.forEach((e, i) => {
-        // standard competition ranking (ties share position)
-        const pos =
-          i > 0 && entries[i - 1].total === e.total ? rankMap.get(entries[i - 1].id)! : i + 1;
-        rankMap.set(e.id, pos);
-      });
-      subjectRanks.set(sub.id, rankMap);
+        .filter((e): e is { id: string; total: number } => e.total != null);
+      subjectRanks.set(sub.id, this.rank(entries));
     }
 
     // overall class position
@@ -221,12 +254,27 @@ export class AssessmentService {
         total: Math.round((perStudent.get(st.id) ?? []).reduce((a, l) => a + l.total, 0) * 10) / 10,
       }))
       .sort((a, b) => b.total - a.total);
-    const overallRank = new Map<string, number>();
-    overall.forEach((e, i) => {
-      const pos =
-        i > 0 && overall[i - 1].total === e.total ? overallRank.get(overall[i - 1].id)! : i + 1;
-      overallRank.set(e.id, pos);
-    });
+    const overallRank = this.rank(overall);
+
+    return {
+      classRoom,
+      term,
+      students,
+      subjects,
+      scheme,
+      earlyYears,
+      gradeFor,
+      perStudent,
+      subjectRanks,
+      overall,
+      overallRank,
+    };
+  }
+
+  /** Compute and persist terminal reports for a class+term. */
+  async generateReports(auth: AuthUser, dto: GenerateReportsDto) {
+    const { students, earlyYears, gradeFor, perStudent, subjectRanks, overall, overallRank } =
+      await this.computeClassResults(auth, dto.classId, dto.termId);
 
     // attendance
     const attendance = await this.db.attendanceRecord.groupBy({
@@ -250,7 +298,7 @@ export class AssessmentService {
           ...l,
           grade: g.grade,
           remark: g.remark,
-          position: subjectRanks.get(l.subjectId)?.get(st.id) ?? null,
+          position: earlyYears ? null : (subjectRanks.get(l.subjectId)?.get(st.id) ?? null),
         };
       });
       if (lines.length === 0) continue;
@@ -260,7 +308,7 @@ export class AssessmentService {
         update: {
           lines,
           overallTotal: overall.find((o) => o.id === st.id)?.total ?? 0,
-          classPosition: overallRank.get(st.id) ?? null,
+          classPosition: earlyYears ? null : (overallRank.get(st.id) ?? null),
           classSize: students.length,
           attendancePresent: att.present,
           attendanceTotal: att.total,
@@ -273,7 +321,7 @@ export class AssessmentService {
           classId: dto.classId,
           lines,
           overallTotal: overall.find((o) => o.id === st.id)?.total ?? 0,
-          classPosition: overallRank.get(st.id) ?? null,
+          classPosition: earlyYears ? null : (overallRank.get(st.id) ?? null),
           classSize: students.length,
           attendancePresent: att.present,
           attendanceTotal: att.total,
@@ -309,16 +357,25 @@ export class AssessmentService {
     const report = await this.db.termReport.findFirst({
       where: { schoolId: auth.schoolId, studentId, termId },
       include: {
-        student: { include: { classRoom: true } },
+        student: {
+          include: { classRoom: { include: { level: { include: { gradingScheme: true } } } } },
+        },
       },
     });
     if (!report) throw new NotFoundException('Report not generated yet');
+    const scheme =
+      report.student.classRoom?.level.gradingScheme ??
+      (await this.db.gradingScheme.findFirst({
+        where: { schoolId: auth.schoolId, kind: 'GES_CLASSIC' },
+      }));
     const term = await this.db.term.findFirst({
       where: { id: termId },
       include: { academicYear: { select: { name: true } } },
     });
     const school = await this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } });
     return {
+      schemeKind: scheme?.kind ?? 'GES_CLASSIC',
+      schemeName: scheme?.name ?? 'GES Classic',
       school: {
         name: school.name,
         motto: school.motto,
@@ -347,6 +404,75 @@ export class AssessmentService {
       headRemark: report.headRemark,
       generatedAt: report.generatedAt,
     };
+  }
+
+  async reportCardPdf(auth: AuthUser, studentId: string, termId: string) {
+    const card = await this.reportCard(auth, studentId, termId);
+    return reportCardPdf(card as unknown as ReportCardData);
+  }
+
+  /** Broadsheet / tabulation sheet: students × subjects with totals, positions and class ranking. */
+  async broadsheet(auth: AuthUser, classId: string, termId: string): Promise<BroadsheetData> {
+    const r = await this.computeClassResults(auth, classId, termId);
+    const school = await this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } });
+    const rows = r.students
+      .map((st) => {
+        const lines = r.perStudent.get(st.id) ?? [];
+        return {
+          admissionNo: st.admissionNo,
+          name: `${st.firstName} ${st.lastName}`,
+          cells: r.subjects.map((sub) => ({
+            total: lines.find((l) => l.subjectId === sub.id)?.total ?? null,
+          })),
+          overallTotal: r.overall.find((o) => o.id === st.id)?.total ?? 0,
+          position: r.earlyYears ? null : (r.overallRank.get(st.id) ?? null),
+        };
+      })
+      .sort(
+        (a, b) => (a.position ?? 9999) - (b.position ?? 9999) || b.overallTotal - a.overallTotal,
+      );
+    return {
+      schoolName: school.name,
+      className: r.classRoom.name,
+      termName: r.term.name,
+      earlyYears: r.earlyYears,
+      subjects: r.subjects.map((s) => ({ id: s.id, name: s.name, code: s.code })),
+      rows,
+    };
+  }
+
+  /** Broadsheet as a downloadable file in the requested format. */
+  async broadsheetFile(auth: AuthUser, classId: string, termId: string, format: string) {
+    const data = await this.broadsheet(auth, classId, termId);
+    const base = `broadsheet-${data.className}-${data.termName ?? ''}`
+      .replace(/\s+/g, '-')
+      .replace(/[^a-zA-Z0-9-]/g, '');
+    const headers = ['Adm. No.', 'Name', ...data.subjects.map((s) => s.name), 'Total', 'Position'];
+    const tableRows = data.rows.map((row) => [
+      row.admissionNo,
+      row.name,
+      ...row.cells.map((c) => c.total ?? ''),
+      row.overallTotal,
+      row.position ?? '',
+    ]);
+    if (format === 'csv') {
+      return { buffer: toCsv(headers, tableRows), type: 'text/csv', filename: `${base}.csv` };
+    }
+    if (format === 'xlsx') {
+      return {
+        buffer: await toXlsx('Broadsheet', headers, tableRows),
+        type: XLSX_MIME,
+        filename: `${base}.xlsx`,
+      };
+    }
+    if (format === 'pdf') {
+      return {
+        buffer: await broadsheetPdf(data),
+        type: 'application/pdf',
+        filename: `${base}.pdf`,
+      };
+    }
+    throw new BadRequestException('format must be csv, xlsx or pdf');
   }
 }
 
@@ -397,6 +523,42 @@ export class AssessmentController {
     @Param('termId') termId: string,
   ) {
     return this.svc.reportCard(user, studentId, termId);
+  }
+
+  @Get('broadsheet')
+  broadsheet(
+    @CurrentUser() user: AuthUser,
+    @Query('classId') classId: string,
+    @Query('termId') termId: string,
+  ) {
+    return this.svc.broadsheet(user, classId, termId);
+  }
+
+  @Get('broadsheet/export')
+  async broadsheetExport(
+    @CurrentUser() user: AuthUser,
+    @Query('classId') classId: string,
+    @Query('termId') termId: string,
+    @Query('format') format = 'xlsx',
+  ) {
+    const { buffer, type, filename } = await this.svc.broadsheetFile(user, classId, termId, format);
+    return new StreamableFile(buffer, {
+      type,
+      disposition: `attachment; filename="${filename}"`,
+    });
+  }
+
+  @Get('reports/:studentId/:termId/pdf')
+  async cardPdf(
+    @CurrentUser() user: AuthUser,
+    @Param('studentId') studentId: string,
+    @Param('termId') termId: string,
+  ) {
+    const buf = await this.svc.reportCardPdf(user, studentId, termId);
+    return new StreamableFile(buf, {
+      type: 'application/pdf',
+      disposition: `attachment; filename="report-${studentId}-${termId}.pdf"`,
+    });
   }
 }
 
