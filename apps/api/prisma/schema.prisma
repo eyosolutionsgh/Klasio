@@ -756,3 +756,32 @@ model DismissalRequest {
   @@index([schoolId, forDate])
   @@index([studentId])
 }
+
+/// School-editable message bodies for automatic SMS. Placeholders in {braces} are substituted
+/// at send time, so a school can reword a reminder without a deploy.
+model MessageTemplate {
+  id        String   @id @default(cuid())
+  schoolId  String
+  /// FEE_REMINDER_GENTLE, FEE_REMINDER_FIRM, ABSENCE_ALERT, RESULTS_READY, PICKUP_RELEASED
+  kind      String
+  body      String
+  updatedAt DateTime @updatedAt
+
+  @@unique([schoolId, kind])
+}
+
+/// A repeating automatic job a school has switched on (currently fee reminders). Kept in the
+/// database rather than config so each school chooses its own day and hour.
+model ScheduledJob {
+  id         String    @id @default(cuid())
+  schoolId   String
+  kind       String
+  enabled    Boolean   @default(false)
+  /// 0-6, Sunday = 0. Null means every weekday.
+  dayOfWeek  Int?
+  hour       Int       @default(9)
+  lastRunAt  DateTime?
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([schoolId, kind])
+}

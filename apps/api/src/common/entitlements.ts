@@ -18,6 +18,7 @@ export const ENTITLEMENTS = {
     'platform.export',
   ],
   MEDIUM: [
+    'attendance.dashboards',
     'sis.admissions',
     'sis.idcards',
     'fees.discounts',

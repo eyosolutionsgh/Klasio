@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Combobox from '@/components/Combobox';
+import DismissalInbox from '@/components/DismissalInbox';
 
 interface Verdict {
   allowed: boolean;
@@ -63,6 +64,9 @@ export default function PickupPage() {
   const [auth, setAuth] = useState<Authorised | null>(null);
   const [check, setCheck] = useState<Check | null>(null);
   const [reason, setReason] = useState('');
+  const [token, setToken] = useState('');
+  const [pin, setPin] = useState('');
+  const [pinFor, setPinFor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -88,6 +92,9 @@ export default function PickupPage() {
     setDone(null);
     setError(null);
     setReason('');
+    setToken('');
+    setPin('');
+    setPinFor(null);
     if (!studentId) {
       setAuth(null);
       return;
@@ -160,6 +167,37 @@ export default function PickupPage() {
             onChange={setStudentId}
           />
 
+          {studentId && !check && (
+            <div className="mt-5 rounded-lg bg-parchment/60 p-4">
+              <p className="text-[11px] uppercase tracking-wider text-oat">Scan or enter a card</p>
+              <p className="text-xs text-oat mt-1">
+                Scanning fills this automatically. If the card is at home, pick the person below and
+                enter their PIN instead.
+              </p>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (token.trim()) verify({ token: token.trim() });
+                }}
+                className="flex flex-wrap gap-2 mt-3"
+              >
+                <input
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  placeholder="Card code from the QR"
+                  autoFocus
+                  className="flex-1 min-w-[12rem] min-h-11 rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+                />
+                <button
+                  disabled={busy || !token.trim()}
+                  className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition disabled:opacity-50"
+                >
+                  Check card
+                </button>
+              </form>
+            </div>
+          )}
+
           {auth && !check && (
             <div className="mt-5">
               <p className="text-[11px] uppercase tracking-wider text-oat">Who is collecting?</p>
@@ -167,7 +205,11 @@ export default function PickupPage() {
                 {people.map((p) => (
                   <li key={`${p.kind}-${p.id}`}>
                     <button
-                      onClick={() => verify({ collectorId: p.id, collectorKind: p.kind })}
+                      onClick={() =>
+                        pinFor === `${p.kind}-${p.id}`
+                          ? undefined
+                          : verify({ collectorId: p.id, collectorKind: p.kind })
+                      }
                       disabled={busy || !p.verdict.allowed}
                       className={`w-full text-left rounded-lg border px-4 py-3 transition disabled:opacity-60 ${
                         !p.verdict.allowed
@@ -196,6 +238,51 @@ export default function PickupPage() {
                         {p.message}
                       </span>
                     </button>
+                    {p.hasCard && p.verdict.allowed && (
+                      <div className="mt-1 pl-1">
+                        {pinFor === `${p.kind}-${p.id}` ? (
+                          <form
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              verify({ pin, collectorId: p.id, collectorKind: p.kind });
+                            }}
+                            className="flex gap-2"
+                          >
+                            <input
+                              value={pin}
+                              onChange={(e) => setPin(e.target.value)}
+                              inputMode="numeric"
+                              autoFocus
+                              placeholder="6-digit PIN"
+                              className="w-32 min-h-11 rounded-lg border border-mist bg-white px-3 py-2 text-sm tabular outline-none focus:border-brand"
+                            />
+                            <button
+                              disabled={busy || pin.length < 4}
+                              className="min-h-11 rounded-lg border border-brand/40 text-brand text-sm font-medium px-3 disabled:opacity-50"
+                            >
+                              Check PIN
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPinFor(null)}
+                              className="min-h-11 px-2 text-[12px] text-oat"
+                            >
+                              Cancel
+                            </button>
+                          </form>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setPinFor(`${p.kind}-${p.id}`);
+                              setPin('');
+                            }}
+                            className="text-[12px] text-oat hover:text-brand underline underline-offset-2"
+                          >
+                            Verify with their PIN instead
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </li>
                 ))}
                 {people.length === 0 && (
@@ -278,33 +365,37 @@ export default function PickupPage() {
           )}
         </section>
 
-        <section className="card p-6 rise rise-3">
-          <h2 className="font-display text-xl">Released today</h2>
-          <p className="text-sm text-oat mt-1.5">
-            {log.length} child{log.length === 1 ? '' : 'ren'} collected.
-          </p>
-          <ul className="mt-4 space-y-3">
-            {log.map((r) => (
-              <li key={r.id} className="border-b border-mist/50 last:border-0 pb-3 last:pb-0">
-                <div className="flex justify-between gap-3">
-                  <span className="text-sm font-medium">{r.student}</span>
-                  <span className="text-[11px] text-oat tabular shrink-0">
-                    {time(r.releasedAt)}
-                  </span>
-                </div>
-                <p className="text-[12px] text-oat">
-                  {r.className} · to {r.collectedBy} · {r.method.toLowerCase()}
-                </p>
-                {r.overrideReason && (
-                  <p className="text-[12px] text-clay mt-0.5">Override: {r.overrideReason}</p>
-                )}
-              </li>
-            ))}
-            {log.length === 0 && (
-              <li className="text-sm text-oat">Nobody has been collected yet today.</li>
-            )}
-          </ul>
-        </section>
+        <div className="space-y-6">
+          <DismissalInbox />
+
+          <section className="card p-6 rise rise-3">
+            <h2 className="font-display text-xl">Released today</h2>
+            <p className="text-sm text-oat mt-1.5">
+              {log.length} child{log.length === 1 ? '' : 'ren'} collected.
+            </p>
+            <ul className="mt-4 space-y-3">
+              {log.map((r) => (
+                <li key={r.id} className="border-b border-mist/50 last:border-0 pb-3 last:pb-0">
+                  <div className="flex justify-between gap-3">
+                    <span className="text-sm font-medium">{r.student}</span>
+                    <span className="text-[11px] text-oat tabular shrink-0">
+                      {time(r.releasedAt)}
+                    </span>
+                  </div>
+                  <p className="text-[12px] text-oat">
+                    {r.className} · to {r.collectedBy} · {r.method.toLowerCase()}
+                  </p>
+                  {r.overrideReason && (
+                    <p className="text-[12px] text-clay mt-0.5">Override: {r.overrideReason}</p>
+                  )}
+                </li>
+              ))}
+              {log.length === 0 && (
+                <li className="text-sm text-oat">Nobody has been collected yet today.</li>
+              )}
+            </ul>
+          </section>
+        </div>
       </div>
     </div>
   );

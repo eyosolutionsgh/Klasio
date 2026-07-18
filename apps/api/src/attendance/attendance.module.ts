@@ -4,7 +4,7 @@ import { Type } from 'class-transformer';
 import { AttendanceStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { SmsModule, SmsService } from '../sms/sms.module';
-import { AuthUser, CurrentUser } from '../common/auth';
+import { AuthUser, CurrentUser, RequireEntitlement } from '../common/auth';
 
 class AttendanceEntryDto {
   @IsString() studentId: string;
@@ -235,7 +235,10 @@ export class AttendanceController {
     return this.svc.roster(user, classId, date);
   }
 
+  // Term-wide patterns are the Medium "attendance dashboards" feature; the daily register
+  // itself stays Basic.
   @Get('trends')
+  @RequireEntitlement('attendance.dashboards')
   trends(@CurrentUser() user: AuthUser, @Query('termId') termId: string) {
     return this.svc.trends(user, termId);
   }

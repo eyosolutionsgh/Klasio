@@ -2,6 +2,9 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
   Delete,
   Get,
   Injectable,
@@ -39,6 +42,8 @@ interface UploadedFileLike {
   size: number;
 }
 import { PaymentMethod, Prisma } from '@prisma/client';
+import { Queue, Worker } from 'bullmq';
+import IORedis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
 import { SmsModule, SmsService } from '../sms/sms.module';
 import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
@@ -63,6 +68,13 @@ class ConcessionDto {
   /** Required: a concession without a stated reason is indistinguishable from a mistake. */
   @IsString() @MinLength(4) reason: string;
   @IsOptional() @IsString() termId?: string;
+}
+
+class ReminderScheduleDto {
+  @IsBoolean() enabled: boolean;
+  /** 0-6, Sunday = 0. Omit for every weekday. */
+  @IsOptional() @IsNumber() @Min(0) dayOfWeek?: number;
+  @IsOptional() @IsNumber() @Min(0) hour?: number;
 }
 
 class StudentFeeItemDto {
@@ -381,6 +393,76 @@ export class FeesService {
     return { ok: true };
   }
 
+  /** Fallback wording when a school has not written its own. */
+  private static readonly DEFAULT_TEMPLATES: Record<string, string> = {
+    FEE_REMINDER_GENTLE:
+      "{school}: a balance of {amount} remains on {student}'s account. Kindly settle at your convenience. Thank you.",
+    FEE_REMINDER_FIRM:
+      '{school}: {student} has an outstanding balance of {amount}. Kindly settle before the end of term to avoid disruption{nextTerm}. Contact the bursar to arrange payment.',
+  };
+
+  /** Substitute {placeholders}; anything unknown is left alone rather than blanked. */
+  private fill(body: string, vars: Record<string, string>) {
+    return body.replace(/\{(\w+)\}/g, (m, k) => vars[k] ?? m);
+  }
+
+  private async template(schoolId: string, kind: string) {
+    const row = await this.db.messageTemplate.findUnique({
+      where: { schoolId_kind: { schoolId, kind } },
+    });
+    return row?.body ?? FeesService.DEFAULT_TEMPLATES[kind] ?? '';
+  }
+
+  async listTemplates(auth: AuthUser) {
+    const rows = await this.db.messageTemplate.findMany({ where: { schoolId: auth.schoolId } });
+    const byKind = new Map(rows.map((r) => [r.kind, r.body]));
+    return Object.keys(FeesService.DEFAULT_TEMPLATES).map((kind) => ({
+      kind,
+      body: byKind.get(kind) ?? FeesService.DEFAULT_TEMPLATES[kind],
+      customised: byKind.has(kind),
+      placeholders: ['school', 'student', 'amount', 'nextTerm'],
+    }));
+  }
+
+  async saveTemplate(auth: AuthUser, kind: string, body: string) {
+    if (!(kind in FeesService.DEFAULT_TEMPLATES)) throw new BadRequestException('Unknown template');
+    await this.db.messageTemplate.upsert({
+      where: { schoolId_kind: { schoolId: auth.schoolId, kind } },
+      create: { schoolId: auth.schoolId, kind, body },
+      update: { body },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'fees.template.save', 'School', auth.schoolId, {
+      kind,
+    });
+    return { ok: true };
+  }
+
+  /** The school's reminder schedule — read and written by the settings page, run by the worker. */
+  async reminderSchedule(auth: AuthUser) {
+    const job = await this.db.scheduledJob.findUnique({
+      where: { schoolId_kind: { schoolId: auth.schoolId, kind: 'FEE_REMINDERS' } },
+    });
+    return job ?? { kind: 'FEE_REMINDERS', enabled: false, dayOfWeek: 1, hour: 9, lastRunAt: null };
+  }
+
+  async setReminderSchedule(auth: AuthUser, dto: ReminderScheduleDto) {
+    const data = { enabled: dto.enabled, dayOfWeek: dto.dayOfWeek ?? null, hour: dto.hour ?? 9 };
+    await this.db.scheduledJob.upsert({
+      where: { schoolId_kind: { schoolId: auth.schoolId, kind: 'FEE_REMINDERS' } },
+      create: { schoolId: auth.schoolId, kind: 'FEE_REMINDERS', ...data },
+      update: data,
+    });
+    await this.db.audit(
+      auth.schoolId,
+      auth.sub,
+      'fees.reminders.schedule',
+      'School',
+      auth.schoolId,
+      data,
+    );
+    return this.reminderSchedule(auth);
+  }
+
   /**
    * Remind families who owe money. Escalates on size of debt rather than on a count of previous
    * nudges: a family owing a few cedis and one owing a term's fees should not hear the same
@@ -396,6 +478,7 @@ export class FeesService {
     const money = (n: number) =>
       `${school.currency} ${n.toLocaleString('en-GH', { minimumFractionDigits: 2 })}`;
 
+    const kindOf = (heavy: boolean) => (heavy ? 'FEE_REMINDER_FIRM' : 'FEE_REMINDER_GENTLE');
     const stamp = new Date().toISOString().slice(0, 10);
     let sent = 0;
     let skipped = 0;
@@ -417,9 +500,15 @@ export class FeesService {
         skipped++;
         continue;
       }
-      const body = heavy
-        ? `${school.name}: ${d.name} has an outstanding balance of ${money(d.balance)}. Kindly settle before the end of term to avoid disruption${nextTermBegins ? '; next term begins ' + new Date(nextTermBegins).toLocaleDateString('en-GH', { day: 'numeric', month: 'long' }) : ''}. Contact the bursar to arrange payment.`
-        : `${school.name}: a balance of ${money(d.balance)} remains on ${d.name}'s account. Kindly settle at your convenience. Thank you.`;
+      const body = this.fill(await this.template(auth.schoolId, kindOf(heavy)), {
+        school: school.name,
+        student: d.name,
+        amount: money(d.balance),
+        nextTerm: nextTermBegins
+          ? '; next term begins ' +
+            new Date(nextTermBegins).toLocaleDateString('en-GH', { day: 'numeric', month: 'long' })
+          : '',
+      });
       const res = await this.sms.sendToPhones({
         schoolId: auth.schoolId,
         createdById: auth.sub,
@@ -928,6 +1017,30 @@ export class FeesController {
     return this.svc.setStudentFeeItem(user, studentId, dto);
   }
 
+  @Get('reminders/templates')
+  @Roles('OWNER', 'HEAD', 'BURSAR')
+  templates(@CurrentUser() user: AuthUser) {
+    return this.svc.listTemplates(user);
+  }
+
+  @Post('reminders/templates')
+  @Roles('OWNER', 'HEAD', 'BURSAR')
+  saveTemplate(@CurrentUser() user: AuthUser, @Body() body: { kind: string; body: string }) {
+    return this.svc.saveTemplate(user, body.kind, body.body);
+  }
+
+  @Get('reminders/schedule')
+  @Roles('OWNER', 'HEAD', 'BURSAR')
+  schedule(@CurrentUser() user: AuthUser) {
+    return this.svc.reminderSchedule(user);
+  }
+
+  @Post('reminders/schedule')
+  @Roles('OWNER', 'HEAD', 'BURSAR')
+  setSchedule(@CurrentUser() user: AuthUser, @Body() dto: ReminderScheduleDto) {
+    return this.svc.setReminderSchedule(user, dto);
+  }
+
   @Post('reminders')
   @Roles('OWNER', 'HEAD', 'BURSAR')
   reminders(
@@ -1007,10 +1120,108 @@ export class FeesController {
   }
 }
 
+const REMINDERS_QUEUE = 'fee-reminders';
+/** Checked hourly; each school fires only in its own chosen hour, at most once a day. */
+const TICK_MS = 60 * 60 * 1000;
+
+/**
+ * Runs each school's fee reminders on the day and hour it chose.
+ *
+ * Guarded by REDIS_URL like the payments sweep: without Redis the feature degrades to the
+ * manual Send button rather than breaking, which matters for standalone installs that run
+ * without a queue.
+ */
+@Injectable()
+export class RemindersQueue implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger('RemindersQueue');
+  private connection?: IORedis;
+  private queue?: Queue;
+  private worker?: Worker;
+
+  constructor(
+    private db: PrismaService,
+    private svc: FeesService,
+  ) {}
+
+  async onModuleInit() {
+    const url = process.env.REDIS_URL;
+    if (!url) {
+      this.logger.warn('REDIS_URL not set — scheduled fee reminders disabled; send manually.');
+      return;
+    }
+    try {
+      this.connection = new IORedis(url, { maxRetriesPerRequest: null, lazyConnect: true });
+      await this.connection.connect();
+      this.queue = new Queue(REMINDERS_QUEUE, { connection: this.connection });
+      this.worker = new Worker(REMINDERS_QUEUE, () => this.tick(), {
+        connection: this.connection,
+      });
+      this.worker.on('failed', (_job, err) => this.logger.error(`tick failed: ${err.message}`));
+      await this.queue.upsertJobScheduler(
+        'reminder-tick',
+        { every: TICK_MS },
+        { name: 'tick', opts: { attempts: 2 } },
+      );
+      this.logger.log('Scheduled fee reminders enabled.');
+    } catch (err) {
+      this.logger.warn(`Redis unavailable (${(err as Error).message}) — reminders stay manual.`);
+    }
+  }
+
+  async onModuleDestroy() {
+    await this.worker?.close();
+    await this.queue?.close();
+    this.connection?.disconnect();
+  }
+
+  /** One pass: every school whose chosen slot is now and which has not already run today. */
+  private async tick() {
+    const now = new Date();
+    const jobs = await this.db.scheduledJob.findMany({
+      where: { kind: 'FEE_REMINDERS', enabled: true },
+    });
+    for (const job of jobs) {
+      if (job.hour !== now.getHours()) continue;
+      if (job.dayOfWeek !== null && job.dayOfWeek !== now.getDay()) continue;
+      // Weekday default: never nag families at the weekend.
+      if (job.dayOfWeek === null && (now.getDay() === 0 || now.getDay() === 6)) continue;
+      if (job.lastRunAt && job.lastRunAt.toDateString() === now.toDateString()) continue;
+
+      const term = await this.db.term.findFirst({
+        where: { isCurrent: true, academicYear: { schoolId: job.schoolId, isCurrent: true } },
+      });
+      if (!term) continue;
+
+      // The job acts as the school itself; sendReminders only needs the tenant and an actor id.
+      const actor = await this.db.user.findFirst({
+        where: { schoolId: job.schoolId, role: { in: ['OWNER', 'HEAD', 'BURSAR'] }, active: true },
+      });
+      if (!actor) continue;
+
+      try {
+        const res = await this.svc.sendReminders(
+          {
+            sub: actor.id,
+            schoolId: job.schoolId,
+            role: actor.role,
+            tier: 'MEDIUM',
+            name: actor.name,
+          },
+          term.id,
+        );
+        this.logger.log(`school ${job.schoolId}: sent ${res.sent} reminder(s)`);
+      } catch (err) {
+        this.logger.error(`school ${job.schoolId} reminders failed: ${(err as Error).message}`);
+      }
+      await this.db.scheduledJob.update({ where: { id: job.id }, data: { lastRunAt: now } });
+    }
+  }
+}
+
 @Module({
   imports: [SmsModule],
   controllers: [FeesController],
-  providers: [FeesService],
+  providers: [FeesService, RemindersQueue],
   exports: [FeesService],
 })
 export class FeesModule {}
