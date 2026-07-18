@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Combobox from '@/components/Combobox';
+import SmsTopUp from '@/components/SmsTopUp';
 
 type Audience = 'ALL' | 'CLASS' | 'LEVEL' | 'CUSTOM';
 interface ClassOpt {
@@ -33,6 +34,8 @@ export default function MessagingPage() {
   const [levels, setLevels] = useState<LevelOpt[]>([]);
   const [balance, setBalance] = useState<Balance | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  // Only the head and the owner may record a purchase, so only they are shown the control.
+  const [canTopUp, setCanTopUp] = useState(false);
 
   const [audience, setAudience] = useState<Audience>('ALL');
   const [classId, setClassId] = useState('');
@@ -43,11 +46,13 @@ export default function MessagingPage() {
   const [message, setMessage] = useState<string | null>(null);
 
   async function loadMeta() {
-    const [s, b, m] = await Promise.all([
+    const [s, b, m, me] = await Promise.all([
       fetch('/api/proxy/school/structure').then((r) => r.json()),
       fetch('/api/proxy/sms/balance').then((r) => r.json()),
       fetch('/api/proxy/sms/messages').then((r) => r.json()),
+      fetch('/api/proxy/me').then((r) => r.json()),
     ]);
+    setCanTopUp(['OWNER', 'HEAD'].includes(me?.user?.role));
     const withStudents = s.classes.filter((c: ClassOpt) => c.studentCount > 0);
     setClasses(withStudents);
     setLevels(s.levels);
@@ -113,6 +118,12 @@ export default function MessagingPage() {
           </div>
         )}
       </div>
+
+      {canTopUp && (
+        <div className="mt-3 flex justify-end">
+          <SmsTopUp onDone={loadMeta} />
+        </div>
+      )}
 
       <div className="card p-6 mt-6 rise rise-2 space-y-4">
         <div className="flex flex-wrap gap-2">

@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import FeeRollover, { type TermOption } from '@/components/FeeRollover';
+import ReminderSettings from '@/components/ReminderSettings';
 
 interface FeeItem {
   id: string;
@@ -18,6 +20,11 @@ interface ClassRoom {
   name: string;
   studentCount: number;
 }
+interface AcademicYear {
+  id: string;
+  name: string;
+  terms: { id: string; name: string }[];
+}
 
 const money = (n: number) =>
   `GHS ${n.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -27,6 +34,7 @@ export default function FeeStructurePage() {
   const [termName, setTermName] = useState('');
   const [levels, setLevels] = useState<Level[]>([]);
   const [classes, setClasses] = useState<ClassRoom[]>([]);
+  const [terms, setTerms] = useState<TermOption[]>([]);
   const [items, setItems] = useState<FeeItem[]>([]);
   const [billClassId, setBillClassId] = useState('');
   const [billing, setBilling] = useState(false);
@@ -49,6 +57,14 @@ export default function FeeStructurePage() {
       }
       setLevels(s.levels ?? []);
       setClasses(s.classes ?? []);
+      // Years come back newest first; the rollover picker reads better oldest first, so a term
+      // and the one after it sit next to each other in the list.
+      setTerms(
+        ((s.years ?? []) as AcademicYear[])
+          .slice()
+          .reverse()
+          .flatMap((y) => y.terms.map((t) => ({ id: t.id, label: `${y.name} · ${t.name}` }))),
+      );
     });
   }, []);
 
@@ -195,6 +211,12 @@ export default function FeeStructurePage() {
         </div>
       </div>
 
+      {/* Directly under the table it fills: the empty state says "add one below", and copying
+          last term forward is almost always the quicker way to do that. */}
+      <div className="mt-6">
+        <FeeRollover terms={terms} currentTermId={termId} onDone={load} />
+      </div>
+
       <form onSubmit={add} className="card p-6 mt-6 rise rise-3 max-w-2xl">
         <h2 className="font-display text-xl">Add a fee item</h2>
         <div className="flex flex-wrap items-end gap-3 mt-4">
@@ -288,6 +310,10 @@ export default function FeeStructurePage() {
         </div>
         {billResult && <p className="text-sm mt-3">{billResult}</p>}
       </section>
+
+      <div className="mt-6">
+        <ReminderSettings />
+      </div>
     </div>
   );
 }

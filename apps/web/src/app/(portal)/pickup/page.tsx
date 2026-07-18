@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import Combobox from '@/components/Combobox';
 import DismissalInbox from '@/components/DismissalInbox';
+import QrScanner from '@/components/QrScanner';
+import { submitOrQueue } from '@/lib/offline';
+import OfflineBar from '@/components/OfflineBar';
 
 interface Verdict {
   allowed: boolean;
@@ -17,7 +20,7 @@ interface Check {
     className: string | null;
     photoUrl: string | null;
   };
-  collector: { kind: string; id: string; name: string; phone: string };
+  collector: { kind: string; id: string; name: string; phone: string; hasPhoto: boolean };
   method: string;
   verdict: Verdict;
   message: string;
@@ -122,25 +125,50 @@ export default function PickupPage() {
     if (!check) return;
     setBusy(true);
     setError(null);
-    const res = await fetch('/api/proxy/pickup/release', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    // The gate mints the key, not the server: it has to survive the request failing and being
+    // replayed later, which is the whole point of it.
+    const clientRef = crypto.randomUUID();
+    const result = await submitOrQueue(
+      '/api/proxy/pickup/release',
+      {
         studentId,
         collectorId: check.collector.id,
         collectorKind: check.collector.kind,
         overrideReason: reason || undefined,
-      }),
-    });
-    const d = await res.json().catch(() => ({}));
+        clientRef,
+      },
+      `${check.student.name} collected by ${check.collector.name}`,
+    );
     setBusy(false);
-    if (res.ok) {
-      setDone(`${d.student} released to ${d.collectedBy}.`);
+
+    if (result.queued) {
+      // Released on the ground; the record catches up. Saying so plainly matters — staff must
+      // not stand at the gate wondering whether to let the child go.
+      setDone(
+        `${check.student.name} released. The network is down, so this will be recorded as soon ` +
+          'as it comes back.',
+      );
+      setCheck(null);
+      setStudentId('');
+      setToken('');
+      setReason('');
+      return;
+    }
+
+    const d = (result.body ?? {}) as {
+      student?: string;
+      collectedBy?: string;
+      message?: string;
+    };
+    if (result.ok) {
+      setDone(
+        `${d.student ?? check.student.name} released to ${d.collectedBy ?? check.collector.name}.`,
+      );
       setCheck(null);
       setStudentId('');
       loadLog();
     } else {
-      setError(d.message ?? 'Could not release.');
+      setError(result.message ?? d.message ?? 'Could not release.');
     }
   }
 
@@ -148,6 +176,8 @@ export default function PickupPage() {
 
   return (
     <div>
+      {/* The gate can release with the network down, so it must show what is still unsent. */}
+      <OfflineBar />
       <div className="rise rise-1">
         <h1 className="font-display text-3xl">Dismissal</h1>
         <p className="text-sm text-oat mt-1.5">
@@ -195,6 +225,12 @@ export default function PickupPage() {
                   Check card
                 </button>
               </form>
+              <QrScanner
+                onScan={(value) => {
+                  setToken(value);
+                  verify({ token: value });
+                }}
+              />
             </div>
           )}
 
@@ -302,9 +338,30 @@ export default function PickupPage() {
                 {check.student.admissionNo}
                 {check.student.className && ` · ${check.student.className}`}
               </p>
-              <p className="text-sm mt-3">
-                Collected by <span className="font-medium">{check.collector.name}</span>
-              </p>
+              <div className="flex items-center gap-3 mt-3">
+                {/* The card proves the card; only the face proves the person holding it. */}
+                {check.collector.hasPhoto ? (
+                  <img
+                    src={`/api/proxy/pickup/guardians/${check.collector.id}/photo`}
+                    alt={check.collector.name}
+                    className="w-16 h-16 rounded-lg object-cover border border-mist shrink-0"
+                  />
+                ) : (
+                  <span className="w-16 h-16 rounded-lg bg-parchment border border-mist grid place-items-center text-[10px] text-oat text-center px-1 shrink-0">
+                    No photo
+                  </span>
+                )}
+                <div>
+                  <p className="text-sm">
+                    Collected by <span className="font-medium">{check.collector.name}</span>
+                  </p>
+                  {!check.collector.hasPhoto && (
+                    <p className="text-[11px] text-oat mt-0.5">
+                      Check their face against the card or ask for ID.
+                    </p>
+                  )}
+                </div>
+              </div>
               <p
                 className={`text-[13px] mt-2 ${
                   !check.verdict.allowed

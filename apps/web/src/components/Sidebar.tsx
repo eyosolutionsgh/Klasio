@@ -110,6 +110,13 @@ const NAV: NavItem[] = [
     needs: 'comms.sms',
   },
   {
+    href: '/whatsapp',
+    label: 'WhatsApp',
+    icon: 'M12 2a10 10 0 00-8.6 15L2 22l5.2-1.4A10 10 0 1012 2zm0 2a8 8 0 110 16 8 8 0 01-4.2-1.2l-.4-.2-2.6.7.7-2.5-.3-.4A8 8 0 0112 4zm-3.3 4.3c-.2 0-.4 0-.6.3l-.5.9c-.4.9.1 2 .8 2.9a8 8 0 003.4 2.8c1.3.5 1.9.4 2.4.2l.9-.6c.2-.2.2-.4.1-.6l-1-1c-.2-.2-.4-.2-.6 0l-.6.5c-.2.2-.4.2-.6.1a6 6 0 01-2.4-2.2c-.1-.2-.1-.4.1-.6l.5-.5c.2-.2.1-.4 0-.6l-.9-1.4c-.1-.2-.3-.2-.5-.2z',
+    tip: 'Replies to families who wrote to the school — you cannot start a chat',
+    needs: 'comms.whatsapp.templates',
+  },
+  {
     href: '/settings/school',
     label: 'School Setup',
     icon: 'M12 3L2 8l10 5 8-4v6h2V8L12 3zM6 13.2V17c0 1.7 2.7 3 6 3s6-1.3 6-3v-3.8l-6 3-6-3z',
@@ -151,6 +158,22 @@ const NAV: NavItem[] = [
     tip: 'Connect your Hubtel or Paystack account',
     needs: 'fees.online',
     roles: MONEY,
+  },
+  {
+    href: '/settings/reconciliation',
+    label: 'Reconciliation',
+    icon: 'M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4zM12 3.5l-1.9 1.1 1.9 3.3 1.9-3.3L12 3.5zm0 17l1.9-1.1-1.9-3.3-1.9 3.3 1.9 1.1z',
+    tip: 'Match a gateway settlement file against the payments you hold',
+    needs: 'fees.reconciliation',
+    roles: MONEY,
+  },
+  {
+    href: '/settings/returns',
+    label: 'Termly Returns',
+    icon: 'M19 3h-4.2A3 3 0 0012 1a3 3 0 00-2.8 2H5a2 2 0 00-2 2v16a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm-7 0a1 1 0 110 2 1 1 0 010-2zM7 9h10v2H7V9zm0 4h10v2H7v-2zm0 4h7v2H7v-2z',
+    tip: 'The counts GES and NaSIA ask for each term',
+    needs: 'platform.ges-returns',
+    roles: ADMIN,
   },
   {
     href: '/audit',

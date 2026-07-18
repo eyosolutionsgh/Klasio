@@ -1,5 +1,7 @@
 import Link from 'next/link';
-import { api, money } from '@/lib/api';
+import { api, getMe, money } from '@/lib/api';
+import DownloadButton from '@/components/DownloadButton';
+import InstallmentPlan from '@/components/InstallmentPlan';
 import StudentLifecycle from '@/components/StudentLifecycle';
 import StudentFiles from '@/components/StudentFiles';
 import StudentGuardians from '@/components/StudentGuardians';
@@ -55,9 +57,15 @@ const fmtDate = (d: string) =>
 
 export default async function StudentDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const s = await api<Detail>(`/students/${id}`);
+  const [s, me] = await Promise.all([api<Detail>(`/students/${id}`), getMe()]);
   const att = s.attendanceSummary;
   const attTotal = Object.values(att).reduce((a, b) => a + b, 0);
+  // Both are presentation only — the API refuses either way. Hiding them keeps a teacher from
+  // triggering a 403 that would read as the portal breaking.
+  const canPlan = ['OWNER', 'HEAD', 'BURSAR'].includes(me.user.role);
+  const canPrintCard =
+    ['OWNER', 'HEAD', 'FRONT_DESK'].includes(me.user.role) &&
+    me.entitlements.includes('sis.idcards');
 
   return (
     <div>
@@ -92,16 +100,29 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
             )}
           </div>
         </div>
-        <div
-          data-tip="Invoices minus payments across all terms"
-          className={`tip card px-5 py-3 text-right ${s.feeBalance > 0 ? 'border-clay/40' : ''}`}
-        >
-          <p className="text-[11px] uppercase tracking-widest text-oat">Fee balance</p>
-          <p
-            className={`font-display text-2xl tabular mt-1 ${s.feeBalance > 0 ? 'text-clay' : 'text-leaf'}`}
+        <div className="flex flex-col items-end gap-2">
+          <div
+            data-tip="Invoices minus payments across all terms"
+            className={`tip card px-5 py-3 text-right ${s.feeBalance > 0 ? 'border-clay/40' : ''}`}
           >
-            {money(s.feeBalance)}
-          </p>
+            <p className="text-[11px] uppercase tracking-widest text-oat">Fee balance</p>
+            <p
+              className={`font-display text-2xl tabular mt-1 ${s.feeBalance > 0 ? 'text-clay' : 'text-leaf'}`}
+            >
+              {money(s.feeBalance)}
+            </p>
+          </div>
+          {canPrintCard && s.status === 'ACTIVE' && (
+            <div className="no-print">
+              <DownloadButton
+                path={`/students/id-cards/print?studentId=${s.id}`}
+                filename={`id-card-${s.admissionNo}.pdf`}
+                label="ID card"
+                variant="ghost"
+                tip="A printable card with this student's photo and class"
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -124,6 +145,8 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
           <PickupList studentId={s.id} />
 
           <StudentExtras studentId={s.id} />
+
+          <InstallmentPlan studentId={s.id} balance={s.feeBalance} canEdit={canPlan} />
 
           <MedicalNotes studentId={s.id} notes={s.medicalNotes} />
 

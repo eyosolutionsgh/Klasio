@@ -5,10 +5,15 @@
  * and must not have to know whether the connection is up. So every queued write is stored in
  * IndexedDB and replayed in order when the network returns.
  *
- * This is only safe because the endpoints it queues are idempotent upserts — attendance is keyed
- * on (student, date) and scores on (student, component, term), so replaying a write produces the
+ * This is only safe because the endpoints it queues are idempotent — attendance is keyed on
+ * (student, date) and scores on (student, component, term), so replaying a write produces the
  * same row rather than a duplicate. Do not queue anything that appends (payments, ledger
  * entries): a replay would take money twice.
+ *
+ * Pickup release is the one append that is queued, and only because it was made idempotent
+ * first: the gate device mints a `clientRef` before sending, and the server returns the existing
+ * row rather than writing a second one. The rule is not "never queue an append" — it is "never
+ * queue a write that a replay would duplicate". Make it safe first, then queue it.
  */
 
 const DB_NAME = 'eyo-offline';

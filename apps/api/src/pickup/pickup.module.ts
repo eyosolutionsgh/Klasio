@@ -13,7 +13,10 @@ import {
   Post,
   Query,
   StreamableFile,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { IsDateString, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
 import * as bcrypt from 'bcryptjs';
 import { randomBytes, randomInt } from 'crypto';
@@ -28,6 +31,7 @@ import {
   type CollectorKind,
 } from '../common/pickup';
 import { pickupCardPdf } from '../common/pdf';
+import { objectKey, storage } from '../common/storage';
 
 const BCRYPT_ROUNDS = 10;
 
@@ -50,6 +54,13 @@ class VerifyDto {
 
 class ReleaseDto extends VerifyDto {
   @IsOptional() @IsString() overrideReason?: string;
+  /**
+   * Idempotency key from the gate device.
+   *
+   * Present when the release was queued offline and is being replayed. Without it a dropped
+   * response would make the device retry and log the same child leaving twice.
+   */
+  @IsOptional() @IsString() clientRef?: string;
 }
 
 class DismissalRequestDto {
@@ -69,6 +80,15 @@ function startOfDay(d = new Date()) {
   x.setHours(0, 0, 0, 0);
   return x;
 }
+
+/** Minimal shape of a Multer upload — avoids depending on @types/multer, as elsewhere. */
+interface UploadedPhoto {
+  buffer: Buffer;
+  originalname: string;
+  mimetype: string;
+}
+
+const PHOTO_TYPES = ['image/jpeg', 'image/png'];
 
 @Injectable()
 export class PickupService {
@@ -326,7 +346,12 @@ export class PickupService {
       throw new BadRequestException('Scan a card, enter a PIN, or choose who is collecting');
     }
 
-    const { collector, name, phone } = await this.loadCollector(auth, kind, id, dto.studentId);
+    const { collector, name, phone, hasPhoto } = await this.loadCollector(
+      auth,
+      kind,
+      id,
+      dto.studentId,
+    );
     const verdict = assessCollector(collector, now);
 
     const released = await this.db.releaseLog.findFirst({
@@ -341,7 +366,9 @@ export class PickupService {
         className: student.classRoom?.name ?? null,
         photoUrl: student.photoUrl,
       },
-      collector: { kind, id, name, phone },
+      // hasPhoto rather than the photo itself: the face is fetched by a separate authenticated
+      // request, so a verify response can be logged or cached without carrying someone's picture.
+      collector: { kind, id, name, phone, hasPhoto },
       method,
       verdict,
       message: verdictMessage(verdict),
@@ -356,7 +383,7 @@ export class PickupService {
     kind: CollectorKind,
     id: string,
     studentId: string,
-  ): Promise<{ collector: Collector; name: string; phone: string }> {
+  ): Promise<{ collector: Collector; name: string; phone: string; hasPhoto: boolean }> {
     if (kind === 'GUARDIAN') {
       const link = await this.db.studentGuardian.findUnique({
         where: { studentId_guardianId: { studentId, guardianId: id } },
@@ -370,12 +397,14 @@ export class PickupService {
           collector: { kind, authorised: false, custodyFlag: 'NONE' },
           name: `${g.firstName} ${g.lastName}`,
           phone: g.phone,
+          hasPhoto: !!g.photoUrl,
         };
       }
       return {
         collector: { kind, authorised: link.canPickup, custodyFlag: link.custodyFlag },
         name: `${link.guardian.firstName} ${link.guardian.lastName}`,
         phone: link.guardian.phone,
+        hasPhoto: !!link.guardian.photoUrl,
       };
     }
     const d = await this.db.pickupDelegate.findFirst({ where: { id, schoolId: auth.schoolId } });
@@ -388,6 +417,8 @@ export class PickupService {
       },
       name: d.name,
       phone: d.phone,
+      // Delegates have no stored photo; the gate falls back to QR or PIN alone for them.
+      hasPhoto: false,
     };
   }
 
@@ -396,6 +427,24 @@ export class PickupService {
    * is written before anything that can fail (the notification) is attempted.
    */
   async release(auth: AuthUser, dto: ReleaseDto) {
+    // Replay check first, before anything else. A queued release is replayed precisely because
+    // the device never saw our answer, so the row may already exist — and re-running the
+    // verification would then fail on "already collected today", turning a successful release
+    // into an error the gate staff cannot act on.
+    if (dto.clientRef) {
+      const existing = await this.db.releaseLog.findFirst({
+        where: { schoolId: auth.schoolId, clientRef: dto.clientRef },
+      });
+      if (existing) {
+        return {
+          released: true,
+          replayed: true,
+          collectedBy: existing.collectedBy,
+          at: existing.releasedAt,
+        };
+      }
+    }
+
     const check = await this.verify(auth, dto);
 
     if (!check.verdict.allowed) {
@@ -423,6 +472,7 @@ export class PickupService {
         method: check.method,
         overrideReason: check.verdict.requiresOverride ? dto.overrideReason : null,
         releasedById: auth.sub,
+        clientRef: dto.clientRef ?? null,
       },
     });
     await this.db.audit(auth.schoolId, auth.sub, 'pickup.release', 'Student', dto.studentId, {
@@ -573,8 +623,46 @@ export class PickupService {
     });
     return { ok: true, status: dto.status };
   }
-}
 
+  /**
+   * A face for the person at the gate.
+   *
+   * docs/02 §2.5 asks for "QR + PIN fallback + guardian photo confirmation". The QR proves the
+   * card, the PIN proves knowledge; only the photo proves the person holding either is who the
+   * card belongs to. A card can be lent.
+   */
+  async guardianPhoto(auth: AuthUser, guardianId: string) {
+    const g = await this.db.guardian.findFirst({
+      where: { id: guardianId, schoolId: auth.schoolId },
+      select: { photoUrl: true },
+    });
+    if (!g?.photoUrl) throw new NotFoundException('No photo on file for this person');
+    return storage().get(g.photoUrl);
+  }
+
+  async setGuardianPhoto(auth: AuthUser, guardianId: string, file: UploadedPhoto) {
+    if (!file) throw new BadRequestException('Choose a photo');
+    if (!PHOTO_TYPES.includes(file.mimetype)) {
+      throw new BadRequestException('Photos must be JPEG or PNG');
+    }
+    const g = await this.db.guardian.findFirst({
+      where: { id: guardianId, schoolId: auth.schoolId },
+    });
+    if (!g) throw new NotFoundException('Person not found');
+
+    const key = objectKey(auth.schoolId, 'guardian-photos', guardianId, file.originalname);
+    await storage().put(key, file.buffer, file.mimetype);
+    // Replace rather than accumulate: an old face is not history worth keeping, and storing
+    // more pictures of people than the gate needs is its own liability.
+    if (g.photoUrl)
+      await storage()
+        .delete(g.photoUrl)
+        .catch(() => undefined);
+    await this.db.guardian.update({ where: { id: guardianId }, data: { photoUrl: key } });
+    await this.db.audit(auth.schoolId, auth.sub, 'pickup.guardian-photo', 'Guardian', guardianId);
+    return { ok: true };
+  }
+}
 @Controller('pickup')
 @RequireEntitlement('safety.pickup')
 export class PickupController {
@@ -638,6 +726,23 @@ export class PickupController {
       type: 'application/pdf',
       disposition: 'attachment; filename="pickup-card.pdf"',
     });
+  }
+
+  @Get('guardians/:id/photo')
+  async guardianPhoto(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const buf = await this.svc.guardianPhoto(user, id);
+    return new StreamableFile(buf, { type: 'image/jpeg' });
+  }
+
+  @Post('guardians/:id/photo')
+  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @UseInterceptors(FileInterceptor('file'))
+  uploadGuardianPhoto(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @UploadedFile() file: UploadedPhoto,
+  ) {
+    return this.svc.setGuardianPhoto(user, id, file);
   }
 
   @Post('verify')

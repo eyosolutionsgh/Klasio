@@ -325,6 +325,10 @@ model Guardian {
 
   @@index([schoolId, phone])
 
+  /// Storage key for a face photo, shown to gate staff at handoff. Bytes are served through the
+  /// API, never a public URL — this is a picture of a person attached to a named child.
+  photoUrl String?
+
   whatsappConversations WhatsAppConversation[]
 }
 
@@ -781,7 +785,14 @@ model ReleaseLog {
   overrideReason String?
   releasedById   String
   releasedAt     DateTime      @default(now())
+  /// Idempotency key minted by the gate device before it tries to send.
+  ///
+  /// A release is an append, so replaying a queued one would record the same child leaving
+  /// twice. This makes the write safe to retry: the second attempt finds the row and returns it
+  /// instead of creating another. Without it the gate could not work offline at all.
+  clientRef      String?
 
+  @@unique([schoolId, clientRef])
   @@index([schoolId, releasedAt])
   @@index([studentId])
 }
