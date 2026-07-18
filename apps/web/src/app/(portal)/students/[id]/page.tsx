@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { api, money } from '@/lib/api';
 import StudentLifecycle from '@/components/StudentLifecycle';
+import StudentFiles from '@/components/StudentFiles';
 
 interface Detail {
   id: string;
@@ -13,6 +14,7 @@ interface Detail {
   enrolledAt: string;
   exitDate: string | null;
   exitReason: string | null;
+  photoUrl?: string | null;
   className: string | null;
   guardians: {
     id: string;
@@ -143,6 +145,8 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
               ))}
             </ul>
           </section>
+
+          <StudentFiles studentId={s.id} hasPhoto={!!s.photoUrl} />
 
           {/* Attendance summary */}
           <section className="card p-6 rise rise-3">

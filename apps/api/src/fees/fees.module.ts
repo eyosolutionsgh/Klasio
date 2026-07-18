@@ -12,9 +12,12 @@ import {
   Post,
   Query,
   StreamableFile,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   IsBoolean,
+  IsDateString,
   IsEnum,
   IsNumber,
   IsOptional,
@@ -23,6 +26,17 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
+import { Type } from 'class-transformer';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { DOCUMENT_TYPES, MAX_UPLOAD_BYTES, objectKey, storage } from '../common/storage';
+
+/** Minimal shape of a Multer upload — avoids depending on @types/multer. */
+interface UploadedFileLike {
+  buffer: Buffer;
+  originalname: string;
+  mimetype: string;
+  size: number;
+}
 import { PaymentMethod, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
@@ -49,6 +63,16 @@ class FeeItemDto {
   @IsNumber() @Min(0) amount: number;
   @IsOptional() @IsString() levelId?: string;
   @IsOptional() @IsBoolean() optional?: boolean;
+}
+
+class BankDepositDto {
+  @IsString() studentId: string;
+  // Multipart fields arrive as strings, so coerce before validating.
+  @Type(() => Number) @IsNumber() @IsPositive() amount: number;
+  @IsDateString() depositedAt: string;
+  @IsOptional() @IsString() bankName?: string;
+  @IsOptional() @IsString() bankRef?: string;
+  @IsOptional() @IsString() note?: string;
 }
 
 class UpdateFeeItemDto {
@@ -339,6 +363,180 @@ export class FeesService {
     };
   }
 
+  // ── Bank deposits: submit → bursar confirms → ledger ───────────────
+
+  /**
+   * Record a claimed bank deposit with its proof. Nothing touches the ledger here — an
+   * unverified claim is not money. A bursar must confirm it first.
+   */
+  async submitDeposit(auth: AuthUser, dto: BankDepositDto, file?: UploadedFileLike) {
+    const student = await this.db.student.findFirst({
+      where: { id: dto.studentId, schoolId: auth.schoolId },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+
+    let proofKey: string | null = null;
+    if (file?.buffer) {
+      if (file.size > MAX_UPLOAD_BYTES) throw new BadRequestException('Proof file is too large');
+      if (!DOCUMENT_TYPES.includes(file.mimetype)) {
+        throw new BadRequestException(`Unsupported proof type ${file.mimetype}`);
+      }
+      proofKey = objectKey(auth.schoolId, 'deposits', dto.studentId, file.originalname);
+      await storage().put(proofKey, file.buffer, file.mimetype);
+    }
+
+    const term = await this.db.term.findFirst({
+      where: { isCurrent: true, academicYear: { schoolId: auth.schoolId, isCurrent: true } },
+    });
+    const seq = (await this.db.bankDeposit.count({ where: { schoolId: auth.schoolId } })) + 1;
+    const deposit = await this.db.bankDeposit.create({
+      data: {
+        schoolId: auth.schoolId,
+        studentId: dto.studentId,
+        termId: term?.id ?? null,
+        amount: new Prisma.Decimal(dto.amount),
+        bankName: dto.bankName ?? null,
+        bankRef: dto.bankRef ?? null,
+        depositedAt: new Date(dto.depositedAt),
+        proofKey,
+        note: dto.note ?? null,
+        reference: `DEP-2026-${String(seq).padStart(5, '0')}`,
+        submittedById: auth.sub,
+      },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'deposit.submit', 'BankDeposit', deposit.id, {
+      amount: dto.amount,
+      reference: deposit.reference,
+    });
+    return { id: deposit.id, reference: deposit.reference, status: deposit.status };
+  }
+
+  async listDeposits(auth: AuthUser, status?: string) {
+    const deposits = await this.db.bankDeposit.findMany({
+      where: { schoolId: auth.schoolId, ...(status ? { status: status as never } : {}) },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: {
+        student: { select: { firstName: true, lastName: true, admissionNo: true } },
+      },
+    });
+    return deposits.map((d) => ({
+      id: d.id,
+      reference: d.reference,
+      student: `${d.student.firstName} ${d.student.lastName}`,
+      admissionNo: d.student.admissionNo,
+      amount: Number(d.amount),
+      bankName: d.bankName,
+      bankRef: d.bankRef,
+      depositedAt: d.depositedAt,
+      hasProof: !!d.proofKey,
+      status: d.status,
+      note: d.note,
+      reviewNote: d.reviewNote,
+      createdAt: d.createdAt,
+    }));
+  }
+
+  async readDepositProof(auth: AuthUser, id: string) {
+    const deposit = await this.db.bankDeposit.findFirst({
+      where: { id, schoolId: auth.schoolId },
+    });
+    if (!deposit?.proofKey) throw new NotFoundException('No proof on file');
+    return storage().get(deposit.proofKey);
+  }
+
+  /**
+   * Confirm a deposit: this is the moment it becomes money. Appends the PAYMENT entry and
+   * mints a receipt, keyed on the deposit's unique reference — LedgerEntry.reference is
+   * unique, so a double confirmation credits the student exactly once.
+   */
+  async confirmDeposit(auth: AuthUser, id: string) {
+    const deposit = await this.db.bankDeposit.findFirst({
+      where: { id, schoolId: auth.schoolId },
+    });
+    if (!deposit) throw new NotFoundException('Deposit not found');
+    if (deposit.status === 'REJECTED') {
+      throw new BadRequestException('This deposit was rejected');
+    }
+
+    const existing = await this.db.ledgerEntry.findUnique({
+      where: { reference: deposit.reference },
+    });
+    if (existing) {
+      if (deposit.status !== 'CONFIRMED') {
+        await this.db.bankDeposit.update({
+          where: { id },
+          data: { status: 'CONFIRMED', reviewedById: auth.sub, reviewedAt: new Date() },
+        });
+      }
+      return { confirmed: true, alreadyApplied: true, reference: deposit.reference };
+    }
+
+    const rcpSeq = (await this.db.receipt.count({ where: { schoolId: auth.schoolId } })) + 1;
+    try {
+      const entry = await this.db.ledgerEntry.create({
+        data: {
+          schoolId: auth.schoolId,
+          studentId: deposit.studentId,
+          termId: deposit.termId,
+          type: 'PAYMENT',
+          amount: deposit.amount,
+          method: 'BANK',
+          reference: deposit.reference,
+          note: `Bank deposit${deposit.bankName ? ` — ${deposit.bankName}` : ''}${deposit.bankRef ? ` (${deposit.bankRef})` : ''}`,
+          createdById: auth.sub,
+        },
+      });
+      await this.db.receipt.create({
+        data: {
+          schoolId: auth.schoolId,
+          ledgerEntryId: entry.id,
+          number: `RCP-2026-${String(rcpSeq).padStart(5, '0')}`,
+        },
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        return { confirmed: true, alreadyApplied: true, reference: deposit.reference };
+      }
+      throw e;
+    }
+
+    await this.db.bankDeposit.update({
+      where: { id },
+      data: { status: 'CONFIRMED', reviewedById: auth.sub, reviewedAt: new Date() },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'deposit.confirm', 'BankDeposit', id, {
+      reference: deposit.reference,
+      amount: Number(deposit.amount),
+    });
+    return { confirmed: true, alreadyApplied: false, reference: deposit.reference };
+  }
+
+  async rejectDeposit(auth: AuthUser, id: string, reason?: string) {
+    const deposit = await this.db.bankDeposit.findFirst({
+      where: { id, schoolId: auth.schoolId },
+    });
+    if (!deposit) throw new NotFoundException('Deposit not found');
+    if (deposit.status === 'CONFIRMED') {
+      throw new BadRequestException(
+        'This deposit is already in the ledger — post a reversal instead of rejecting it',
+      );
+    }
+    await this.db.bankDeposit.update({
+      where: { id },
+      data: {
+        status: 'REJECTED',
+        reviewNote: reason ?? null,
+        reviewedById: auth.sub,
+        reviewedAt: new Date(),
+      },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'deposit.reject', 'BankDeposit', id, {
+      reason: reason ?? null,
+    });
+    return { rejected: true };
+  }
+
   /** Branded PDF receipt for a recorded payment, with the running balance as of that payment. */
   async receiptPdf(auth: AuthUser, reference: string) {
     const entry = await this.db.ledgerEntry.findFirst({
@@ -366,6 +564,13 @@ export class FeesService {
       return acc - amt;
     }, 0);
 
+    // A missing/unreadable photo must never block issuing a receipt.
+    const studentPhoto = entry.student.photoUrl
+      ? await storage()
+          .get(entry.student.photoUrl)
+          .catch(() => null)
+      : null;
+
     return receiptPdf({
       school: {
         name: school.name,
@@ -373,6 +578,7 @@ export class FeesService {
         address: school.address,
         phone: school.phone,
       },
+      studentPhoto,
       receiptNumber: entry.receipt.number,
       reference: entry.reference,
       issuedAt: entry.receipt.issuedAt,
@@ -455,6 +661,47 @@ export class FeesController {
   @Roles('OWNER', 'HEAD', 'BURSAR', 'FRONT_DESK')
   record(@CurrentUser() user: AuthUser, @Body() dto: RecordPaymentDto) {
     return this.svc.recordPayment(user, dto);
+  }
+
+  @Post('deposits')
+  @Roles('OWNER', 'HEAD', 'BURSAR', 'FRONT_DESK')
+  @UseInterceptors(FileInterceptor('proof'))
+  submitDeposit(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: BankDepositDto,
+    @UploadedFile() proof: UploadedFileLike,
+  ) {
+    return this.svc.submitDeposit(user, dto, proof);
+  }
+
+  @Get('deposits')
+  @Roles('OWNER', 'HEAD', 'BURSAR', 'FRONT_DESK')
+  deposits(@CurrentUser() user: AuthUser, @Query('status') status?: string) {
+    return this.svc.listDeposits(user, status);
+  }
+
+  @Get('deposits/:id/proof')
+  @Roles('OWNER', 'HEAD', 'BURSAR', 'FRONT_DESK')
+  async depositProof(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const buf = await this.svc.readDepositProof(user, id);
+    return new StreamableFile(buf);
+  }
+
+  /** Only a bursar/head may turn a claimed deposit into money. */
+  @Post('deposits/:id/confirm')
+  @Roles('OWNER', 'HEAD', 'BURSAR')
+  confirmDeposit(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.confirmDeposit(user, id);
+  }
+
+  @Post('deposits/:id/reject')
+  @Roles('OWNER', 'HEAD', 'BURSAR')
+  rejectDeposit(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body('reason') reason?: string,
+  ) {
+    return this.svc.rejectDeposit(user, id, reason);
   }
 
   @Get('receipts/:reference/pdf')

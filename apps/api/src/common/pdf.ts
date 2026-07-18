@@ -28,8 +28,19 @@ interface Column {
   align?: 'left' | 'center' | 'right';
 }
 
-/** Draw a bordered table starting at the current y; returns the y after the table. */
-function drawTable(doc: Doc, x0: number, columns: Column[], rows: string[][]): number {
+interface TableStyle {
+  /** GES uses ruled boxes; MODERN uses zebra striping with only a header rule. */
+  zebra?: boolean;
+}
+
+/** Draw a table starting at the current y; returns the y after the table. */
+function drawTable(
+  doc: Doc,
+  x0: number,
+  columns: Column[],
+  rows: string[][],
+  style: TableStyle = {},
+): number {
   const pad = 5;
   const totalWidth = columns.reduce((a, c) => a + c.width, 0);
 
@@ -52,34 +63,46 @@ function drawTable(doc: Doc, x0: number, columns: Column[], rows: string[][]): n
       .fontSize(9)
       .fillColor(INK);
     columns.forEach((col, i) => {
-      doc.rect(x, y, col.width, h).strokeColor(MIST).lineWidth(0.5).stroke();
+      if (!style.zebra) {
+        doc.rect(x, y, col.width, h).strokeColor(MIST).lineWidth(0.5).stroke();
+      }
       doc.text(cells[i] ?? '', x + pad, y + 4, {
         width: col.width - pad * 2,
         align: col.align ?? 'left',
       });
       x += col.width;
     });
+    if (style.zebra && bold) {
+      // A single rule under the header replaces the ruled grid.
+      doc
+        .moveTo(x0, y + h)
+        .lineTo(x0 + totalWidth, y + h)
+        .strokeColor(MIST)
+        .lineWidth(1)
+        .stroke();
+    }
     return y + h;
   };
 
+  const headerFill = style.zebra ? undefined : '#f5f5f4';
   let y = drawRow(
     columns.map((c) => c.header),
     doc.y,
     true,
-    '#f5f5f4',
+    headerFill,
   );
-  for (const row of rows) {
+  rows.forEach((row, i) => {
     if (y > doc.page.height - 120) {
       doc.addPage();
       y = drawRow(
         columns.map((c) => c.header),
         doc.page.margins.top,
         true,
-        '#f5f5f4',
+        headerFill,
       );
     }
-    y = drawRow(row, y, false);
-  }
+    y = drawRow(row, y, false, style.zebra && i % 2 === 1 ? '#fafaf9' : undefined);
+  });
   doc.y = y;
   return y;
 }
@@ -97,6 +120,8 @@ const ordinal = (n: number) => {
 
 export interface ReportCardData {
   schemeKind: 'GES_CLASSIC' | 'NACCA_BANDS' | 'EARLY_YEARS';
+  /** Layout choice (docs/02 §2.3). GES is the statutory-looking default. */
+  template?: 'GES' | 'MODERN';
   school: { name: string; motto: string | null; address: string | null; phone: string | null };
   student: { name: string; admissionNo: string; className: string | null };
   term: { name?: string; year?: string; nextTermBegins: string | null };
@@ -125,32 +150,66 @@ export function reportCardPdf(card: ReportCardData): Promise<Buffer> {
   const left = doc.page.margins.left;
   const width = doc.page.width - left - doc.page.margins.right;
 
-  // Header
-  doc
-    .fillColor(FOREST)
-    .font('Helvetica-Bold')
-    .fontSize(20)
-    .text(card.school.name, { align: 'center' });
-  doc.fillColor(OAT).font('Helvetica-Oblique').fontSize(9);
-  if (card.school.motto) doc.text(card.school.motto, { align: 'center' });
-  doc.font('Helvetica').text([card.school.address, card.school.phone].filter(Boolean).join(' · '), {
-    align: 'center',
-  });
-  doc
-    .moveDown(0.6)
-    .fillColor(INK)
-    .font('Helvetica-Bold')
-    .fontSize(12)
-    .text(`TERMINAL REPORT — ${card.term.name ?? ''}, ${card.term.year ?? ''}`, {
-      align: 'center',
-    });
-  doc
-    .moveTo(left, doc.y + 4)
-    .lineTo(left + width, doc.y + 4)
-    .strokeColor(INK)
-    .lineWidth(1)
-    .stroke();
-  doc.moveDown(1);
+  const modern = card.template === 'MODERN';
+
+  if (modern) {
+    // Modern: a solid masthead with the school reversed out of forest green.
+    const bandH = 74;
+    doc.rect(0, 0, doc.page.width, bandH).fill(FOREST);
+    doc
+      .fillColor('#ffffff')
+      .font('Helvetica-Bold')
+      .fontSize(19)
+      .text(card.school.name, left, 18, { width, align: 'left' });
+    doc
+      .fillColor('#dcfce7')
+      .font('Helvetica')
+      .fontSize(9)
+      .text(
+        [card.school.motto, card.school.address, card.school.phone].filter(Boolean).join('  ·  '),
+        left,
+        44,
+        { width },
+      );
+    doc.y = bandH + 16;
+    doc
+      .fillColor(INK)
+      .font('Helvetica-Bold')
+      .fontSize(13)
+      .text(`Terminal Report — ${card.term.name ?? ''}, ${card.term.year ?? ''}`, left, doc.y, {
+        width,
+      });
+    doc.moveDown(0.8);
+  } else {
+    // GES: centred masthead over a rule, as the statutory form is laid out.
+    doc
+      .fillColor(FOREST)
+      .font('Helvetica-Bold')
+      .fontSize(20)
+      .text(card.school.name, { align: 'center' });
+    doc.fillColor(OAT).font('Helvetica-Oblique').fontSize(9);
+    if (card.school.motto) doc.text(card.school.motto, { align: 'center' });
+    doc
+      .font('Helvetica')
+      .text([card.school.address, card.school.phone].filter(Boolean).join(' · '), {
+        align: 'center',
+      });
+    doc
+      .moveDown(0.6)
+      .fillColor(INK)
+      .font('Helvetica-Bold')
+      .fontSize(12)
+      .text(`TERMINAL REPORT — ${card.term.name ?? ''}, ${card.term.year ?? ''}`, {
+        align: 'center',
+      });
+    doc
+      .moveTo(left, doc.y + 4)
+      .lineTo(left + width, doc.y + 4)
+      .strokeColor(INK)
+      .lineWidth(1)
+      .stroke();
+    doc.moveDown(1);
+  }
 
   // Student info grid (two columns)
   const info: Array<[string, string]> = [
@@ -209,7 +268,7 @@ export function reportCardPdf(card: ReportCardData): Promise<Buffer> {
           l.remark,
         ],
   );
-  drawTable(doc, left, columns, rows);
+  drawTable(doc, left, columns, rows, { zebra: modern });
 
   if (!earlyYears) {
     doc.moveDown(0.3);
@@ -273,6 +332,8 @@ export interface ReceiptData {
   reference: string;
   issuedAt: string | Date;
   student: { name: string; admissionNo: string; className: string | null };
+  /** Student photo bytes, when one is on file (docs/02 §2.4 "receipts with student photo"). */
+  studentPhoto?: Buffer | null;
   amount: number;
   method: string | null;
   currency: string;
@@ -303,6 +364,22 @@ export function receiptPdf(r: ReceiptData): Promise<Buffer> {
     .font('Helvetica-Bold')
     .fontSize(11)
     .text('OFFICIAL PAYMENT RECEIPT', { align: 'center' });
+
+  // Student photo, if one is on file — makes a printed receipt hard to reuse for another child.
+  if (r.studentPhoto?.length) {
+    try {
+      doc.image(
+        r.studentPhoto,
+        doc.page.width - doc.page.margins.right - 56,
+        doc.page.margins.top,
+        {
+          fit: [52, 52],
+        },
+      );
+    } catch {
+      // An unreadable or unsupported image must never block issuing a receipt.
+    }
+  }
   doc
     .moveTo(left, doc.y + 4)
     .lineTo(left + width, doc.y + 4)

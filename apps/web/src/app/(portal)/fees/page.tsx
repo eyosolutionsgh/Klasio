@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import DepositQueue from '@/components/DepositQueue';
 
 interface Overview {
   invoiced: number;
@@ -48,6 +49,7 @@ export default function FeesPage() {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [depositFor, setDepositFor] = useState<Defaulter | null>(null);
 
   useEffect(() => {
     fetch('/api/proxy/me')
@@ -161,6 +163,8 @@ export default function FeesPage() {
             ))}
           </div>
 
+          <DepositQueue onSettled={load} />
+
           <div className="grid lg:grid-cols-[1.3fr_1fr] gap-6 mt-8">
             {/* Defaulters */}
             <section className="card overflow-hidden rise rise-3">
@@ -199,7 +203,14 @@ export default function FeesPage() {
                       <td className="px-3 py-2.5 text-right tabular font-medium text-clay">
                         {money(d.balance)}
                       </td>
-                      <td className="px-6 py-2.5 text-right">
+                      <td className="px-6 py-2.5 text-right whitespace-nowrap">
+                        <button
+                          onClick={() => setDepositFor(d)}
+                          data-tip="Record a bank deposit with proof for a bursar to confirm"
+                          className="tip text-[12.5px] font-medium text-forest border border-forest/40 rounded-full px-3 py-1 hover:bg-forest-mist transition mr-1.5"
+                        >
+                          Bank deposit
+                        </button>
                         <button
                           onClick={() => {
                             setPayFor(d);
@@ -272,6 +283,110 @@ export default function FeesPage() {
             </div>
           </div>
         </>
+      )}
+
+      {/* Bank-deposit submission — records a claim + proof; nothing hits the ledger yet */}
+      {depositFor && (
+        <div
+          className="fixed inset-0 z-50 bg-ink/40 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal
+        >
+          <form
+            className="card w-full max-w-md p-7 rise"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const form = e.currentTarget;
+              const fd = new FormData(form);
+              fd.append('studentId', depositFor.studentId);
+              setBusy(true);
+              const res = await fetch('/api/proxy/fees/deposits', { method: 'POST', body: fd });
+              const body = await res.json().catch(() => ({}));
+              setBusy(false);
+              if (res.ok) {
+                setToast(
+                  `Deposit ${body.reference} recorded — awaiting bursar confirmation. Nothing has been credited yet.`,
+                );
+                setDepositFor(null);
+                load();
+              } else {
+                setToast(body.message ?? 'Could not record that deposit.');
+              }
+            }}
+          >
+            <div className="kente-stripe h-1 -mt-7 -mx-7 mb-6 rounded-t-[10px]" />
+            <h2 className="font-display text-2xl">Record bank deposit</h2>
+            <p className="text-sm text-oat mt-1">
+              {depositFor.name} · owes{' '}
+              <span className="tabular font-medium text-clay">{money(depositFor.balance)}</span>
+            </p>
+
+            <label className="block text-sm font-medium mt-6 mb-1.5">Amount (GHS)</label>
+            <input
+              name="amount"
+              type="number"
+              min="0.01"
+              step="0.01"
+              required
+              defaultValue={depositFor.balance}
+              className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 tabular outline-none focus:border-forest focus:ring-2 focus:ring-forest/15"
+            />
+
+            <label className="block text-sm font-medium mt-4 mb-1.5">Date deposited</label>
+            <input
+              name="depositedAt"
+              type="date"
+              required
+              defaultValue={new Date().toISOString().slice(0, 10)}
+              className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-forest"
+            />
+
+            <div className="grid grid-cols-2 gap-3 mt-4">
+              <div>
+                <label className="block text-sm font-medium mb-1.5">Bank</label>
+                <input
+                  name="bankName"
+                  placeholder="GCB"
+                  className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-forest"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1.5">Teller / ref</label>
+                <input
+                  name="bankRef"
+                  className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-forest"
+                />
+              </div>
+            </div>
+
+            <label className="block text-sm font-medium mt-4 mb-1.5">
+              Proof of payment <span className="text-oat font-normal">(photo or PDF)</span>
+            </label>
+            <input
+              name="proof"
+              type="file"
+              accept="image/jpeg,image/png,image/webp,application/pdf"
+              className="text-sm"
+            />
+
+            <div className="flex gap-3 mt-7">
+              <button
+                type="button"
+                onClick={() => setDepositFor(null)}
+                className="flex-1 rounded-lg border border-mist py-2.5 text-sm hover:border-oat transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={busy}
+                className="flex-1 rounded-lg bg-forest text-paper text-sm font-medium py-2.5 hover:bg-forest-deep transition disabled:opacity-60"
+              >
+                {busy ? 'Recording…' : 'Submit for confirmation'}
+              </button>
+            </div>
+          </form>
+        </div>
       )}
 
       {/* Record payment dialog */}

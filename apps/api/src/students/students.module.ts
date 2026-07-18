@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Injectable,
   Module,
@@ -11,15 +12,33 @@ import {
   Post,
   Query,
   StreamableFile,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { IsDateString, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
 import { Gender, StudentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
 import { enrolmentHeadroom, studentCapFor } from '../common/entitlements';
 import { toCsv, toXlsx, Cell } from '../common/export';
+import {
+  DOCUMENT_TYPES,
+  IMAGE_TYPES,
+  MAX_UPLOAD_BYTES,
+  objectKey,
+  storage,
+} from '../common/storage';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+/** Minimal shape of a Multer upload — avoids depending on @types/multer. */
+interface UploadedFileLike {
+  buffer: Buffer;
+  originalname: string;
+  mimetype: string;
+  size: number;
+}
 
 class CreateStudentDto {
   @IsString() @MinLength(2) firstName: string;
@@ -134,6 +153,8 @@ export class StudentsService {
       enrolledAt: s.enrolledAt,
       exitDate: s.exitDate,
       exitReason: s.exitReason,
+      // Storage key only — bytes are served by GET /students/:id/photo behind auth.
+      photoUrl: s.photoUrl,
       medicalNotes: s.medicalNotes,
       className: s.classRoom?.name,
       levelCategory: s.classRoom?.level.category,
@@ -295,6 +316,121 @@ export class StudentsService {
     return this.exit(auth, id, 'WITHDRAWN', dto.reason, 'student.withdraw');
   }
 
+  // ── Photo & documents ──────────────────────────────────────────────
+
+  private assertUpload(file: UploadedFileLike | undefined, allowed: string[]) {
+    if (!file?.buffer) throw new BadRequestException('No file uploaded');
+    if (file.size > MAX_UPLOAD_BYTES) {
+      throw new BadRequestException(
+        `File is too large (max ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)}MB)`,
+      );
+    }
+    if (!allowed.includes(file.mimetype)) {
+      throw new BadRequestException(`Unsupported file type ${file.mimetype}`);
+    }
+  }
+
+  async uploadPhoto(auth: AuthUser, studentId: string, file: UploadedFileLike) {
+    this.assertUpload(file, IMAGE_TYPES);
+    const student = await this.db.student.findFirst({
+      where: { id: studentId, schoolId: auth.schoolId },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+
+    const key = objectKey(auth.schoolId, 'students', studentId, file.originalname);
+    await storage().put(key, file.buffer, file.mimetype);
+    // Replace rather than accumulate — a student has one current photo.
+    if (student.photoUrl)
+      await storage()
+        .delete(student.photoUrl)
+        .catch(() => undefined);
+    await this.db.student.update({ where: { id: studentId }, data: { photoUrl: key } });
+    await this.db.audit(auth.schoolId, auth.sub, 'student.photo', 'Student', studentId);
+    return { key };
+  }
+
+  async listDocuments(auth: AuthUser, studentId: string) {
+    const docs = await this.db.studentDocument.findMany({
+      where: { schoolId: auth.schoolId, studentId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return docs.map((d) => ({
+      id: d.id,
+      kind: d.kind,
+      filename: d.filename,
+      contentType: d.contentType,
+      size: d.size,
+      createdAt: d.createdAt,
+    }));
+  }
+
+  async uploadDocument(auth: AuthUser, studentId: string, kind: string, file: UploadedFileLike) {
+    this.assertUpload(file, DOCUMENT_TYPES);
+    const student = await this.db.student.findFirst({
+      where: { id: studentId, schoolId: auth.schoolId },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+
+    const key = objectKey(auth.schoolId, 'documents', studentId, file.originalname);
+    await storage().put(key, file.buffer, file.mimetype);
+    const doc = await this.db.studentDocument.create({
+      data: {
+        schoolId: auth.schoolId,
+        studentId,
+        kind: kind || 'OTHER',
+        filename: file.originalname,
+        contentType: file.mimetype,
+        size: file.size,
+        key,
+        uploadedById: auth.sub,
+      },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'student.document.upload', 'Student', studentId, {
+      filename: file.originalname,
+    });
+    return { id: doc.id, filename: doc.filename };
+  }
+
+  /** Streams file bytes through the API so access is always checked against the caller's school. */
+  async readDocument(auth: AuthUser, docId: string) {
+    const doc = await this.db.studentDocument.findFirst({
+      where: { id: docId, schoolId: auth.schoolId },
+    });
+    if (!doc) throw new NotFoundException('Document not found');
+    return { buffer: await storage().get(doc.key), doc };
+  }
+
+  async deleteDocument(auth: AuthUser, docId: string) {
+    const doc = await this.db.studentDocument.findFirst({
+      where: { id: docId, schoolId: auth.schoolId },
+    });
+    if (!doc) throw new NotFoundException('Document not found');
+    await storage()
+      .delete(doc.key)
+      .catch(() => undefined);
+    await this.db.studentDocument.delete({ where: { id: docId } });
+    await this.db.audit(
+      auth.schoolId,
+      auth.sub,
+      'student.document.delete',
+      'Student',
+      doc.studentId,
+      {
+        filename: doc.filename,
+      },
+    );
+    return { deleted: true };
+  }
+
+  async readPhoto(auth: AuthUser, studentId: string) {
+    const student = await this.db.student.findFirst({
+      where: { id: studentId, schoolId: auth.schoolId },
+      select: { photoUrl: true },
+    });
+    if (!student?.photoUrl) throw new NotFoundException('No photo on file');
+    return storage().get(student.photoUrl);
+  }
+
   async exportStudents(
     auth: AuthUser,
     format: string,
@@ -396,6 +532,40 @@ export class StudentsController {
     return this.svc.detail(user, id);
   }
 
+  @Post(':id/photo')
+  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @UseInterceptors(FileInterceptor('file'))
+  uploadPhoto(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @UploadedFile() file: UploadedFileLike,
+  ) {
+    return this.svc.uploadPhoto(user, id, file);
+  }
+
+  @Get(':id/photo')
+  async photo(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const buf = await this.svc.readPhoto(user, id);
+    return new StreamableFile(buf, { type: 'image/jpeg' });
+  }
+
+  @Get(':id/documents')
+  documents(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.listDocuments(user, id);
+  }
+
+  @Post(':id/documents')
+  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @UseInterceptors(FileInterceptor('file'))
+  uploadDocument(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body('kind') kind: string,
+    @UploadedFile() file: UploadedFileLike,
+  ) {
+    return this.svc.uploadDocument(user, id, kind, file);
+  }
+
   @Post(':id/transfer')
   @Roles('OWNER', 'HEAD', 'FRONT_DESK')
   transfer(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ExitDto) {
@@ -421,5 +591,29 @@ export class StudentsController {
   }
 }
 
-@Module({ controllers: [StudentsController], providers: [StudentsService] })
+@Controller('documents')
+export class StudentDocumentsController {
+  constructor(private svc: StudentsService) {}
+
+  @Get(':id')
+  async read(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const { buffer, doc } = await this.svc.readDocument(user, id);
+    return new StreamableFile(buffer, {
+      type: doc.contentType,
+      disposition: `attachment; filename="${doc.filename.replace(/"/g, '')}"`,
+    });
+  }
+
+  @Delete(':id')
+  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.deleteDocument(user, id);
+  }
+}
+
+@Module({
+  controllers: [StudentsController, StudentDocumentsController],
+  providers: [StudentsService],
+  exports: [StudentsService],
+})
 export class StudentsModule {}
