@@ -11,7 +11,7 @@ import { Reflector } from '@nestjs/core';
 import * as jwt from 'jsonwebtoken';
 import type { Role, Tier } from '@prisma/client';
 import { hasEntitlement } from './entitlements';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService, withTenant } from '../prisma/prisma.service';
 
 export interface AuthUser {
   sub: string;
@@ -62,8 +62,6 @@ export class AuthGuard implements CanActivate {
       throw new UnauthorizedException('Invalid or expired token');
     }
 
-    // Guardian sessions are signed with the same secret but are a different kind of principal.
-    // Reject them explicitly so a guardian token can never reach a staff route.
     // Guardians and students are different kinds of principal signed with the same secret.
     // Neither may reach a staff route, whatever their token otherwise says.
     const kind = (user as { kind?: string }).kind;
@@ -77,10 +75,14 @@ export class AuthGuard implements CanActivate {
      * of deactivating someone who has left. One indexed lookup is a fair price for revocation
      * that takes effect immediately.
      */
-    const account = await this.db.user.findUnique({
-      where: { id: user.sub },
-      select: { active: true, role: true, schoolId: true },
-    });
+    // Scoped to the school the token claims. If the claim is a lie the policies return nothing
+    // and the request fails closed, which is the behaviour we want either way.
+    const account = await withTenant(user.schoolId, () =>
+      this.db.user.findUnique({
+        where: { id: user.sub },
+        select: { active: true, role: true, schoolId: true },
+      }),
+    );
     if (!account?.active) throw new UnauthorizedException('This account is no longer active');
     // Trust the database over the token for role/tenant, so a demotion also applies at once.
     user = { ...user, role: account.role, schoolId: account.schoolId };

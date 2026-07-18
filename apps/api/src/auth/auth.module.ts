@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { IsEmail, IsString, MinLength } from 'class-validator';
 import * as bcrypt from 'bcryptjs';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService, withTenant } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, Public, signToken } from '../common/auth';
 import { entitlementsForTier } from '../common/entitlements';
 
@@ -23,24 +23,32 @@ export class AuthService {
   constructor(private db: PrismaService) {}
 
   async login(dto: LoginDto) {
-    const user = await this.db.user.findUnique({ where: { email: dto.email.toLowerCase() } });
+    // Sign-in has no tenant yet — an email identifies a person across every school — so this
+    // is one of the few deliberate uses of the unscoped client.
+    const user = await this.db.system.user.findUnique({
+      where: { email: dto.email.toLowerCase() },
+    });
     if (!user || !user.active) throw new UnauthorizedException('Invalid email or password');
     const ok = await bcrypt.compare(dto.password, user.passwordHash);
     if (!ok) throw new UnauthorizedException('Invalid email or password');
-    const school = await this.db.school.findUniqueOrThrow({ where: { id: user.schoolId } });
-    const payload: AuthUser = {
-      sub: user.id,
-      schoolId: user.schoolId,
-      role: user.role,
-      tier: school.tier,
-      name: user.name,
-    };
-    await this.db.audit(user.schoolId, user.id, 'auth.login', 'User', user.id);
-    return {
-      token: signToken(payload),
-      user: { id: user.id, name: user.name, email: user.email, role: user.role },
-      school: { id: school.id, name: school.name, tier: school.tier, currency: school.currency },
-    };
+    // From here on the school is known, so everything runs inside its tenant scope — the
+    // request has no principal yet, so nothing else would put one there.
+    return withTenant(user.schoolId, async () => {
+      const school = await this.db.school.findUniqueOrThrow({ where: { id: user.schoolId } });
+      const payload: AuthUser = {
+        sub: user.id,
+        schoolId: user.schoolId,
+        role: user.role,
+        tier: school.tier,
+        name: user.name,
+      };
+      await this.db.audit(user.schoolId, user.id, 'auth.login', 'User', user.id);
+      return {
+        token: signToken(payload),
+        user: { id: user.id, name: user.name, email: user.email, role: user.role },
+        school: { id: school.id, name: school.name, tier: school.tier, currency: school.currency },
+      };
+    });
   }
 
   async me(auth: AuthUser) {

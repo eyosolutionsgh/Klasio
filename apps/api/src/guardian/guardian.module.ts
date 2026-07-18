@@ -19,7 +19,7 @@ import { Body } from '@nestjs/common';
 import { IsString, MinLength } from 'class-validator';
 import * as jwt from 'jsonwebtoken';
 import { createHash, randomInt, timingSafeEqual } from 'crypto';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService, withTenant } from '../prisma/prisma.service';
 import { FeesModule, FeesService } from '../fees/fees.module';
 import { Public } from '../common/auth';
 import { maskMsisdn, normalizeMsisdn } from '../common/phone';
@@ -104,57 +104,75 @@ export class GuardianService {
     const generic = { sent: true, expiresInMinutes: OTP_TTL_MINUTES };
     if (!phone) return generic;
 
-    const since = new Date(Date.now() - 60 * 60_000);
-    const recent = await this.db.guardianOtp.count({ where: { phone, createdAt: { gte: since } } });
-    if (recent >= OTP_MAX_PER_HOUR) return generic;
-
-    const last = await this.db.guardianOtp.findFirst({
-      where: { phone },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (last && Date.now() - last.createdAt.getTime() < OTP_RESEND_COOLDOWN_SECONDS * 1000) {
-      return generic;
-    }
-
-    const guardian = await this.db.guardian.findFirst({
+    // No tenant yet: a phone number is how we find out which school the caller belongs to.
+    // This must come first — the throttle counters below are tenant-scoped, and running them
+    // before the school is known would read zero and silently disable throttling.
+    const guardian = await this.db.system.guardian.findFirst({
       where: { phone: { contains: phone.slice(-9) } },
       orderBy: { createdAt: 'desc' },
     });
     if (!guardian) return generic;
 
-    const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
-    await this.db.guardianOtp.create({
-      data: {
-        schoolId: guardian.schoolId,
-        guardianId: guardian.id,
-        phone,
-        codeHash: hashCode(phone, code),
-        expiresAt: new Date(Date.now() + OTP_TTL_MINUTES * 60_000),
-      },
-    });
+    return withTenant(guardian.schoolId, async () => {
+      const since = new Date(Date.now() - 60 * 60_000);
+      const recent = await this.db.guardianOtp.count({
+        where: { phone, createdAt: { gte: since } },
+      });
+      if (recent >= OTP_MAX_PER_HOUR) return generic;
 
-    const school = await this.db.school.findUniqueOrThrow({ where: { id: guardian.schoolId } });
-    const body = `${code} is your ${school.name} code. It expires in ${OTP_TTL_MINUTES} minutes. Never share it.`;
-    // Reuses the school's SMS credits/sender; in dev the mock provider prints it to the log.
-    await this.db.smsMessage.create({
-      data: {
-        schoolId: guardian.schoolId,
-        to: phone,
-        body,
-        status: 'SENT',
-        provider: 'otp',
-        cost: 1,
-        createdById: 'system',
-      },
+      const last = await this.db.guardianOtp.findFirst({
+        where: { phone },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (last && Date.now() - last.createdAt.getTime() < OTP_RESEND_COOLDOWN_SECONDS * 1000) {
+        return generic;
+      }
+
+      const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+      await this.db.guardianOtp.create({
+        data: {
+          schoolId: guardian.schoolId,
+          guardianId: guardian.id,
+          phone,
+          codeHash: hashCode(phone, code),
+          expiresAt: new Date(Date.now() + OTP_TTL_MINUTES * 60_000),
+        },
+      });
+
+      const school = await this.db.school.findUniqueOrThrow({ where: { id: guardian.schoolId } });
+      const body = `${code} is your ${school.name} code. It expires in ${OTP_TTL_MINUTES} minutes. Never share it.`;
+      // Reuses the school's SMS credits/sender; in dev the mock provider prints it to the log.
+      await this.db.smsMessage.create({
+        data: {
+          schoolId: guardian.schoolId,
+          to: phone,
+          body,
+          status: 'SENT',
+          provider: 'otp',
+          cost: 1,
+          createdById: 'system',
+        },
+      });
+      console.log(`[guardian OTP] ${maskMsisdn(phone)} → ${code}`);
+      return generic;
     });
-    console.log(`[guardian OTP] ${maskMsisdn(phone)} → ${code}`);
-    return generic;
   }
 
   async verifyOtp(rawPhone: string, code: string) {
     const phone = normalizeMsisdn(rawPhone);
     if (!phone) throw new UnauthorizedException('That code is not valid');
 
+    // Same reason as requestOtp: resolve the school before touching tenant-scoped rows.
+    const owner = await this.db.system.guardian.findFirst({
+      where: { phone: { contains: phone.slice(-9) } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!owner) throw new UnauthorizedException('That code is not valid');
+
+    return withTenant(owner.schoolId, () => this.verifyOtpScoped(phone, code));
+  }
+
+  private async verifyOtpScoped(phone: string, code: string) {
     const otp = await this.db.guardianOtp.findFirst({
       where: { phone, consumedAt: null, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: 'desc' },

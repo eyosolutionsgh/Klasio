@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { PrismaModule } from './prisma/prisma.service';
 import { AuthGuard } from './common/auth';
+import { TenantInterceptor } from './common/tenant.interceptor';
 import { AuthModule } from './auth/auth.module';
 import { SchoolsModule } from './schools/schools.module';
 import { StudentsModule } from './students/students.module';
@@ -39,6 +40,9 @@ import { StudentPortalModule } from './student-portal/student-portal.module';
     PickupModule,
     StudentPortalModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
+  providers: [
+    { provide: APP_GUARD, useClass: AuthGuard },
+    { provide: APP_INTERCEPTOR, useClass: TenantInterceptor },
+  ],
 })
 export class AppModule {}

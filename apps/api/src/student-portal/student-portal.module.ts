@@ -101,7 +101,8 @@ export class StudentPortalService {
    * cannot be used to discover who attends the school.
    */
   async login(dto: StudentLoginDto) {
-    const student = await this.db.student.findFirst({
+    // No tenant yet — the admission number is what tells us the school.
+    const student = await this.db.system.student.findFirst({
       where: { admissionNo: dto.admissionNo.trim(), status: 'ACTIVE' },
       include: { school: { select: { id: true, name: true } } },
     });
