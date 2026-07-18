@@ -92,6 +92,9 @@ async function main() {
   if (existing) {
     const sid = existing.id;
     // wipe in FK-safe order
+    // These reference students — clear them first.
+    await db.studentDocument.deleteMany({ where: { schoolId: sid } });
+    await db.bankDeposit.deleteMany({ where: { schoolId: sid } });
     await db.receipt.deleteMany({ where: { schoolId: sid } });
     await db.ledgerEntry.deleteMany({ where: { schoolId: sid } });
     await db.invoice.deleteMany({ where: { schoolId: sid } });

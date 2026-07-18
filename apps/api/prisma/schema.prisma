@@ -18,6 +18,13 @@ enum Tier {
   ADVANCED
 }
 
+/// Terminal-report layout. GES is the statutory-looking default; MODERN is a cleaner
+/// alternative some private schools prefer (docs/02 §2.3).
+enum ReportTemplate {
+  GES
+  MODERN
+}
+
 enum Role {
   OWNER
   HEAD
@@ -42,6 +49,7 @@ model School {
   logoUrl   String?
   smsSenderId String? // registered SMS sender ID (e.g. "BRIGHTON")
   smsCredits  Int      @default(0) // pay-as-you-go SMS units the school has bought
+  reportTemplate ReportTemplate @default(GES)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -197,9 +205,61 @@ model Student {
   termReports  TermReport[]
   invoices     Invoice[]
   ledger       LedgerEntry[]
+  documents      StudentDocument[]
+  bankDeposits   BankDeposit[]
 
   @@unique([schoolId, admissionNo])
   @@index([schoolId, classId])
+}
+
+/// Files attached to a student (birth certificate, immunisation card, previous report…).
+/// `key` addresses the object in storage; bytes are never stored in the database.
+model StudentDocument {
+  id           String   @id @default(cuid())
+  schoolId     String
+  studentId    String
+  student      Student  @relation(fields: [studentId], references: [id])
+  kind         String   @default("OTHER")
+  filename     String
+  contentType  String
+  size         Int
+  key          String
+  uploadedById String
+  createdAt    DateTime @default(now())
+
+  @@index([schoolId, studentId])
+}
+
+enum DepositStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
+/// A bank deposit claimed by a guardian/office with proof attached. Nothing reaches the
+/// ledger until a bursar confirms it — confirmation appends a PAYMENT entry + receipt.
+model BankDeposit {
+  id            String        @id @default(cuid())
+  schoolId      String
+  studentId     String
+  student       Student       @relation(fields: [studentId], references: [id])
+  termId        String?
+  amount        Decimal       @db.Decimal(12, 2)
+  bankName      String?
+  bankRef       String?
+  depositedAt   DateTime
+  proofKey      String?
+  status        DepositStatus @default(PENDING)
+  /// Reference of the ledger entry created on confirmation — also the idempotency key.
+  reference     String        @unique
+  note          String?
+  reviewNote    String?
+  submittedById String
+  reviewedById  String?
+  reviewedAt    DateTime?
+  createdAt     DateTime      @default(now())
+
+  @@index([schoolId, status])
 }
 
 enum CustodyFlag {
