@@ -50,6 +50,7 @@ export default function FeesPage() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [depositFor, setDepositFor] = useState<Defaulter | null>(null);
+  const [payLink, setPayLink] = useState<{ student: string; url: string } | null>(null);
 
   useEffect(() => {
     fetch('/api/proxy/me')
@@ -97,6 +98,19 @@ export default function FeesPage() {
       const body = await res.json().catch(() => ({}));
       setToast(body.message ?? 'Could not record payment.');
     }
+  }
+
+  /** Mint a public pay link the bursar can send to the guardian (guardians have no login). */
+  async function createPayLink(d: Defaulter) {
+    setToast(null);
+    const res = await fetch('/api/proxy/payments/link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId: d.studentId, channel: 'MOMO', amount: d.balance }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (res.ok) setPayLink({ student: d.name, url: body.payUrl });
+    else setToast(body.message ?? 'Could not create a payment link.');
   }
 
   const collectedPct = ov && ov.invoiced > 0 ? Math.round((ov.collected / ov.invoiced) * 100) : 0;
@@ -210,6 +224,13 @@ export default function FeesPage() {
                           className="tip text-[12.5px] font-medium text-forest border border-forest/40 rounded-full px-3 py-1 hover:bg-forest-mist transition mr-1.5"
                         >
                           Bank deposit
+                        </button>
+                        <button
+                          onClick={() => createPayLink(d)}
+                          data-tip="Create a pay-online link to send to the guardian"
+                          className="tip text-[12.5px] font-medium text-forest border border-forest/40 rounded-full px-3 py-1 hover:bg-forest-mist transition mr-1.5"
+                        >
+                          Pay link
                         </button>
                         <button
                           onClick={() => {
@@ -386,6 +407,43 @@ export default function FeesPage() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Pay-link dialog — the bursar copies this to the guardian (SMS/WhatsApp) */}
+      {payLink && (
+        <div
+          className="fixed inset-0 z-50 bg-ink/40 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal
+        >
+          <div className="card w-full max-w-lg p-7 rise">
+            <h2 className="font-display text-2xl">Payment link</h2>
+            <p className="text-sm text-oat mt-1">
+              Send this to {payLink.student}&apos;s guardian — they can pay by mobile money without
+              needing an account.
+            </p>
+            <input
+              readOnly
+              value={payLink.url}
+              onFocus={(e) => e.currentTarget.select()}
+              className="w-full mt-5 rounded-lg border border-mist bg-parchment/50 px-3.5 py-2.5 text-sm tabular outline-none"
+            />
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => navigator.clipboard?.writeText(payLink.url)}
+                className="flex-1 rounded-lg bg-forest text-paper text-sm font-medium py-2.5 hover:bg-forest-deep transition"
+              >
+                Copy link
+              </button>
+              <button
+                onClick={() => setPayLink(null)}
+                className="flex-1 rounded-lg border border-mist py-2.5 text-sm hover:border-oat transition"
+              >
+                Done
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

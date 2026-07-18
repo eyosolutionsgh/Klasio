@@ -71,6 +71,12 @@ const NAV = [
     tip: 'Staff accounts and what each role may do',
   },
   {
+    href: '/settings/gateways',
+    label: 'Payment Setup',
+    icon: 'M12 1L3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5l-9-4zm0 6a2 2 0 110 4 2 2 0 010-4zm0 5c1.7 0 5 .8 5 2.5V16H7v-1.5C7 12.8 10.3 12 12 12z',
+    tip: 'Connect your Hubtel or Paystack account',
+  },
+  {
     href: '/audit',
     label: 'Audit Log',
     icon: 'M12 1L3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5l-9-4zm-2 16l-4-4 1.4-1.4L10 14.2l6.6-6.6L18 9l-8 8z',
