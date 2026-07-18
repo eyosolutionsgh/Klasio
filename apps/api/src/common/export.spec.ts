@@ -11,7 +11,7 @@ describe('CSV export', () => {
       ],
     ).toString('utf8');
     // Strip the UTF-8 BOM.
-    const body = csv.replace(/^﻿/, '');
+    const body = csv.replace(/^\uFEFF/, '');
     const [header, r1, r2] = body.split('\r\n');
     expect(header).toBe('Name,Note');
     expect(r1).toBe('"Mensah, Ama","says ""hi"""');
@@ -21,7 +21,7 @@ describe('CSV export', () => {
   it('renders null/undefined as empty cells', () => {
     const csv = toCsv(['A', 'B'], [[null, undefined]])
       .toString('utf8')
-      .replace(/^﻿/, '');
+      .replace(/^\uFEFF/, '');
     expect(csv.split('\r\n')[1]).toBe(',');
   });
 });
