@@ -88,8 +88,11 @@ export default function UserMenu({
         >
           {initials(name)}
         </span>
-        <span className="hidden sm:block text-left leading-tight max-w-[9rem]">
-          <span className="block text-[13px] font-medium truncate">{name}</span>
+        {/* The role is what tells you which account you are acting as, and acting as the wrong
+            one is the costly mistake — so it stays visible at every width. Only the name, which
+            the avatar initials already stand in for, drops away on a phone. */}
+        <span className="text-left leading-tight max-w-[9rem]">
+          <span className="hidden sm:block text-[13px] font-medium truncate">{name}</span>
           <span className="block text-[10px] uppercase tracking-wider text-oat">
             {role.toLowerCase().replace('_', ' ')}
           </span>

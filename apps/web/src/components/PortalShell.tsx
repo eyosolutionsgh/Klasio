@@ -66,7 +66,7 @@ export default function PortalShell({
     // The school's colour enters the cascade here as --brand; the deep and mist variants are
     // derived from it in globals.css, so one stored value themes every primary surface.
     <div
-      className="brand-scope flex"
+      className="brand-scope flex min-h-screen"
       style={brandColor ? ({ '--brand': brandColor } as React.CSSProperties) : undefined}
     >
       {open && (
@@ -77,16 +77,9 @@ export default function PortalShell({
         />
       )}
 
-      <Sidebar
-        school={school}
-        hasLogo={hasLogo}
-        userName={userName}
-        role={role}
-        open={open}
-        onClose={close}
-      />
+      <Sidebar school={school} hasLogo={hasLogo} open={open} onClose={close} />
 
-      <div className="flex-1 min-w-0 overflow-x-clip">
+      <div className="flex-1 min-w-0 overflow-x-clip flex flex-col">
         <header className="no-print flex items-center justify-between gap-3 px-4 lg:px-6 h-16 border-b border-mist bg-paper/80 backdrop-blur sticky top-0 z-30">
           <div className="flex items-center gap-3 min-w-0">
             <button
@@ -125,7 +118,7 @@ export default function PortalShell({
             <UserMenu name={userName} role={role} email={userEmail} />
           </div>
         </header>
-        <main className="px-4 py-6 lg:px-8 lg:py-8 max-w-6xl">{children}</main>
+        <main className="flex-1 px-4 py-6 lg:px-8 lg:py-8 max-w-6xl w-full">{children}</main>
       </div>
     </div>
   );

@@ -94,15 +94,11 @@ const NAV = [
 export default function Sidebar({
   school,
   hasLogo,
-  userName,
-  role,
   open = false,
   onClose,
 }: {
   school: string;
   hasLogo: boolean;
-  userName: string;
-  role: string;
   /** Drawer state — only meaningful below `lg`, where the sidebar is off-canvas. */
   open?: boolean;
   onClose?: () => void;
@@ -125,7 +121,7 @@ export default function Sidebar({
               '-translate-x-full invisible lg:visible'
         }
         lg:translate-x-0 lg:w-60 lg:shrink-0 lg:shadow-none
-        lg:sticky lg:top-0 lg:min-h-screen lg:max-h-screen`}
+        lg:sticky lg:top-0 lg:h-screen`}
     >
       <div className="kente-stripe h-1.5" />
       <div className="px-5 pt-6 pb-5 border-b border-paper/10 flex items-start justify-between gap-2">
@@ -178,15 +174,6 @@ export default function Sidebar({
           );
         })}
       </nav>
-
-      {/* Who you are signed in as. Sign-out and profile now live in the top-bar avatar menu, so
-          there is exactly one place to look for them. */}
-      <div className="px-5 py-4 border-t border-paper/10">
-        <p className="text-[13px] font-medium truncate">{userName}</p>
-        <p className="text-[11px] uppercase tracking-wider text-paper/50 mt-0.5">
-          {role.toLowerCase().replace('_', ' ')}
-        </p>
-      </div>
     </aside>
   );
 }
