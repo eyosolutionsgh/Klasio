@@ -20,7 +20,7 @@ import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
 import { IsIn, IsNumber, IsOptional, IsPositive, IsString, MinLength } from 'class-validator';
 import { GatewayProvider, PaymentChannel, PaymentMethod, Prisma } from '@prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService, withTenant } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, Public, RequireEntitlement, Roles } from '../common/auth';
 import { decryptSecret, encryptSecret, publicToken } from '../common/crypto';
 import { PaymentProvider, ProviderStatus } from '../common/payments/provider';
@@ -336,8 +336,18 @@ export class PaymentsService {
   }
 
   /** Public (unauthenticated) view of a pay link. Exposes only what a payer needs. */
+  /**
+   * Public entry points have no principal, so no tenant is set and RLS hides every row.
+   *
+   * Each of these therefore resolves its intent through the OWNER client — a reference or a pay
+   * token identifies a payment across schools, exactly like an email identifies a user at login
+   * — and then does its real work inside `withTenant`. See prisma.service.ts.
+   *
+   * This was missed when RLS landed and it broke settlement silently: the gateway called back,
+   * the lookup found nothing, and a parent's payment never reached the ledger.
+   */
   async publicIntent(token: string) {
-    const intent = await this.db.paymentIntent.findUnique({
+    const intent = await this.db.system.paymentIntent.findUnique({
       where: { payToken: token },
       include: { student: { include: { classRoom: { select: { name: true } } } } },
     });
@@ -360,7 +370,7 @@ export class PaymentsService {
 
   /** Public: start checkout for a pay link (guardian has no login). */
   async publicCheckout(token: string, phone?: string) {
-    const intent = await this.db.paymentIntent.findUnique({
+    const intent = await this.db.system.paymentIntent.findUnique({
       where: { payToken: token },
       include: { student: true },
     });
@@ -389,68 +399,72 @@ export class PaymentsService {
    * on the pre-check or loses the unique-constraint race and is treated as already applied.
    */
   async applySuccess(reference: string, amountPaid?: number, providerRef?: string) {
-    const intent = await this.db.paymentIntent.findUnique({ where: { reference } });
+    const intent = await this.db.system.paymentIntent.findUnique({ where: { reference } });
     if (!intent) throw new NotFoundException('Unknown payment reference');
 
-    const existing = await this.db.ledgerEntry.findUnique({ where: { reference } });
-    if (existing) {
-      if (intent.status !== 'SUCCESS') {
-        await this.db.paymentIntent.update({
-          where: { id: intent.id },
-          data: { status: 'SUCCESS', providerRef: providerRef ?? intent.providerRef },
-        });
-      }
-      return { applied: false, alreadyApplied: true, reference };
-    }
-
-    const amount = amountPaid != null && amountPaid > 0 ? amountPaid : Number(intent.amount);
-    const rcpSeq = (await this.db.receipt.count({ where: { schoolId: intent.schoolId } })) + 1;
-    try {
-      const entry = await this.db.ledgerEntry.create({
-        data: {
-          schoolId: intent.schoolId,
-          studentId: intent.studentId,
-          termId: intent.termId,
-          type: 'PAYMENT',
-          amount: new Prisma.Decimal(amount),
-          method: METHOD_FOR[intent.channel],
-          reference: intent.reference,
-          note: `Online payment (${intent.provider})`,
-          createdById: intent.createdById ?? 'system',
-        },
-      });
-      await this.db.receipt.create({
-        data: {
-          schoolId: intent.schoolId,
-          ledgerEntryId: entry.id,
-          number: `RCP-2026-${String(rcpSeq).padStart(5, '0')}`,
-        },
-      });
-    } catch (e) {
-      // Concurrent callback won the race — the money is already recorded exactly once.
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+    // The lookup above had no tenant; everything below writes, so it must run inside one or RLS
+    // refuses the insert. Settling a parent's payment is the last place to be casual about this.
+    return withTenant(intent.schoolId, async () => {
+      const existing = await this.db.ledgerEntry.findUnique({ where: { reference } });
+      if (existing) {
+        if (intent.status !== 'SUCCESS') {
+          await this.db.paymentIntent.update({
+            where: { id: intent.id },
+            data: { status: 'SUCCESS', providerRef: providerRef ?? intent.providerRef },
+          });
+        }
         return { applied: false, alreadyApplied: true, reference };
       }
-      throw e;
-    }
 
-    await this.db.paymentIntent.update({
-      where: { id: intent.id },
-      data: { status: 'SUCCESS', providerRef: providerRef ?? intent.providerRef },
+      const amount = amountPaid != null && amountPaid > 0 ? amountPaid : Number(intent.amount);
+      const rcpSeq = (await this.db.receipt.count({ where: { schoolId: intent.schoolId } })) + 1;
+      try {
+        const entry = await this.db.ledgerEntry.create({
+          data: {
+            schoolId: intent.schoolId,
+            studentId: intent.studentId,
+            termId: intent.termId,
+            type: 'PAYMENT',
+            amount: new Prisma.Decimal(amount),
+            method: METHOD_FOR[intent.channel],
+            reference: intent.reference,
+            note: `Online payment (${intent.provider})`,
+            createdById: intent.createdById ?? 'system',
+          },
+        });
+        await this.db.receipt.create({
+          data: {
+            schoolId: intent.schoolId,
+            ledgerEntryId: entry.id,
+            number: `RCP-2026-${String(rcpSeq).padStart(5, '0')}`,
+          },
+        });
+      } catch (e) {
+        // Concurrent callback won the race — the money is already recorded exactly once.
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+          return { applied: false, alreadyApplied: true, reference };
+        }
+        throw e;
+      }
+
+      await this.db.paymentIntent.update({
+        where: { id: intent.id },
+        data: { status: 'SUCCESS', providerRef: providerRef ?? intent.providerRef },
+      });
+      await this.db.audit(
+        intent.schoolId,
+        intent.createdById,
+        'payments.settled',
+        'PaymentIntent',
+        intent.id,
+        {
+          reference,
+          amount,
+          provider: intent.provider,
+        },
+      );
+      return { applied: true, alreadyApplied: false, reference, amount };
     });
-    await this.db.audit(
-      intent.schoolId,
-      intent.createdById,
-      'payments.settled',
-      'PaymentIntent',
-      intent.id,
-      {
-        reference,
-        amount,
-        provider: intent.provider,
-      },
-    );
-    return { applied: true, alreadyApplied: false, reference, amount };
   }
 
   /**
@@ -481,73 +495,80 @@ export class PaymentsService {
           : new MockProvider();
     const parsed = parser.parseWebhook(payload);
     if (!parsed?.reference) throw new BadRequestException('Unrecognised webhook payload');
+    // Captured before the closure below: the narrowing from the guard above does not survive
+    // into a callback, and TypeScript is right to insist.
+    const reference = parsed.reference;
 
-    const intent = await this.db.paymentIntent.findUnique({
-      where: { reference: parsed.reference },
+    const intent = await this.db.system.paymentIntent.findUnique({
+      where: { reference },
     });
     if (!intent) throw new NotFoundException('Unknown payment reference');
 
-    const provider = await this.providerFor(intent.schoolId, intent.provider);
-    let status: ProviderStatus = parsed.status;
-    let amount = parsed.amount;
+    // From here on we know the school, so everything runs in its scope — the dedupe row, the
+    // intent update and the ledger write are all tenant-owned.
+    return withTenant(intent.schoolId, async () => {
+      const provider = await this.providerFor(intent.schoolId, intent.provider);
+      let status: ProviderStatus = parsed.status;
+      let amount = parsed.amount;
 
-    // Authenticate the callback FIRST. Recording the dedupe row before this would let a
-    // forged webhook burn the event id and make the genuine callback look like a replay —
-    // a denial-of-settlement. Nothing is persisted until the event is proven genuine.
-    if (provider.signsWebhooks) {
-      if (!provider.verifyWebhookSignature(headers, rawBody)) {
-        throw new UnauthorizedException('Invalid webhook signature');
+      // Authenticate the callback FIRST. Recording the dedupe row before this would let a
+      // forged webhook burn the event id and make the genuine callback look like a replay —
+      // a denial-of-settlement. Nothing is persisted until the event is proven genuine.
+      if (provider.signsWebhooks) {
+        if (!provider.verifyWebhookSignature(headers, rawBody)) {
+          throw new UnauthorizedException('Invalid webhook signature');
+        }
+      } else {
+        // Unsigned gateway (Hubtel): the callback is only a trigger — the server-to-server
+        // re-query is authoritative for both status and amount.
+        const verified = await provider.verify({
+          reference,
+          providerRef: parsed.providerRef,
+        });
+        status = verified.status;
+        amount = verified.amountPaid ?? amount;
       }
-    } else {
-      // Unsigned gateway (Hubtel): the callback is only a trigger — the server-to-server
-      // re-query is authoritative for both status and amount.
-      const verified = await provider.verify({
-        reference: parsed.reference,
-        providerRef: parsed.providerRef,
-      });
-      status = verified.status;
-      amount = verified.amountPaid ?? amount;
-    }
 
-    // Replay guard, only for authenticated events: unique (provider, providerEventId).
-    try {
-      await this.db.webhookEvent.create({
-        data: {
-          provider: kind,
-          providerEventId: parsed.providerEventId,
-          schoolId: intent.schoolId,
-          reference: parsed.reference,
-          verified: true,
-          payload: payload as Prisma.InputJsonValue,
+      // Replay guard, only for authenticated events: unique (provider, providerEventId).
+      try {
+        await this.db.webhookEvent.create({
+          data: {
+            provider: kind,
+            providerEventId: parsed.providerEventId,
+            schoolId: intent.schoolId,
+            reference: parsed.reference,
+            verified: true,
+            payload: payload as Prisma.InputJsonValue,
+          },
+        });
+      } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+          return { ok: true, duplicate: true };
+        }
+        throw e;
+      }
+
+      let result: { applied: boolean; alreadyApplied: boolean } = {
+        applied: false,
+        alreadyApplied: false,
+      };
+      if (status === 'SUCCESS') {
+        result = await this.applySuccess(reference, amount, parsed.providerRef);
+      } else if (status === 'FAILED' || status === 'EXPIRED') {
+        await this.db.paymentIntent.update({
+          where: { id: intent.id },
+          data: { status, failureCode: String(status) },
+        });
+      }
+
+      await this.db.webhookEvent.update({
+        where: {
+          provider_providerEventId: { provider: kind, providerEventId: parsed.providerEventId },
         },
+        data: { processedAt: new Date() },
       });
-    } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        return { ok: true, duplicate: true };
-      }
-      throw e;
-    }
-
-    let result: { applied: boolean; alreadyApplied: boolean } = {
-      applied: false,
-      alreadyApplied: false,
-    };
-    if (status === 'SUCCESS') {
-      result = await this.applySuccess(parsed.reference, amount, parsed.providerRef);
-    } else if (status === 'FAILED' || status === 'EXPIRED') {
-      await this.db.paymentIntent.update({
-        where: { id: intent.id },
-        data: { status, failureCode: String(status) },
-      });
-    }
-
-    await this.db.webhookEvent.update({
-      where: {
-        provider_providerEventId: { provider: kind, providerEventId: parsed.providerEventId },
-      },
-      data: { processedAt: new Date() },
+      return { ok: true, status, ...result };
     });
-    return { ok: true, status, ...result };
   }
 
   /**
@@ -556,7 +577,7 @@ export class PaymentsService {
    * sweep, so this stays safe to expose without a login.
    */
   async storedStatus(reference: string) {
-    const intent = await this.db.paymentIntent.findUnique({
+    const intent = await this.db.system.paymentIntent.findUnique({
       where: { reference },
       select: { reference: true, status: true, amount: true, currency: true, updatedAt: true },
     });

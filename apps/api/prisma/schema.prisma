@@ -71,6 +71,8 @@ model School {
   subjects      Subject[]
   students      Student[]
   guardians     Guardian[]
+
+  subscription  Subscription?
 }
 
 model User {
@@ -1201,4 +1203,81 @@ model WhatsAppMessage {
 
   @@unique([schoolId, externalId])
   @@index([schoolId, conversationId, createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SaaS subscription billing
+//
+// The school is the *customer* here, not the payee. School fees settle to the school's own
+// GatewayAccount; subscription payments settle to the vendor, through platform credentials held
+// in env. Confusing the two would pay a school its own subscription money, so the two paths
+// deliberately share no configuration.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum SubscriptionStatus {
+  /// Paid and inside its period.
+  ACTIVE
+  /// Period ended without renewal. The school keeps working — see the downgrade rule.
+  PAST_DUE
+  /// Will not renew; reverts to BASIC when the paid period ends.
+  CANCELLING
+  CANCELLED
+}
+
+model Subscription {
+  id       String             @id @default(cuid())
+  schoolId String             @unique
+  school   School             @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  tier     Tier
+  status   SubscriptionStatus @default(ACTIVE)
+  /// What the school pays per term at signing, held so a later price change cannot silently
+  /// re-bill an existing customer at a new rate.
+  amount   Decimal            @db.Decimal(12, 2)
+  currency String             @default("GHS")
+  /// Enrolment the price was based on. Re-quoted each renewal, never mid-period.
+  studentCount Int
+  periodStart DateTime
+  periodEnd   DateTime
+  /// Set when the school asks to move down; applied at periodEnd, never immediately.
+  pendingTier Tier?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  invoices SubscriptionInvoice[]
+
+  @@index([status, periodEnd])
+}
+
+enum SubscriptionInvoiceStatus {
+  PENDING
+  PAID
+  FAILED
+  CANCELLED
+}
+
+/// One term's subscription charge. Separate from the school's own fee Invoice, which bills
+/// parents — these two must never be summed together.
+model SubscriptionInvoice {
+  id             String                    @id @default(cuid())
+  schoolId       String
+  subscriptionId String?
+  subscription   Subscription?             @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  tier           Tier
+  amount         Decimal                   @db.Decimal(12, 2)
+  currency       String                    @default("GHS")
+  studentCount   Int
+  periodStart    DateTime
+  periodEnd      DateTime
+  status         SubscriptionInvoiceStatus @default(PENDING)
+  /// Our own reference, sent to the gateway and echoed back on the webhook.
+  reference      String                    @unique
+  provider       GatewayProvider?
+  /// Gateway's transaction id, once it settles.
+  externalId     String?
+  paidAt         DateTime?
+  createdById    String?
+  createdAt      DateTime                  @default(now())
+
+  @@index([schoolId, createdAt])
+  @@index([status])
 }

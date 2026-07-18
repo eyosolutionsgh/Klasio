@@ -36,6 +36,10 @@ const ROLE_LABELS: Record<string, string> = {
   GUARDIAN: 'Guardian accounts',
 };
 
+/** PRE_SCHOOL → Pre school. The enum is an implementation detail, not something to file. */
+const humanise = (s: string) =>
+  s.charAt(0) + s.slice(1).toLowerCase().replace(/_/g, ' ').replace(/\s+/g, ' ');
+
 export default async function ReturnsPage({
   searchParams,
 }: {
@@ -154,7 +158,7 @@ export default async function ReturnsPage({
               {e.byLevel.map((r) => (
                 <tr key={r.level} className="border-b border-mist/60 last:border-0">
                   <td className="px-5 py-3 font-medium">{r.level}</td>
-                  <td className="px-5 py-3 text-oat">{r.category}</td>
+                  <td className="px-5 py-3 text-oat">{humanise(r.category)}</td>
                   <td className="px-5 py-3 text-right tabular">{r.boys}</td>
                   <td className="px-5 py-3 text-right tabular">{r.girls}</td>
                   <td className="px-5 py-3 text-right tabular font-medium">{r.total}</td>

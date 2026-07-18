@@ -48,6 +48,7 @@ import { PaymentMethod, Prisma } from '@prisma/client';
 import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
+import { markSchedule, scheduleTotals } from '../common/installments';
 import { SmsModule, SmsService } from '../sms/sms.module';
 import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
 import { receiptPdf } from '../common/pdf';
@@ -1058,44 +1059,35 @@ export class FeesService {
     });
     if (rows.length === 0) return { parts: [], paidTotal: 0, scheduledTotal: 0, overdue: 0 };
 
+    // Progress is measured against what is still owed, not against every payment ever made.
+    // See common/installments.ts — the first version counted historic payments and marked a
+    // freshly agreed plan fully settled.
     const entries = await this.db.ledgerEntry.findMany({
-      where: {
-        schoolId: auth.schoolId,
-        studentId,
-        type: { in: ['PAYMENT', 'DISCOUNT', 'WAIVER'] },
-      },
+      where: { schoolId: auth.schoolId, studentId },
     });
-    let credit = entries.reduce((a, e) => a + Number(e.amount), 0);
+    const owed = entries.reduce((acc, e) => {
+      const amt = Number(e.amount);
+      if (e.type === 'INVOICE') return acc + amt;
+      if (e.type === 'REVERSAL') return acc;
+      return acc - amt;
+    }, 0);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    let overdue = 0;
 
-    const parts = rows.map((r) => {
-      const amount = Number(r.amount);
-      const covered = Math.min(credit, amount);
-      credit -= covered;
-      const settled = Math.round((amount - covered) * 100) <= 0;
-      const isOverdue = !settled && r.dueDate < today;
-      if (isOverdue) overdue += 1;
-      return {
+    const marked = markSchedule(
+      rows.map((r) => ({
         id: r.id,
         sequence: r.sequence,
-        amount,
-        paid: Math.round(covered * 100) / 100,
-        outstanding: Math.round((amount - covered) * 100) / 100,
+        amount: Number(r.amount),
         dueDate: r.dueDate,
         note: r.note,
-        status: settled ? 'PAID' : isOverdue ? 'OVERDUE' : 'DUE',
-      };
-    });
+      })),
+      Math.round(owed * 100) / 100,
+      today,
+    );
 
-    return {
-      parts,
-      scheduledTotal: Math.round(rows.reduce((a, r) => a + Number(r.amount), 0) * 100) / 100,
-      paidTotal: Math.round(parts.reduce((a, p) => a + p.paid, 0) * 100) / 100,
-      overdue,
-    };
+    return { parts: marked, ...scheduleTotals(marked) };
   }
 
   // ── Fee structure rollover ─────────────────────────────────────────

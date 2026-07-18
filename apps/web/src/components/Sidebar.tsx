@@ -176,6 +176,14 @@ const NAV: NavItem[] = [
     roles: ADMIN,
   },
   {
+    href: '/settings/billing',
+    label: 'Subscription',
+    icon: 'M20 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6a2 2 0 00-2-2zm0 4H4V6h16v2zm0 10H4v-6h16v6zM6 15h5v2H6v-2z',
+    // Deliberately no `needs`: a Basic school is exactly who needs to find this page.
+    tip: 'What this school pays EYO, and how to change package',
+    roles: ADMIN,
+  },
+  {
     href: '/audit',
     label: 'Audit Log',
     icon: 'M12 1L3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5l-9-4zm-2 16l-4-4 1.4-1.4L10 14.2l6.6-6.6L18 9l-8 8z',

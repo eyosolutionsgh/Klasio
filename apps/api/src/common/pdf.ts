@@ -812,63 +812,81 @@ export interface StudentIdCardData {
  * collect a child. Verification at the gate still goes through the guardian's own QR or PIN;
  * this one identifies, it does not authorise. That distinction is the whole design.
  */
+
 export async function studentIdCardPdf(data: StudentIdCardData): Promise<Buffer> {
+  return studentIdCardSheet([data]);
+}
+
+/**
+ * One document, one card per page.
+ *
+ * The first version built every card in a batch and then returned only the first, so asking to
+ * print a class silently printed one child. Card printers feed page by page, so a multi-page
+ * document is both correct and what the hardware wants.
+ */
+export async function studentIdCardSheet(cards: StudentIdCardData[]): Promise<Buffer> {
   const qrcode = await import('qrcode');
-  const qr = await qrcode.toBuffer(data.qrValue, { type: 'png', width: 240, margin: 1 });
+  if (cards.length === 0) throw new Error('No cards to print');
 
   // CR80 at 72dpi — the size every card printer and lanyard holder expects.
-  const doc = new PDFDocument({ size: [243, 153], margin: 12 });
-  const BRAND = brandOf(data.school);
+  const doc = new PDFDocument({ size: [243, 153], margin: 12, autoFirstPage: false });
   const chunks: Buffer[] = [];
   doc.on('data', (c: Buffer) => chunks.push(c));
   const done = new Promise<Buffer>((resolve) =>
     doc.on('end', () => resolve(Buffer.concat(chunks))),
   );
 
-  doc.rect(0, 0, doc.page.width, 26).fill(BRAND);
-  doc
-    .fillColor('#ffffff')
-    .fontSize(9)
-    .font('Helvetica-Bold')
-    .text(data.school.name.toUpperCase().slice(0, 34), 12, 9, { width: 219 });
+  for (const data of cards) {
+    const qr = await qrcode.toBuffer(data.qrValue, { type: 'png', width: 240, margin: 1 });
+    const BRAND = brandOf(data.school);
+    doc.addPage({ size: [243, 153], margin: 12 });
 
-  const top = 36;
-  if (data.photo) {
-    try {
-      doc.image(data.photo, 12, top, { fit: [56, 68], align: 'center' });
-    } catch {
-      // A corrupt or unsupported image must not cost the school its whole print run.
+    doc.rect(0, 0, doc.page.width, 26).fill(BRAND);
+    doc
+      .fillColor('#ffffff')
+      .fontSize(9)
+      .font('Helvetica-Bold')
+      .text(data.school.name.toUpperCase().slice(0, 34), 12, 9, { width: 219 });
+
+    const top = 36;
+    if (data.photo) {
+      try {
+        doc.image(data.photo, 12, top, { fit: [56, 68], align: 'center' });
+      } catch {
+        // A corrupt or unsupported image must not cost the school its whole print run.
+        doc.rect(12, top, 56, 68).fillAndStroke('#f3f0e8', '#ded8c9');
+      }
+    } else {
+      doc.rect(12, top, 56, 68).fillAndStroke('#f3f0e8', '#ded8c9');
     }
-  } else {
-    doc.rect(12, top, 56, 68).fillAndStroke('#f3f0e8', '#ded8c9');
+
+    const textX = 78;
+    doc
+      .fillColor('#1b2822')
+      .font('Helvetica-Bold')
+      .fontSize(11)
+      .text(data.name, textX, top + 2, { width: 100 });
+    doc
+      .font('Helvetica')
+      .fontSize(8)
+      .fillColor('#6b6455')
+      .text(data.className ?? '—', textX, top + 20, { width: 100 })
+      .text(data.admissionNo, textX, top + 32, { width: 100 });
+
+    doc.image(qr, 181, top + 2, { fit: [50, 50] });
+
+    doc
+      .fontSize(5.5)
+      .fillColor('#6b6455')
+      .text(
+        data.contact
+          ? `If found, please return to ${data.school.name} · ${data.contact}`
+          : `If found, please return to ${data.school.name}`,
+        12,
+        doc.page.height - 20,
+        { width: 219, align: 'center' },
+      );
   }
-
-  const textX = 78;
-  doc
-    .fillColor('#1b2822')
-    .font('Helvetica-Bold')
-    .fontSize(11)
-    .text(data.name, textX, top + 2, { width: 100 });
-  doc
-    .font('Helvetica')
-    .fontSize(8)
-    .fillColor('#6b6455')
-    .text(data.className ?? '—', textX, top + 20, { width: 100 })
-    .text(data.admissionNo, textX, top + 32, { width: 100 });
-
-  doc.image(qr, 181, top + 2, { fit: [50, 50] });
-
-  doc
-    .fontSize(5.5)
-    .fillColor('#6b6455')
-    .text(
-      data.contact
-        ? `If found, please return to ${data.school.name} · ${data.contact}`
-        : `If found, please return to ${data.school.name}`,
-      12,
-      doc.page.height - 20,
-      { width: 219, align: 'center' },
-    );
 
   doc.end();
   return done;

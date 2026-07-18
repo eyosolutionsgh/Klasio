@@ -28,6 +28,7 @@ import { TimetableModule } from './timetable/timetable.module';
 import { CustomFieldsModule } from './customfields/customfields.module';
 import { RemarksModule } from './remarks/remarks.module';
 import { ReturnsModule } from './returns/returns.module';
+import { BillingModule } from './billing/billing.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { ReturnsModule } from './returns/returns.module';
     CustomFieldsModule,
     RemarksModule,
     ReturnsModule,
+    BillingModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: AuthGuard },
