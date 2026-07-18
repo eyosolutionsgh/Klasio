@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import GuardianPay from '@/components/GuardianPay';
 import { useRouter } from 'next/navigation';
 
 interface Ward {
@@ -226,6 +227,12 @@ export default function FamilyPage() {
 
             <section className="card p-6">
               <h2 className="font-display text-xl">Bills &amp; payments</h2>
+              <GuardianPay
+                wardId={wardId}
+                balance={overview.feeBalance}
+                currency={me?.school.currency ?? 'GHS'}
+                onDone={loadWard}
+              />
               <ul className="mt-4 space-y-3">
                 {overview.ledger.map((e) => (
                   <li

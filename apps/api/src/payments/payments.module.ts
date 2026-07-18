@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Body,
   Controller,
   Get,
@@ -26,6 +27,7 @@ import { PaymentProvider, ProviderStatus } from '../common/payments/provider';
 import { PaystackProvider } from '../common/payments/paystack';
 import { HubtelProvider } from '../common/payments/hubtel';
 import { MockProvider, MOCK_SECRET } from '../common/payments/mock';
+import { hasEntitlement } from '../common/entitlements';
 import { createHmac } from 'crypto';
 
 class ConnectGatewayDto {
@@ -82,7 +84,17 @@ export class PaymentsService {
       orderBy: { createdAt: 'asc' },
     });
     const acct = preferred ? accounts.find((a) => a.provider === preferred) : accounts[0];
-    if (!acct) return new MockProvider();
+    if (!acct) {
+      // Falling back to the mock in production would tell a parent their money went through
+      // when nothing was ever charged. In development it is what makes the demo work, so the
+      // fallback stays there and only there.
+      if (process.env.NODE_ENV === 'production' && process.env.ALLOW_MOCK_PAYMENTS !== 'true') {
+        throw new BadRequestException(
+          'This school has not connected a payment gateway yet — pay at the school office',
+        );
+      }
+      return new MockProvider();
+    }
     const creds = {
       secret: decryptSecret(acct.secretEnc),
       publicKey: acct.publicKey ?? undefined,
@@ -93,7 +105,13 @@ export class PaymentsService {
   }
 
   /** Outstanding balance for a student across all terms (append-only ledger projection). */
-  private async outstanding(studentId: string): Promise<number> {
+  /**
+   * What this child still owes, from the ledger — the single definition of "the balance".
+   *
+   * Public because the guardian portal needs the same number: a parent must never be quoted a
+   * different figure from the one the bursar sees.
+   */
+  async outstandingFor(studentId: string): Promise<number> {
     const entries = await this.db.ledgerEntry.findMany({ where: { studentId } });
     const bal = entries.reduce((acc, e) => {
       const amt = Number(e.amount);
@@ -175,7 +193,7 @@ export class PaymentsService {
     });
     if (!student) throw new NotFoundException('Student not found');
 
-    const amount = dto.amount ?? (await this.outstanding(dto.studentId));
+    const amount = dto.amount ?? (await this.outstandingFor(dto.studentId));
     if (!(amount > 0)) throw new BadRequestException('Nothing outstanding to pay');
 
     const term = await this.db.term.findFirst({
@@ -248,6 +266,45 @@ export class PaymentsService {
       school.name,
     );
     await this.db.audit(auth.schoolId, auth.sub, 'payments.checkout', 'PaymentIntent', intent.id, {
+      reference: intent.reference,
+      amount: Number(intent.amount),
+      provider: provider.kind,
+    });
+    return {
+      reference: intent.reference,
+      amount: Number(intent.amount),
+      currency: intent.currency,
+      provider: provider.kind,
+      checkoutUrl: result.checkoutUrl,
+      status: result.status,
+    };
+  }
+
+  /**
+   * A guardian paying for their own ward from the family portal.
+   *
+   * The caller is a guardian, not a staff user, so there is no `AuthUser` and no `@Roles` to
+   * lean on — the guardian module proves the child is theirs (and not custody-BLOCKED) before
+   * calling this. Entitlement is read from the school rather than the token because guardian
+   * sessions last weeks and a tier baked into one would go stale.
+   */
+  async guardianCheckout(schoolId: string, dto: CheckoutDto) {
+    const school = await this.db.school.findUniqueOrThrow({
+      where: { id: schoolId },
+      select: { tier: true, name: true },
+    });
+    if (!hasEntitlement(school.tier, 'fees.online')) {
+      throw new ForbiddenException('This school does not accept online payments yet');
+    }
+    const { intent, provider, student } = await this.createIntent(null, schoolId, dto, false);
+    const result = await this.initiate(
+      intent,
+      provider,
+      `${student.firstName} ${student.lastName}`,
+      school.name,
+    );
+    // No userId — a guardian is not a staff user. The intent records who paid via payerPhone.
+    await this.db.audit(schoolId, null, 'payments.guardian-checkout', 'PaymentIntent', intent.id, {
       reference: intent.reference,
       amount: Number(intent.amount),
       provider: provider.kind,

@@ -21,6 +21,7 @@ import * as jwt from 'jsonwebtoken';
 import { createHash, randomInt, timingSafeEqual } from 'crypto';
 import { PrismaService, withTenant } from '../prisma/prisma.service';
 import { FeesModule, FeesService } from '../fees/fees.module';
+import { PaymentsModule, PaymentsService } from '../payments/payments.module';
 import { Public } from '../common/auth';
 import { maskMsisdn, normalizeMsisdn } from '../common/phone';
 import { reportCardPdf, ReportCardData } from '../common/pdf';
@@ -92,6 +93,7 @@ export class GuardianService {
   constructor(
     private db: PrismaService,
     private fees: FeesService,
+    private payments: PaymentsService,
   ) {}
 
   /**
@@ -240,6 +242,38 @@ export class GuardianService {
    * A guardian telling the school that today's arrangement is changing. It is a request, not an
    * instruction: nothing about the pickup rules changes until the front office approves it.
    */
+  /**
+   * Let a parent settle a bill from the portal.
+   *
+   * `ward()` is the whole security boundary here: it proves the child belongs to this guardian
+   * and is not custody-BLOCKED. Everything downstream trusts that, so it must stay first.
+   *
+   * The amount is deliberately not taken from the client. A guardian may choose to pay less than
+   * the full balance, but never more than is owed, and never against another child.
+   */
+  async checkout(
+    auth: GuardianUser,
+    studentId: string,
+    body: { amount?: number; channel?: 'MOMO' | 'CARD'; phone?: string },
+  ) {
+    await this.ward(auth, studentId);
+    const owed = await this.payments.outstandingFor(studentId);
+    if (!(owed > 0)) throw new BadRequestException('There is nothing outstanding on this account');
+    const amount = body.amount ?? owed;
+    if (amount <= 0) throw new BadRequestException('Enter an amount to pay');
+    if (amount > owed) {
+      throw new BadRequestException(
+        `That is more than is owed — the balance is ${owed.toFixed(2)}`,
+      );
+    }
+    return this.payments.guardianCheckout(auth.schoolId, {
+      studentId,
+      amount,
+      channel: body.channel ?? 'MOMO',
+      phone: body.phone,
+    });
+  }
+
   async requestDismissalChange(
     auth: GuardianUser,
     studentId: string,
@@ -505,6 +539,15 @@ export class GuardianPortalController {
     return this.svc.reportCard(g, studentId, termId);
   }
 
+  @Post('wards/:studentId/checkout')
+  checkout(
+    @CurrentGuardian() g: GuardianUser,
+    @Param('studentId') studentId: string,
+    @Body() body: { amount?: number; channel?: 'MOMO' | 'CARD'; phone?: string },
+  ) {
+    return this.svc.checkout(g, studentId, body);
+  }
+
   @Post('wards/:studentId/dismissal-requests')
   requestDismissal(
     @CurrentGuardian() g: GuardianUser,
@@ -552,7 +595,7 @@ export class GuardianPortalController {
 }
 
 @Module({
-  imports: [FeesModule],
+  imports: [FeesModule, PaymentsModule],
   controllers: [GuardianAuthController, GuardianPortalController],
   providers: [GuardianService, GuardianGuard],
 })
