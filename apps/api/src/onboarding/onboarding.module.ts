@@ -14,6 +14,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Gender, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
+import { enrolmentHeadroom, studentCapFor } from '../common/entitlements';
 import { parseXlsx, templateXlsx, TemplateSpec } from '../common/export';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -147,6 +148,13 @@ export class OnboardingService {
     const errors: { row: number; message: string }[] = [];
     let imported = 0;
 
+    // Import up to the package cap, then report the remainder as row errors rather than
+    // failing the whole file — a partial import is far more useful mid-onboarding.
+    const activeCount = await this.db.student.count({
+      where: { schoolId: auth.schoolId, status: 'ACTIVE' },
+    });
+    let headroom = enrolmentHeadroom(auth.tier, activeCount);
+
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       const line = i + 2; // header is row 1
@@ -178,7 +186,15 @@ export class OnboardingService {
         errors.push({ row: line, message: `Unknown class "${r['Class']}"` });
         continue;
       }
+      if (headroom <= 0) {
+        errors.push({
+          row: line,
+          message: `Package student limit (${studentCapFor(auth.tier)}) reached — not enrolled`,
+        });
+        continue;
+      }
 
+      headroom--;
       seq++;
       const student = await this.db.student.create({
         data: {

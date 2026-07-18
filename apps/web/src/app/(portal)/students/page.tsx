@@ -33,10 +33,13 @@ export default async function StudentsPage({
   if (classId) qs.set('classId', classId);
   if (q) qs.set('q', q);
   qs.set('status', status);
-  const [students, structure, me] = await Promise.all([
+  const [students, structure, me, enrolment] = await Promise.all([
     api<StudentRow[]>(`/students?${qs}`),
     api<Structure>('/school/structure'),
     getMe(),
+    api<{ active: number; cap: number | null; headroom: number; atCap: boolean }>(
+      '/students/enrolment',
+    ),
   ]);
 
   const canPromote = ['OWNER', 'HEAD'].includes(me.user.role);
@@ -55,7 +58,18 @@ export default async function StudentsPage({
       <div className="rise rise-1 flex items-end justify-between flex-wrap gap-4">
         <div>
           <h1 className="font-display text-3xl">Students</h1>
-          <p className="text-sm text-oat mt-1.5">The register — {students.length} shown</p>
+          <p className="text-sm text-oat mt-1.5">
+            The register — {students.length} shown
+            {enrolment.cap !== null && (
+              <span className={enrolment.atCap ? 'text-clay font-medium' : ''}>
+                {' · '}
+                {enrolment.active} of {enrolment.cap} enrolled on {me.school.tier}
+                {enrolment.atCap
+                  ? ' — limit reached, upgrade to enrol more'
+                  : ` (${enrolment.headroom} places left)`}
+              </span>
+            )}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Link

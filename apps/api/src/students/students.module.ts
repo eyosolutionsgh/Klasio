@@ -16,6 +16,7 @@ import { IsDateString, IsEnum, IsOptional, IsString, MinLength } from 'class-val
 import { Gender, StudentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
+import { enrolmentHeadroom, studentCapFor } from '../common/entitlements';
 import { toCsv, toXlsx, Cell } from '../common/export';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -164,11 +165,33 @@ export class StudentsService {
     };
   }
 
+  /** Active enrolment against the package cap. Only ever blocks NEW enrolments (docs/03 §3.5). */
+  async enrolmentStatus(auth: AuthUser) {
+    const active = await this.db.student.count({
+      where: { schoolId: auth.schoolId, status: 'ACTIVE' },
+    });
+    const cap = studentCapFor(auth.tier);
+    return {
+      active,
+      cap,
+      headroom: enrolmentHeadroom(auth.tier, active),
+      atCap: cap !== null && active >= cap,
+    };
+  }
+
   async create(auth: AuthUser, dto: CreateStudentDto) {
     const cls = await this.db.classRoom.findFirst({
       where: { id: dto.classId, schoolId: auth.schoolId },
     });
     if (!cls) throw new NotFoundException('Class not found');
+
+    const { atCap, cap } = await this.enrolmentStatus(auth);
+    if (atCap) {
+      throw new BadRequestException(
+        `Your package allows ${cap} active students. Existing records stay fully available — upgrade to enrol more.`,
+      );
+    }
+
     const count = await this.db.student.count({ where: { schoolId: auth.schoolId } });
     const student = await this.db.student.create({
       data: {
@@ -341,6 +364,11 @@ export class StudentsController {
   @Roles('OWNER', 'HEAD')
   promote(@CurrentUser() user: AuthUser, @Body() dto: PromoteDto) {
     return this.svc.promote(user, dto);
+  }
+
+  @Get('enrolment')
+  enrolment(@CurrentUser() user: AuthUser) {
+    return this.svc.enrolmentStatus(user);
   }
 
   @Get('export')

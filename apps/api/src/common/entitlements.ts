@@ -65,3 +65,26 @@ export function entitlementsForTier(tier: Tier): string[] {
 export function hasEntitlement(tier: Tier, code: string): boolean {
   return entitlementsForTier(tier).includes(code);
 }
+
+/**
+ * Enrolment caps per package (docs/02 §2.1). `null` = unlimited.
+ *
+ * Per docs/03 §3.5 an over-cap school is blocked from *new enrolments only* — never from
+ * reading, exporting or working with the students it already has. We do not hold data hostage.
+ */
+export const STUDENT_CAPS: Record<Tier, number | null> = {
+  BASIC: 150,
+  MEDIUM: 1000,
+  ADVANCED: null,
+};
+
+export function studentCapFor(tier: Tier): number | null {
+  return STUDENT_CAPS[tier];
+}
+
+/** Remaining enrolment headroom; Infinity when the package is uncapped. */
+export function enrolmentHeadroom(tier: Tier, currentCount: number): number {
+  const cap = studentCapFor(tier);
+  if (cap === null) return Infinity;
+  return Math.max(0, cap - currentCount);
+}
