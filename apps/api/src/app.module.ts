@@ -13,6 +13,7 @@ import { AnnouncementsModule } from './announcements/announcements.module';
 import { SmsModule } from './sms/sms.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { AuditModule } from './audit/audit.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { AuditModule } from './audit/audit.module';
     SmsModule,
     OnboardingModule,
     AuditModule,
+    UsersModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })

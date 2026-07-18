@@ -11,6 +11,7 @@ import { Reflector } from '@nestjs/core';
 import * as jwt from 'jsonwebtoken';
 import type { Role, Tier } from '@prisma/client';
 import { hasEntitlement } from './entitlements';
+import { PrismaService } from '../prisma/prisma.service';
 
 export interface AuthUser {
   sub: string;
@@ -38,9 +39,12 @@ export const CurrentUser = createParamDecorator(
 
 @Injectable()
 export class AuthGuard implements CanActivate {
-  constructor(private reflector: Reflector) {}
+  constructor(
+    private reflector: Reflector,
+    private db: PrismaService,
+  ) {}
 
-  canActivate(ctx: ExecutionContext): boolean {
+  async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>('isPublic', [
       ctx.getHandler(),
       ctx.getClass(),
@@ -57,6 +61,20 @@ export class AuthGuard implements CanActivate {
     } catch {
       throw new UnauthorizedException('Invalid or expired token');
     }
+
+    /**
+     * Re-check the account on every request. Tokens live 12h, so without this a deactivated
+     * staff member would keep full access until their token expired — which defeats the point
+     * of deactivating someone who has left. One indexed lookup is a fair price for revocation
+     * that takes effect immediately.
+     */
+    const account = await this.db.user.findUnique({
+      where: { id: user.sub },
+      select: { active: true, role: true, schoolId: true },
+    });
+    if (!account?.active) throw new UnauthorizedException('This account is no longer active');
+    // Trust the database over the token for role/tenant, so a demotion also applies at once.
+    user = { ...user, role: account.role, schoolId: account.schoolId };
     req.user = user;
 
     const roles = this.reflector.getAllAndOverride<Role[]>('roles', [
