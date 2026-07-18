@@ -182,6 +182,14 @@ const NAV: NavItem[] = [
     group: 'Setup',
   },
   {
+    href: '/settings/roles',
+    label: 'Roles & Access',
+    icon: 'M12 1L3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5l-9-4zm0 4a2.5 2.5 0 110 5 2.5 2.5 0 010-5zm0 6.5c1.9 0 4.5.9 4.5 2.6V16h-9v-1.9c0-1.7 2.6-2.6 4.5-2.6z',
+    tip: 'What each role may do, and who holds it',
+    roles: ADMIN,
+    group: 'Setup',
+  },
+  {
     href: '/settings/gateways',
     label: 'Payment Setup',
     icon: 'M12 1L3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5l-9-4zm0 6a2 2 0 110 4 2 2 0 010-4zm0 5c1.7 0 5 .8 5 2.5V16H7v-1.5C7 12.8 10.3 12 12 12z',

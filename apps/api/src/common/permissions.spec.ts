@@ -42,6 +42,17 @@ describe('preset roles', () => {
     }
   });
 
+  it('list each permission once', () => {
+    // sanitizePermissions dedupes at the storage boundary, which is right — a stored role that
+    // accumulated a duplicate should not break. But that tolerance hid two duplicates in the
+    // presets themselves, and a preset is code. Assert it here instead of relying on the
+    // runtime to paper over it.
+    for (const role of ROLE_PRESETS) {
+      const seen = new Set(role.permissions);
+      expect(seen.size, `${role.key} lists a permission twice`).toBe(role.permissions.length);
+    }
+  });
+
   it('give the owner everything', () => {
     expect(permissionsForOwner().sort()).toEqual([...ALL_PERMISSIONS].sort());
   });

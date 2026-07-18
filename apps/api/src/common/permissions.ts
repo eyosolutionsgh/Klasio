@@ -269,7 +269,6 @@ export const ROLE_PRESETS: RolePreset[] = [
       'comms.announce',
       'comms.sms',
       'comms.whatsapp',
-      'calendar.view',
       'calendar.manage',
       'school.settings',
       'records.configure',
@@ -294,7 +293,6 @@ export const ROLE_PRESETS: RolePreset[] = [
       'resources.manage',
       'pickup.view',
       'comms.announce',
-      'calendar.view',
       'calendar.manage',
     ],
   },
@@ -308,7 +306,6 @@ export const ROLE_PRESETS: RolePreset[] = [
       'reports.generate',
       'reports.remark.teacher',
       'resources.manage',
-      'timetable.view',
     ],
   },
   {

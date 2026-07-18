@@ -1,6 +1,26 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import Combobox from '@/components/Combobox';
+
+/**
+ * Staff accounts, and what each person may do.
+ *
+ * Two things govern access and they are not the same:
+ *
+ * - **Account type** (owner, head, bursar, teacher, front desk) is the coarse legacy role. It still
+ *   decides who may manage whose account, and the proprietor's is special.
+ * - **The staff role** is the bundle of permissions the school defined on Roles & access. That is
+ *   what actually decides what the person can reach.
+ *
+ * Per-person adjustments exist for exceptions, not as the ordinary way to grant access. A
+ * revocation always wins over the role, so it is safe to take something away and it will not creep
+ * back when the role changes.
+ *
+ * Every control here keys off `manageable`, which the API computes from the `users.manage`
+ * permission the routes actually require. Showing a button the API will refuse teaches the user
+ * nothing except that the app is unreliable.
+ */
 
 interface StaffUser {
   id: string;
@@ -12,6 +32,26 @@ interface StaffUser {
   manageable: boolean;
   isSelf: boolean;
   createdAt: string;
+  staffRoleId: string | null;
+  staffRole: { id: string; name: string } | null;
+  extraPermissions: string[];
+  revokedPermissions: string[];
+}
+
+interface Role {
+  id: string;
+  name: string;
+  description: string | null;
+  permissions: string[];
+  presetKey: string | null;
+  staffCount: number;
+}
+
+interface PermissionDef {
+  code: string;
+  label: string;
+  group: string;
+  caution?: string;
 }
 
 const ROLES = ['OWNER', 'HEAD', 'BURSAR', 'TEACHER', 'FRONT_DESK'];
@@ -22,16 +62,21 @@ const field =
 
 export default function StaffPage() {
   const [users, setUsers] = useState<StaffUser[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [held, setHeld] = useState<string[]>([]);
+  const [permissions, setPermissions] = useState<PermissionDef[]>([]);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** Shown once, never retrievable again — the API only ever returns it on create/reset. */
   const [credential, setCredential] = useState<{ email: string; password: string } | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState('TEACHER');
+  const [staffRoleId, setStaffRoleId] = useState('');
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -43,6 +88,50 @@ export default function StaffPage() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    (async () => {
+      const [rolesRes, mineRes] = await Promise.all([
+        fetch('/api/proxy/roles'),
+        fetch('/api/proxy/roles/mine'),
+      ]);
+      if (rolesRes.ok) setRoles(await rolesRes.json());
+      const mine = mineRes.ok ? await mineRes.json() : { permissions: [] };
+      const mineHeld: string[] = mine.permissions ?? [];
+      setHeld(mineHeld);
+      // Permission labels live behind roles.manage. Without it the per-person adjustments are
+      // hidden rather than shown as bare codes.
+      if (mineHeld.includes('roles.manage')) {
+        const cat = await fetch('/api/proxy/roles/catalogue');
+        if (cat.ok) setPermissions((await cat.json()).permissions ?? []);
+      }
+    })();
+  }, []);
+
+  /**
+   * Only roles wholly within the caller's own authority.
+   *
+   * The API refuses the rest ("includes access you do not have yourself"), so offering them would
+   * be offering a button that always fails.
+   */
+  const grantable = useMemo(
+    () => roles.filter((r) => r.permissions.every((p) => held.includes(p))),
+    [roles, held],
+  );
+  const hiddenRoles = roles.length - grantable.length;
+  const roleOptions = useMemo(
+    () =>
+      grantable.map((r) => ({
+        value: r.id,
+        label: r.name,
+        hint: r.description ?? undefined,
+      })),
+    [grantable],
+  );
+  const grantablePermissions = useMemo(
+    () => permissions.filter((p) => held.includes(p.code)),
+    [permissions, held],
+  );
+
   async function send(path: string, body?: unknown, method = 'POST') {
     setMessage(null);
     setError(null);
@@ -53,7 +142,11 @@ export default function StaffPage() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(data.message ?? 'That did not work.');
+      setError(
+        Array.isArray(data.message)
+          ? data.message.join('. ')
+          : (data.message ?? 'That did not work.'),
+      );
       return null;
     }
     load();
@@ -68,12 +161,14 @@ export default function StaffPage() {
       email,
       role,
       phone: phone || undefined,
+      ...(staffRoleId ? { staffRoleId } : {}),
     });
     setBusy(false);
     if (data) {
       setName('');
       setEmail('');
       setPhone('');
+      setStaffRoleId('');
       if (data.temporaryPassword) {
         setCredential({ email: data.email, password: data.temporaryPassword });
       }
@@ -81,14 +176,27 @@ export default function StaffPage() {
     }
   }
 
+  /** "1 added, 2 taken away" — silent when the person is simply on their role. */
+  const adjustmentNote = (u: StaffUser) => {
+    const parts = [
+      u.extraPermissions.length > 0 ? `${u.extraPermissions.length} added` : null,
+      u.revokedPermissions.length > 0 ? `${u.revokedPermissions.length} taken away` : null,
+    ].filter(Boolean);
+    return parts.length > 0 ? parts.join(', ') : null;
+  };
+
   return (
     <div>
       <div className="rise rise-1 flex items-end justify-between flex-wrap gap-4">
         <div>
           <h1 className="font-display text-3xl">Staff &amp; access</h1>
           <p className="text-sm text-oat mt-1.5">
-            Who can sign in, and what each person may do. Roles decide access — a teacher sees marks
-            and attendance, a bursar sees money.
+            Who can sign in, and what each person may do. A staff role decides the access — the
+            bundles themselves are edited on{' '}
+            <a href="/settings/roles" className="text-brand hover:underline underline-offset-2">
+              Roles &amp; access
+            </a>
+            .
           </p>
         </div>
         <label className="flex items-center gap-2 text-[13px] text-oat">
@@ -121,12 +229,13 @@ export default function StaffPage() {
       {error && <p className="text-sm text-danger mt-4">{error}</p>}
 
       <div className="card mt-6 overflow-x-auto rise rise-2">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm min-w-[720px]">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
               <th className="px-5 py-3 font-medium">Name</th>
               <th className="px-5 py-3 font-medium">Email</th>
-              <th className="px-5 py-3 font-medium">Role</th>
+              <th className="px-5 py-3 font-medium">Account type</th>
+              <th className="px-5 py-3 font-medium">Staff role</th>
               <th className="px-5 py-3 font-medium">Status</th>
               <th className="px-5 py-3" />
             </tr>
@@ -160,6 +269,29 @@ export default function StaffPage() {
                   )}
                 </td>
                 <td className="px-5 py-3">
+                  {u.role === 'OWNER' ? (
+                    <>
+                      <span className="font-medium">Full access</span>
+                      <span className="block text-[11px] text-oat">
+                        The proprietor always reaches everything. It cannot be narrowed.
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      {u.staffRole ? (
+                        <span>{u.staffRole.name}</span>
+                      ) : (
+                        // Not an error state: an account with no role can sign in and do nothing,
+                        // which is a legitimate way to suspend someone.
+                        <span className="text-oat">No role — cannot do anything</span>
+                      )}
+                      {adjustmentNote(u) && (
+                        <span className="block text-[11px] text-clay">{adjustmentNote(u)}</span>
+                      )}
+                    </>
+                  )}
+                </td>
+                <td className="px-5 py-3">
                   <span
                     className={`text-[11px] uppercase tracking-wider rounded-full px-2 py-0.5 ${u.active ? 'bg-brand-mist text-brand' : 'bg-parchment text-oat'}`}
                   >
@@ -167,6 +299,14 @@ export default function StaffPage() {
                   </span>
                 </td>
                 <td className="px-5 py-3 text-right whitespace-nowrap">
+                  {u.role !== 'OWNER' && u.manageable && (
+                    <button
+                      onClick={() => setEditing(editing === u.id ? null : u.id)}
+                      className="text-[12.5px] text-brand hover:underline underline-offset-2 mr-3"
+                    >
+                      {editing === u.id ? 'Close' : 'Access'}
+                    </button>
+                  )}
                   {u.manageable && (
                     <>
                       <button
@@ -192,7 +332,7 @@ export default function StaffPage() {
             ))}
             {users.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-5 py-10 text-center text-oat">
+                <td colSpan={6} className="px-5 py-10 text-center text-oat">
                   No staff accounts yet.
                 </td>
               </tr>
@@ -201,61 +341,278 @@ export default function StaffPage() {
         </table>
       </div>
 
-      <form onSubmit={addStaff} className="card p-6 mt-6 rise rise-3 max-w-2xl">
-        <h2 className="font-display text-xl">Add a staff member</h2>
-        <p className="text-xs text-oat mt-1">
-          A temporary password is generated and shown once — hand it over and ask them to change it.
-        </p>
-        <div className="flex flex-wrap items-end gap-3 mt-4">
-          <label className="text-[13px]">
-            <span className="block text-oat mb-1">Full name</span>
-            <input
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Ms. Efua Sarpong"
-              className={`${field} w-52`}
+      {editing && (
+        <AccessPanel
+          key={editing}
+          user={users.find((u) => u.id === editing)!}
+          roleOptions={roleOptions}
+          hiddenRoles={hiddenRoles}
+          permissions={grantablePermissions}
+          allPermissions={permissions}
+          onCancel={() => setEditing(null)}
+          onSave={async (body) => {
+            setMessage(null);
+            setError(null);
+            const res = await fetch(`/api/proxy/roles/assign/${editing}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              setError(
+                Array.isArray(data.message)
+                  ? data.message.join('. ')
+                  : (data.message ?? 'That did not work.'),
+              );
+              return;
+            }
+            // The list is the source of truth, so re-read it rather than mirroring the write.
+            await load();
+            setEditing(null);
+            setMessage('Access updated.');
+          }}
+        />
+      )}
+
+      {/* Hidden without users.manage: POST /users would refuse it, and a form that always fails
+          is worse than no form. */}
+      {held.includes('users.manage') && (
+        <form onSubmit={addStaff} className="card p-6 mt-6 rise rise-3 max-w-3xl">
+          <h2 className="font-display text-xl">Add a staff member</h2>
+          <p className="text-xs text-oat mt-1">
+            A temporary password is generated and shown once — hand it over and ask them to change
+            it. Give them a staff role now: without one the account can sign in and do nothing.
+          </p>
+          <div className="flex flex-wrap items-end gap-3 mt-4">
+            <label className="text-[13px]">
+              <span className="block text-oat mb-1">Full name</span>
+              <input
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Ms. Efua Sarpong"
+                className={`${field} w-52`}
+              />
+            </label>
+            <label className="text-[13px]">
+              <span className="block text-oat mb-1">Email</span>
+              <input
+                required
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="efua@school.gh"
+                className={`${field} w-56`}
+              />
+            </label>
+            <label className="text-[13px]">
+              <span className="block text-oat mb-1">Phone</span>
+              <input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="024 123 4567"
+                className={`${field} w-36`}
+              />
+            </label>
+            <label className="text-[13px]">
+              <span className="block text-oat mb-1">Account type</span>
+              <select value={role} onChange={(e) => setRole(e.target.value)} className={field}>
+                {ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    {label(r)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Combobox
+              label="Staff role"
+              className="w-56"
+              options={roleOptions}
+              value={staffRoleId}
+              onChange={setStaffRoleId}
+              clearLabel="— no role yet —"
+              placeholder="Search roles…"
             />
-          </label>
-          <label className="text-[13px]">
-            <span className="block text-oat mb-1">Email</span>
-            <input
-              required
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="efua@school.gh"
-              className={`${field} w-56`}
-            />
-          </label>
-          <label className="text-[13px]">
-            <span className="block text-oat mb-1">Phone</span>
-            <input
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="024 123 4567"
-              className={`${field} w-36`}
-            />
-          </label>
-          <label className="text-[13px]">
-            <span className="block text-oat mb-1">Role</span>
-            <select value={role} onChange={(e) => setRole(e.target.value)} className={field}>
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {label(r)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="submit"
-            disabled={busy}
-            className="rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition disabled:opacity-50"
-          >
-            {busy ? 'Adding…' : 'Add staff'}
-          </button>
-        </div>
-      </form>
+            <button
+              type="submit"
+              disabled={busy}
+              className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition disabled:opacity-50"
+            >
+              {busy ? 'Adding…' : 'Add staff'}
+            </button>
+          </div>
+          {hiddenRoles > 0 && (
+            <p className="text-[11px] text-oat mt-3">
+              {hiddenRoles} {hiddenRoles === 1 ? 'role is' : 'roles are'} not listed because{' '}
+              {hiddenRoles === 1 ? 'it includes' : 'they include'} access you do not hold yourself.
+              You cannot put someone on a role you could not do yourself.
+            </p>
+          )}
+        </form>
+      )}
     </div>
+  );
+}
+
+function AccessPanel({
+  user,
+  roleOptions,
+  hiddenRoles,
+  permissions,
+  allPermissions,
+  onCancel,
+  onSave,
+}: {
+  user: StaffUser;
+  roleOptions: { value: string; label: string; hint?: string }[];
+  hiddenRoles: number;
+  /** Only what the caller may hand on — the API refuses the rest. */
+  permissions: PermissionDef[];
+  /** Everything, for revocations: taking access away is never restricted. */
+  allPermissions: PermissionDef[];
+  onCancel: () => void;
+  onSave: (body: {
+    staffRoleId?: string | null;
+    extraPermissions?: string[];
+    revokedPermissions?: string[];
+  }) => Promise<void>;
+}) {
+  // Seeded from what the person actually holds, so saving edits the current state rather than
+  // replacing it with whatever happens to be typed in.
+  const [staffRoleId, setStaffRoleId] = useState(user.staffRoleId ?? '');
+  const [extra, setExtra] = useState<string[]>(user.extraPermissions);
+  const [revoked, setRevoked] = useState<string[]>(user.revokedPermissions);
+  const [busy, setBusy] = useState(false);
+
+  const labelOf = (code: string) => allPermissions.find((p) => p.code === code)?.label ?? code;
+
+  const opts = (defs: PermissionDef[], exclude: string[]) =>
+    defs
+      .filter((p) => !exclude.includes(p.code))
+      .map((p) => ({ value: p.code, label: p.label, hint: p.group }));
+
+  return (
+    <section className="card p-6 mt-4 rise">
+      <h2 className="font-display text-xl">{user.name}&rsquo;s access</h2>
+      <p className="text-xs text-oat mt-1">
+        The role does the work. The two lists below are for the exception — the one teacher who also
+        covers the gate — not the normal way to give somebody access. If several people need the
+        same thing, make a role for it instead.
+      </p>
+
+      <div className="mt-5 max-w-sm">
+        <Combobox
+          label="Staff role"
+          options={roleOptions}
+          value={staffRoleId}
+          onChange={setStaffRoleId}
+          clearLabel="— no role —"
+          placeholder="Search roles…"
+        />
+        <p className="text-[11px] text-oat mt-1.5">
+          With no role the account can sign in and do nothing — a way to suspend access without
+          deactivating the person.
+          {hiddenRoles > 0 &&
+            ` ${hiddenRoles} ${hiddenRoles === 1 ? 'role is' : 'roles are'} not listed: ${hiddenRoles === 1 ? 'it includes' : 'they include'} access you do not hold.`}
+        </p>
+      </div>
+
+      {allPermissions.length === 0 ? (
+        <p className="text-xs text-oat mt-5 border-l-2 border-gold pl-3">
+          Per-person adjustments need the &ldquo;Create and edit roles&rdquo; permission, because
+          they are a change to what one person may do. You can still put this person on a role.
+        </p>
+      ) : (
+        <div className="grid gap-6 sm:grid-cols-2 mt-6">
+          <div>
+            <h3 className="text-sm font-medium">Also allow</h3>
+            <p className="text-[11px] text-oat mt-0.5 mb-2">
+              On top of the role. Only access you hold yourself is listed.
+            </p>
+            <Combobox
+              label="Add"
+              options={opts(permissions, extra)}
+              value=""
+              onChange={(v) => v && setExtra([...extra, v])}
+              clearLabel="Choose one…"
+              placeholder="Search permissions…"
+            />
+            <ul className="mt-3 space-y-1.5">
+              {extra.map((code) => (
+                <li key={code} className="flex items-start gap-2 text-[13px]">
+                  <span className="flex-1">{labelOf(code)}</span>
+                  <button
+                    type="button"
+                    onClick={() => setExtra(extra.filter((c) => c !== code))}
+                    className="text-[12px] text-clay hover:underline"
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+              {extra.length === 0 && <li className="text-xs text-oat">Nothing extra.</li>}
+            </ul>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-medium">Never allow</h3>
+            <p className="text-[11px] text-oat mt-0.5 mb-2">
+              A revocation always wins. If the role grants it and it is listed here, this person
+              still cannot do it — and it will not creep back when the role changes.
+            </p>
+            <Combobox
+              label="Add"
+              options={opts(allPermissions, revoked)}
+              value=""
+              onChange={(v) => v && setRevoked([...revoked, v])}
+              clearLabel="Choose one…"
+              placeholder="Search permissions…"
+            />
+            <ul className="mt-3 space-y-1.5">
+              {revoked.map((code) => (
+                <li key={code} className="flex items-start gap-2 text-[13px]">
+                  <span className="flex-1">{labelOf(code)}</span>
+                  <button
+                    type="button"
+                    onClick={() => setRevoked(revoked.filter((c) => c !== code))}
+                    className="text-[12px] text-clay hover:underline"
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+              {revoked.length === 0 && <li className="text-xs text-oat">Nothing taken away.</li>}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center gap-3 mt-4 pt-4 border-t border-mist/60">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            await onSave({
+              staffRoleId: staffRoleId || null,
+              extraPermissions: extra,
+              revokedPermissions: revoked,
+            });
+            setBusy(false);
+          }}
+          className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition disabled:opacity-50"
+        >
+          {busy ? 'Saving…' : 'Save access'}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-[13px] text-oat hover:text-brand transition"
+        >
+          Cancel
+        </button>
+      </div>
+    </section>
   );
 }

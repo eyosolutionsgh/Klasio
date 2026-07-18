@@ -81,6 +81,12 @@ export class UsersService {
       select: {
         id: true,
         name: true,
+        // The admin screen needs to READ these, not just write them: an access panel that
+        // cannot see the current adjustments would replace them blind on every save.
+        staffRoleId: true,
+        staffRole: { select: { id: true, name: true } },
+        extraPermissions: true,
+        revokedPermissions: true,
         email: true,
         phone: true,
         role: true,
@@ -89,9 +95,15 @@ export class UsersService {
       },
     });
     // Flag what the caller may act on, so the UI can hide controls the API would refuse.
+    //
+    // This has to key off the PERMISSION the routes actually require, not the legacy coarse
+    // role. Deriving it from the role is how a head ended up seeing "Reset password" and
+    // "Deactivate" buttons that 403 the moment they are clicked — the exact class of bug the
+    // permission model exists to remove.
+    const mayManage = auth.permissions?.includes('users.manage') ?? false;
     return users.map((u) => ({
       ...u,
-      manageable: canManageUser(auth.role, u.role) && u.id !== auth.sub,
+      manageable: mayManage && canManageUser(auth.role, u.role) && u.id !== auth.sub,
       isSelf: u.id === auth.sub,
     }));
   }
