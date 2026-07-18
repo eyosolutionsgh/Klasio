@@ -10,6 +10,9 @@ import { AssessmentModule } from './assessment/assessment.module';
 import { FeesModule } from './fees/fees.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { AnnouncementsModule } from './announcements/announcements.module';
+import { SmsModule } from './sms/sms.module';
+import { OnboardingModule } from './onboarding/onboarding.module';
+import { AuditModule } from './audit/audit.module';
 
 @Module({
   imports: [
@@ -22,6 +25,9 @@ import { AnnouncementsModule } from './announcements/announcements.module';
     FeesModule,
     DashboardModule,
     AnnouncementsModule,
+    SmsModule,
+    OnboardingModule,
+    AuditModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })
