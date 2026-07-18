@@ -27,7 +27,7 @@ import {
 import { Type } from 'class-transformer';
 import { CustomFieldKind, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, Roles } from '../common/auth';
+import { AuthUser, CurrentUser, RequirePermission } from '../common/auth';
 import { checklistFor, coerceFieldValues, fieldOptions } from '../common/customfields';
 
 /**
@@ -362,18 +362,19 @@ export class CustomFieldsController {
   constructor(private svc: CustomFieldsService) {}
 
   @Get('fields')
+  @RequirePermission('records.configure')
   listFields(@CurrentUser() user: AuthUser, @Query('levelId') levelId?: string) {
     return this.svc.listFields(user, levelId);
   }
 
   @Post('fields')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('records.configure')
   createField(@CurrentUser() user: AuthUser, @Body() dto: FieldDefDto) {
     return this.svc.createField(user, dto);
   }
 
   @Patch('fields/:id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('records.configure')
   updateField(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -383,24 +384,25 @@ export class CustomFieldsController {
   }
 
   @Delete('fields/:id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('records.configure')
   deleteField(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.deleteField(user, id);
   }
 
   @Get('requirements')
+  @RequirePermission('records.configure')
   listRequirements(@CurrentUser() user: AuthUser, @Query('levelId') levelId?: string) {
     return this.svc.listRequirements(user, levelId);
   }
 
   @Post('requirements')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('records.configure')
   createRequirement(@CurrentUser() user: AuthUser, @Body() dto: RequirementDto) {
     return this.svc.createRequirement(user, dto);
   }
 
   @Patch('requirements/:id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('records.configure')
   updateRequirement(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -410,20 +412,21 @@ export class CustomFieldsController {
   }
 
   @Delete('requirements/:id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('records.configure')
   deleteRequirement(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.deleteRequirement(user, id);
   }
 
-  // Reading a child's extras is ordinary staff work; writing them is office work, so it is
-  // held to the same roles that may edit the rest of the student record.
+  // Reading a child's extras goes with reading the rest of their record; writing them is held to
+  // the same permission that may edit it. Neither needs the authority to define the fields.
   @Get('students/:id/fields')
+  @RequirePermission('students.view')
   studentFields(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.studentFields(user, id);
   }
 
   @Put('students/:id/fields')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('students.edit')
   setStudentFields(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -433,6 +436,7 @@ export class CustomFieldsController {
   }
 
   @Get('students/:id/checklist')
+  @RequirePermission('students.view')
   checklist(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.checklist(user, id);
   }

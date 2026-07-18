@@ -51,7 +51,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { markSchedule, scheduleTotals } from '../common/installments';
 import { concessionsFor, rankSiblings } from '../common/concessions';
 import { SmsModule, SmsService } from '../sms/sms.module';
-import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
+import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
 import { receiptPdf } from '../common/pdf';
 import { toCsv, toXlsx, Cell } from '../common/export';
 
@@ -1481,21 +1481,25 @@ export class FeesController {
   constructor(private svc: FeesService) {}
 
   @Get('overview')
+  @RequirePermission('fees.view')
   overview(@CurrentUser() user: AuthUser, @Query('termId') termId: string) {
     return this.svc.overview(user, termId);
   }
 
   @Get('items')
+  @RequirePermission('fees.view')
   items(@CurrentUser() user: AuthUser, @Query('termId') termId: string) {
     return this.svc.items(user, termId);
   }
 
   @Get('defaulters')
+  @RequirePermission('fees.view')
   defaulters(@CurrentUser() user: AuthUser, @Query('termId') termId: string) {
     return this.svc.defaulters(user, termId);
   }
 
   @Get('defaulters/export')
+  @RequirePermission('fees.view', 'fees.export')
   @RequireEntitlement('platform.export')
   async defaultersExport(
     @CurrentUser() user: AuthUser,
@@ -1510,13 +1514,13 @@ export class FeesController {
   }
 
   @Post('items')
-  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequirePermission('fees.structure')
   createItem(@CurrentUser() user: AuthUser, @Body() dto: FeeItemDto) {
     return this.svc.createFeeItem(user, dto);
   }
 
   @Patch('items/:id')
-  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequirePermission('fees.structure')
   updateItem(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -1526,12 +1530,13 @@ export class FeesController {
   }
 
   @Delete('items/:id')
-  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequirePermission('fees.structure')
   deleteItem(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.deleteFeeItem(user, id);
   }
 
   @Get('students/:studentId/items')
+  @RequirePermission('fees.view')
   studentItems(
     @CurrentUser() user: AuthUser,
     @Param('studentId') studentId: string,
@@ -1541,7 +1546,7 @@ export class FeesController {
   }
 
   @Post('students/:studentId/items')
-  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequirePermission('fees.structure')
   setStudentItem(
     @CurrentUser() user: AuthUser,
     @Param('studentId') studentId: string,
@@ -1551,31 +1556,31 @@ export class FeesController {
   }
 
   @Get('reminders/templates')
-  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequirePermission('comms.reminders')
   templates(@CurrentUser() user: AuthUser) {
     return this.svc.listTemplates(user);
   }
 
   @Post('reminders/templates')
-  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequirePermission('comms.reminders')
   saveTemplate(@CurrentUser() user: AuthUser, @Body() body: { kind: string; body: string }) {
     return this.svc.saveTemplate(user, body.kind, body.body);
   }
 
   @Get('reminders/schedule')
-  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequirePermission('comms.reminders')
   schedule(@CurrentUser() user: AuthUser) {
     return this.svc.reminderSchedule(user);
   }
 
   @Post('reminders/schedule')
-  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequirePermission('comms.reminders')
   setSchedule(@CurrentUser() user: AuthUser, @Body() dto: ReminderScheduleDto) {
     return this.svc.setReminderSchedule(user, dto);
   }
 
   @Post('reminders')
-  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequirePermission('comms.sms')
   reminders(
     @CurrentUser() user: AuthUser,
     @Query('termId') termId: string,
@@ -1585,53 +1590,53 @@ export class FeesController {
   }
 
   @Post('concessions')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('fees.concessions')
   concession(@CurrentUser() user: AuthUser, @Body() dto: ConcessionDto) {
     return this.svc.grantConcession(user, dto);
   }
 
   @Get('installments/:studentId')
-  @Roles('OWNER', 'HEAD', 'BURSAR', 'FRONT_DESK')
+  @RequirePermission('fees.view')
   @RequireEntitlement('fees.installments')
   installments(@CurrentUser() user: AuthUser, @Param('studentId') studentId: string) {
     return this.svc.installments(user, studentId);
   }
 
   @Post('installments')
-  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequirePermission('fees.structure')
   @RequireEntitlement('fees.installments')
   setInstallments(@CurrentUser() user: AuthUser, @Body() dto: InstallmentPlanDto) {
     return this.svc.setInstallmentPlan(user, dto);
   }
 
   @Post('items/rollover')
-  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequirePermission('fees.structure')
   rollover(@CurrentUser() user: AuthUser, @Body() dto: RolloverDto) {
     return this.svc.rolloverFeeItems(user, dto);
   }
 
   @Post('sms/topup')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('comms.sms')
   topUp(@CurrentUser() user: AuthUser, @Body() dto: TopUpDto) {
     return this.svc.topUpSms(user, dto);
   }
 
   @Get('concessions/rules')
-  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequirePermission('fees.view')
   @RequireEntitlement('fees.discounts')
   concessionRules(@CurrentUser() user: AuthUser) {
     return this.svc.concessionRules(user);
   }
 
   @Post('concessions/rules')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('fees.concessions')
   @RequireEntitlement('fees.discounts')
   createConcessionRule(@CurrentUser() user: AuthUser, @Body() dto: ConcessionRuleDto) {
     return this.svc.createConcessionRule(user, dto);
   }
 
   @Patch('concessions/rules/:id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('fees.concessions')
   @RequireEntitlement('fees.discounts')
   setRuleActive(
     @CurrentUser() user: AuthUser,
@@ -1642,28 +1647,28 @@ export class FeesController {
   }
 
   @Post('concessions/awards')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('fees.concessions')
   @RequireEntitlement('fees.discounts')
   award(@CurrentUser() user: AuthUser, @Body() dto: AwardDto) {
     return this.svc.awardConcession(user, dto);
   }
 
   @Get('concessions/awards')
-  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequirePermission('fees.view')
   @RequireEntitlement('fees.discounts')
   awardsFor(@CurrentUser() user: AuthUser, @Query('studentId') studentId: string) {
     return this.svc.awardsFor(user, studentId);
   }
 
   @Delete('concessions/awards/:id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('fees.concessions')
   @RequireEntitlement('fees.discounts')
   revokeAward(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.revokeAward(user, id);
   }
 
   @Get('concessions/preview/:studentId')
-  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequirePermission('fees.view')
   @RequireEntitlement('fees.discounts')
   previewConcessions(
     @CurrentUser() user: AuthUser,
@@ -1674,19 +1679,19 @@ export class FeesController {
   }
 
   @Post('invoices/generate')
-  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequirePermission('fees.invoice')
   generate(@CurrentUser() user: AuthUser, @Body() dto: GenerateInvoicesDto) {
     return this.svc.generateInvoices(user, dto);
   }
 
   @Post('payments')
-  @Roles('OWNER', 'HEAD', 'BURSAR', 'FRONT_DESK')
+  @RequirePermission('fees.record_payment')
   record(@CurrentUser() user: AuthUser, @Body() dto: RecordPaymentDto) {
     return this.svc.recordPayment(user, dto);
   }
 
   @Post('deposits')
-  @Roles('OWNER', 'HEAD', 'BURSAR', 'FRONT_DESK')
+  @RequirePermission('fees.deposit_submit')
   @UseInterceptors(FileInterceptor('proof'))
   submitDeposit(
     @CurrentUser() user: AuthUser,
@@ -1697,27 +1702,27 @@ export class FeesController {
   }
 
   @Get('deposits')
-  @Roles('OWNER', 'HEAD', 'BURSAR', 'FRONT_DESK')
+  @RequirePermission('fees.view')
   deposits(@CurrentUser() user: AuthUser, @Query('status') status?: string) {
     return this.svc.listDeposits(user, status);
   }
 
   @Get('deposits/:id/proof')
-  @Roles('OWNER', 'HEAD', 'BURSAR', 'FRONT_DESK')
+  @RequirePermission('fees.view')
   async depositProof(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     const buf = await this.svc.readDepositProof(user, id);
     return new StreamableFile(buf);
   }
 
-  /** Only a bursar/head may turn a claimed deposit into money. */
+  /** Turning a claimed deposit into money is its own permission, not a rank. */
   @Post('deposits/:id/confirm')
-  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequirePermission('fees.deposits')
   confirmDeposit(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.confirmDeposit(user, id);
   }
 
   @Post('deposits/:id/reject')
-  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequirePermission('fees.deposits')
   rejectDeposit(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -1727,6 +1732,7 @@ export class FeesController {
   }
 
   @Get('receipts/:reference/pdf')
+  @RequirePermission('fees.view')
   async receipt(@CurrentUser() user: AuthUser, @Param('reference') reference: string) {
     const buf = await this.svc.receiptPdf(user.schoolId, reference);
     return new StreamableFile(buf, {

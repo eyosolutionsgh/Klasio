@@ -5,7 +5,7 @@ import { AttendanceStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { hasEntitlement } from '../common/entitlements';
 import { SmsModule, SmsService } from '../sms/sms.module';
-import { AuthUser, CurrentUser, RequireEntitlement } from '../common/auth';
+import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
 
 class AttendanceEntryDto {
   @IsString() studentId: string;
@@ -233,6 +233,7 @@ export class AttendanceController {
   constructor(private svc: AttendanceService) {}
 
   @Get('roster')
+  @RequirePermission('attendance.view')
   roster(
     @CurrentUser() user: AuthUser,
     @Query('classId') classId: string,
@@ -245,16 +246,19 @@ export class AttendanceController {
   // itself stays Basic.
   @Get('trends')
   @RequireEntitlement('attendance.dashboards')
+  @RequirePermission('attendance.dashboards')
   trends(@CurrentUser() user: AuthUser, @Query('termId') termId: string) {
     return this.svc.trends(user, termId);
   }
 
   @Get('summary')
+  @RequirePermission('attendance.view')
   summary(@CurrentUser() user: AuthUser, @Query('date') date: string) {
     return this.svc.summary(user, date);
   }
 
   @Post('mark')
+  @RequirePermission('attendance.mark')
   mark(@CurrentUser() user: AuthUser, @Body() dto: MarkAttendanceDto) {
     return this.svc.mark(user, dto);
   }

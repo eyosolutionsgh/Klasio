@@ -17,7 +17,8 @@ import { Prisma, Role } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, Roles } from '../common/auth';
+import { canGrant } from '../common/permissions';
+import { AuthUser, CurrentUser, RequirePermission } from '../common/auth';
 import { canAssignRole, canManageUser, STAFF_ROLES } from '../common/roles';
 
 const BCRYPT_ROUNDS = 10;
@@ -25,7 +26,14 @@ const BCRYPT_ROUNDS = 10;
 class CreateUserDto {
   @IsString() @MinLength(2) name: string;
   @IsEmail() email: string;
+  /**
+   * Legacy coarse role. Still recorded because OWNER is special — the proprietor's authority is
+   * unconditional — and because guardians and students are principals of another kind entirely.
+   * What the person may actually do comes from `staffRoleId`.
+   */
   @IsIn(STAFF_ROLES) role: Role;
+  /** The school-defined role. Without one the account can sign in and do nothing. */
+  @IsOptional() @IsString() staffRoleId?: string;
   @IsOptional() @IsString() phone?: string;
   /** Omit to have a temporary password generated and returned once. */
   @IsOptional() @IsString() @MinLength(8) password?: string;
@@ -35,6 +43,7 @@ class UpdateUserDto {
   @IsOptional() @IsString() @MinLength(2) name?: string;
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsIn(STAFF_ROLES) role?: Role;
+  @IsOptional() @IsString() staffRoleId?: string | null;
   @IsOptional() @IsBoolean() active?: boolean;
 }
 
@@ -87,18 +96,43 @@ export class UsersService {
     }));
   }
 
+  /**
+   * Refuse to hand someone a role containing more than the caller holds.
+   *
+   * Without this, anyone with `users.manage` could create an account on the Bursar role, sign in
+   * as it, and hold permissions they were never granted — which would make every separation in
+   * the permission model decorative.
+   */
+  private async assertMayAssign(auth: AuthUser, staffRoleId: string) {
+    const role = await this.db.staffRole.findFirst({
+      where: { id: staffRoleId, schoolId: auth.schoolId },
+    });
+    if (!role) throw new NotFoundException('Role not found');
+    const over = canGrant(auth.permissions ?? [], role.permissions);
+    if (over.length > 0) {
+      throw new ForbiddenException(
+        `You cannot put someone on "${role.name}" because it includes access you do not have yourself`,
+      );
+    }
+  }
+
   async create(auth: AuthUser, dto: CreateUserDto) {
     if (!canAssignRole(auth.role, dto.role)) {
       throw new ForbiddenException(
         `You cannot create a ${dto.role.toLowerCase().replace('_', ' ')} account`,
       );
     }
+    // Assigning a role hands over everything in it, so the same rule as the role editor applies:
+    // you cannot give away authority you do not hold yourself.
+    if (dto.staffRoleId) await this.assertMayAssign(auth, dto.staffRoleId);
+
     const plain = dto.password ?? tempPassword();
     const email = dto.email.toLowerCase().trim();
 
     try {
       const user = await this.db.user.create({
         data: {
+          staffRoleId: dto.staffRoleId ?? null,
           schoolId: auth.schoolId,
           name: dto.name,
           email,
@@ -146,6 +180,7 @@ export class UsersService {
 
   async update(auth: AuthUser, id: string, dto: UpdateUserDto) {
     const target = await this.loadTarget(auth, id);
+    if (dto.staffRoleId) await this.assertMayAssign(auth, dto.staffRoleId);
 
     // Self-protection: changing your own role or switching yourself off is how admins
     // accidentally lock themselves out.
@@ -168,6 +203,9 @@ export class UsersService {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
         ...(dto.phone !== undefined ? { phone: dto.phone || null } : {}),
         ...(dto.role !== undefined ? { role: dto.role } : {}),
+        // An explicit null clears the role, leaving the account able to sign in and do nothing —
+        // which is a legitimate way to suspend access without deactivating the person.
+        ...(dto.staffRoleId !== undefined ? { staffRoleId: dto.staffRoleId || null } : {}),
         ...(dto.active !== undefined ? { active: dto.active } : {}),
       },
       select: { id: true, name: true, email: true, phone: true, role: true, active: true },
@@ -237,7 +275,7 @@ export class UsersController {
   constructor(private svc: UsersService) {}
 
   @Get()
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('users.view')
   list(@CurrentUser() user: AuthUser, @Query('includeInactive') includeInactive?: string) {
     return this.svc.list(user, includeInactive === 'true');
   }
@@ -260,19 +298,19 @@ export class UsersController {
   }
 
   @Post()
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('users.manage')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateUserDto) {
     return this.svc.create(user, dto);
   }
 
   @Patch(':id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('users.manage')
   update(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateUserDto) {
     return this.svc.update(user, id, dto);
   }
 
   @Post(':id/reset-password')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('users.manage')
   resetPassword(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.resetPassword(user, id);
   }

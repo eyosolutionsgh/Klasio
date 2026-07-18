@@ -29,6 +29,7 @@ import { CustomFieldsModule } from './customfields/customfields.module';
 import { RemarksModule } from './remarks/remarks.module';
 import { ReturnsModule } from './returns/returns.module';
 import { BillingModule } from './billing/billing.module';
+import { RolesModule } from './roles/roles.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { BillingModule } from './billing/billing.module';
     RemarksModule,
     ReturnsModule,
     BillingModule,
+    RolesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: AuthGuard },

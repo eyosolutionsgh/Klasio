@@ -13,7 +13,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Gender, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
+import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
 import { enrolmentHeadroom, studentCapFor } from '../common/entitlements';
 import { parseXlsx, templateXlsx, TemplateSpec } from '../common/export';
 
@@ -340,6 +340,7 @@ export class OnboardingController {
   constructor(private svc: OnboardingService) {}
 
   @Get('templates/:kind')
+  @RequirePermission('students.import')
   @RequireEntitlement('platform.export')
   async template(@Param('kind') kind: Kind) {
     const buffer = await this.svc.template(kind);
@@ -351,7 +352,7 @@ export class OnboardingController {
 
   @Post('import/:kind')
   @RequireEntitlement('platform.export')
-  @Roles('OWNER', 'HEAD', 'BURSAR', 'FRONT_DESK')
+  @RequirePermission('students.import')
   @UseInterceptors(FileInterceptor('file'))
   import(
     @CurrentUser() user: AuthUser,

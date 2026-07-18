@@ -21,7 +21,7 @@ import { IsDateString, IsIn, IsOptional, IsString, MinLength } from 'class-valid
 import * as bcrypt from 'bcryptjs';
 import { randomBytes, randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
+import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
 import { SmsModule, SmsService } from '../sms/sms.module';
 import {
   assessCollector,
@@ -669,12 +669,13 @@ export class PickupController {
   constructor(private svc: PickupService) {}
 
   @Get('authorised/:studentId')
+  @RequirePermission('pickup.view')
   authorised(@CurrentUser() user: AuthUser, @Param('studentId') studentId: string) {
     return this.svc.authorised(user, studentId);
   }
 
   @Post('students/:studentId/delegates')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('pickup.manage')
   addDelegate(
     @CurrentUser() user: AuthUser,
     @Param('studentId') studentId: string,
@@ -684,13 +685,13 @@ export class PickupController {
   }
 
   @Delete('delegates/:id')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('pickup.manage')
   removeDelegate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.removeDelegate(user, id);
   }
 
   @Post('cards/:kind/:id')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('pickup.manage')
   issueCard(
     @CurrentUser() user: AuthUser,
     @Param('kind') kind: CollectorKind,
@@ -700,7 +701,7 @@ export class PickupController {
   }
 
   @Delete('cards/:kind/:id')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('pickup.manage')
   revokeCard(
     @CurrentUser() user: AuthUser,
     @Param('kind') kind: CollectorKind,
@@ -714,7 +715,7 @@ export class PickupController {
    * can only be produced in the same sitting as issuing it.
    */
   @Post('cards/:kind/:id/pdf')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('pickup.manage')
   async cardPdf(
     @CurrentUser() user: AuthUser,
     @Param('kind') kind: CollectorKind,
@@ -729,13 +730,14 @@ export class PickupController {
   }
 
   @Get('guardians/:id/photo')
+  @RequirePermission('pickup.view')
   async guardianPhoto(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     const buf = await this.svc.guardianPhoto(user, id);
     return new StreamableFile(buf, { type: 'image/jpeg' });
   }
 
   @Post('guardians/:id/photo')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('pickup.manage')
   @UseInterceptors(FileInterceptor('file'))
   uploadGuardianPhoto(
     @CurrentUser() user: AuthUser,
@@ -746,29 +748,31 @@ export class PickupController {
   }
 
   @Post('verify')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK', 'TEACHER')
+  @RequirePermission('pickup.release')
   verify(@CurrentUser() user: AuthUser, @Body() dto: VerifyDto) {
     return this.svc.verify(user, dto);
   }
 
   @Post('release')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK', 'TEACHER')
+  @RequirePermission('pickup.release')
   release(@CurrentUser() user: AuthUser, @Body() dto: ReleaseDto) {
     return this.svc.release(user, dto);
   }
 
   @Get('log')
+  @RequirePermission('pickup.view')
   log(@CurrentUser() user: AuthUser, @Query('date') date?: string) {
     return this.svc.log(user, date);
   }
 
   @Get('dismissal-requests')
+  @RequirePermission('pickup.view')
   dismissalRequests(@CurrentUser() user: AuthUser, @Query('status') status?: string) {
     return this.svc.listDismissalRequests(user, status);
   }
 
   @Patch('dismissal-requests/:id')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('pickup.manage')
   decide(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,

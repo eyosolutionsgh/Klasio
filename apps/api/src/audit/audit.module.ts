@@ -1,7 +1,7 @@
 import { Controller, Get, Injectable, Module, Query } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, Roles } from '../common/auth';
+import { AuthUser, CurrentUser, RequirePermission } from '../common/auth';
 
 const PAGE_SIZE = 50;
 
@@ -80,7 +80,7 @@ export class AuditController {
   constructor(private svc: AuditService) {}
 
   @Get()
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('audit.view')
   list(
     @CurrentUser() user: AuthUser,
     @Query('action') action?: string,
@@ -93,7 +93,7 @@ export class AuditController {
   }
 
   @Get('actions')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('audit.view')
   actions(@CurrentUser() user: AuthUser) {
     return this.svc.actions(user);
   }

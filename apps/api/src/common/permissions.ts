@@ -116,7 +116,18 @@ export const PERMISSIONS = [
     caution:
       'Confirms which payments really arrived. Best held by someone who cannot record payments.',
   },
-  { code: 'fees.deposits', label: 'Confirm bank deposits', group: 'Money' },
+  {
+    code: 'fees.deposit_submit',
+    label: 'Lodge a bank deposit slip',
+    group: 'Money',
+    caution: 'Records a claim, not money. Confirming it is a separate permission.',
+  },
+  {
+    code: 'fees.deposits',
+    label: 'Confirm or reject bank deposits',
+    group: 'Money',
+    caution: 'This is the step that turns a claimed deposit into money in the ledger.',
+  },
   { code: 'fees.gateways', label: 'Connect payment gateways', group: 'Money' },
   { code: 'fees.export', label: 'Export financial data', group: 'Money' },
   {
@@ -144,7 +155,14 @@ export const PERMISSIONS = [
     group: 'Communication',
     caution: "Spends the school's SMS credits.",
   },
+  {
+    code: 'comms.reminders',
+    label: 'Set up automatic fee reminders',
+    group: 'Communication',
+    caution: 'Wording and timing only. Sending still needs permission to send SMS.',
+  },
   { code: 'comms.whatsapp', label: 'Reply to families on WhatsApp', group: 'Communication' },
+  { code: 'calendar.view', label: 'See the school calendar', group: 'Communication' },
   { code: 'calendar.manage', label: 'Manage the school calendar', group: 'Communication' },
 
   // ── Administration ────────────────────────────────────────────────
@@ -211,6 +229,7 @@ export interface RolePreset {
 
 const TEACHING_CORE = [
   'students.view',
+  'calendar.view',
   'attendance.view',
   'attendance.mark',
   'marks.view',
@@ -250,6 +269,7 @@ export const ROLE_PRESETS: RolePreset[] = [
       'comms.announce',
       'comms.sms',
       'comms.whatsapp',
+      'calendar.view',
       'calendar.manage',
       'school.settings',
       'records.configure',
@@ -274,6 +294,7 @@ export const ROLE_PRESETS: RolePreset[] = [
       'resources.manage',
       'pickup.view',
       'comms.announce',
+      'calendar.view',
       'calendar.manage',
     ],
   },
@@ -334,10 +355,12 @@ export const ROLE_PRESETS: RolePreset[] = [
       'fees.invoice',
       'fees.concessions',
       'fees.reconcile',
+      'fees.deposit_submit',
       'fees.deposits',
       'fees.gateways',
       'fees.export',
       'comms.sms',
+      'comms.reminders',
       'audit.view',
     ],
   },
@@ -348,7 +371,13 @@ export const ROLE_PRESETS: RolePreset[] = [
       'Takes payments at the counter. Cannot change what is owed, or reconcile what arrived.',
     // The separation of duties this whole model exists for: money in, but no authority over
     // what is owed and no authority to confirm what settled.
-    permissions: ['students.view', 'fees.view', 'fees.record_payment', 'fees.deposits'],
+    permissions: [
+      'students.view',
+      'fees.view',
+      'fees.record_payment',
+      // Lodges the slip a parent brings to the counter, but cannot confirm it into the ledger.
+      'fees.deposit_submit',
+    ],
   },
   {
     key: 'REGISTRAR',
@@ -379,6 +408,7 @@ export const ROLE_PRESETS: RolePreset[] = [
       'pickup.release',
       'pickup.manage',
       'comms.announce',
+      'calendar.view',
       'calendar.manage',
     ],
   },

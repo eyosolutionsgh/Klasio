@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Injectable, Module, Post } from '@nestjs/common';
 import { IsString, MinLength } from 'class-validator';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, Roles } from '../common/auth';
+import { AuthUser, CurrentUser, RequirePermission } from '../common/auth';
 
 class CreateAnnouncementDto {
   @IsString() @MinLength(3) title: string;
@@ -39,7 +39,7 @@ export class AnnouncementsController {
   }
 
   @Post()
-  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequirePermission('comms.announce')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateAnnouncementDto) {
     return this.svc.create(user, dto);
   }

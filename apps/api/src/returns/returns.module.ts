@@ -8,7 +8,7 @@ import {
   StreamableFile,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
+import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
 import { toCsv, toXlsx, type Cell } from '../common/export';
 
 /**
@@ -204,7 +204,7 @@ export class ReturnsService {
 }
 
 @Controller('returns')
-@Roles('OWNER', 'HEAD')
+@RequirePermission('returns.view')
 @RequireEntitlement('platform.ges-returns')
 export class ReturnsController {
   constructor(private svc: ReturnsService) {}

@@ -14,7 +14,13 @@ import {
 import { IsDateString, IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { ApplicantStage, Gender, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, Public, RequireEntitlement, Roles } from '../common/auth';
+import {
+  AuthUser,
+  CurrentUser,
+  Public,
+  RequireEntitlement,
+  RequirePermission,
+} from '../common/auth';
 import { allowedStages, stageMoveError } from '../common/admissions';
 import { hasEntitlement } from '../common/entitlements';
 import { normalizeMsisdn } from '../common/phone';
@@ -413,11 +419,11 @@ export class AdmissionsPublicController {
 
 @Controller('admissions')
 @RequireEntitlement('sis.admissions')
-@Roles('OWNER', 'HEAD', 'FRONT_DESK')
 export class AdmissionsController {
   constructor(private svc: AdmissionsService) {}
 
   @Get()
+  @RequirePermission('admissions.view')
   list(
     @CurrentUser() user: AuthUser,
     @Query('stage') stage?: ApplicantStage,
@@ -427,11 +433,13 @@ export class AdmissionsController {
   }
 
   @Get(':id')
+  @RequirePermission('admissions.view')
   detail(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.detail(user, id);
   }
 
   @Get(':id/letter')
+  @RequirePermission('admissions.view')
   async letter(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     const { buffer, filename } = await this.svc.letter(user, id);
     return new StreamableFile(buffer, {
@@ -441,16 +449,21 @@ export class AdmissionsController {
   }
 
   @Post(':id/stage')
+  @RequirePermission('admissions.manage')
   move(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: MoveStageDto) {
     return this.svc.move(user, id, dto);
   }
 
   @Post(':id/decision')
+  @RequirePermission('admissions.manage')
   decide(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: DecisionDto) {
     return this.svc.decide(user, id, dto);
   }
 
+  // Both, because converting enrols a child: moving the applicant and creating the student are
+  // two distinct authorities and this route exercises them together.
   @Post(':id/convert')
+  @RequirePermission('admissions.manage', 'students.create')
   convert(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ConvertDto) {
     return this.svc.convert(user, id, dto);
   }

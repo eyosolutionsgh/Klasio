@@ -15,7 +15,7 @@ import {
 import { IsEnum, IsInt, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
 import { RemarkKind } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, Roles } from '../common/auth';
+import { AuthUser, CurrentUser, RequireAnyPermission, RequirePermission } from '../common/auth';
 
 /**
  * A bank of report-card comments.
@@ -154,8 +154,9 @@ export class RemarksService {
 export class RemarksController {
   constructor(private svc: RemarksService) {}
 
-  // Any member of staff who writes reports needs to read the bank.
+  // Anyone who can read a report card can read the bank of phrasing behind it.
   @Get()
+  @RequirePermission('reports.view')
   list(
     @CurrentUser() user: AuthUser,
     @Query('kind') kind?: RemarkKind,
@@ -167,26 +168,28 @@ export class RemarksController {
     return this.svc.list(user, kind, Number.isFinite(n) ? n : undefined);
   }
 
-  // Teachers may add phrasing they find themselves typing; tidying the bank stays with the head.
+  // Anyone who writes a remark may add phrasing they find themselves typing; tidying the bank
+  // needs authority over the school's assessment setup.
   @Post()
-  @Roles('OWNER', 'HEAD', 'TEACHER')
+  @RequireAnyPermission('reports.remark.teacher', 'reports.remark.head')
   create(@CurrentUser() user: AuthUser, @Body() dto: RemarkDto) {
     return this.svc.create(user, dto);
   }
 
   @Post(':id/use')
+  @RequireAnyPermission('reports.remark.teacher', 'reports.remark.head')
   use(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.use(user, id);
   }
 
   @Patch(':id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('assessment.configure')
   update(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateRemarkDto) {
     return this.svc.update(user, id, dto);
   }
 
   @Delete(':id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('assessment.configure')
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.remove(user, id);
   }

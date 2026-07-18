@@ -20,7 +20,7 @@ import * as jwt from 'jsonwebtoken';
 import * as bcrypt from 'bcryptjs';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, Public, Roles } from '../common/auth';
+import { AuthUser, CurrentUser, Public, RequirePermission } from '../common/auth';
 import { CalendarModule, CalendarService } from '../calendar/calendar.module';
 import { ResourcesModule, ResourcesService, ResourceScope } from '../resources/resources.module';
 
@@ -287,13 +287,13 @@ export class StudentPinController {
   constructor(private svc: StudentPortalService) {}
 
   @Post(':id/portal-pin')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('students.edit')
   issue(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.issuePin(user, id);
   }
 
   @Delete(':id/portal-pin')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('students.edit')
   revoke(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.revokePin(user, id);
   }

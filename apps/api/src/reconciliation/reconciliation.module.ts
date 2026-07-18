@@ -17,7 +17,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { IsIn, IsOptional, IsString, MinLength } from 'class-validator';
 import { GatewayProvider, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
+import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
 import { parseSettlementCsv, reconcile } from '../common/reconcile';
 
 /** Minimal shape of a Multer upload — avoids depending on @types/multer, as elsewhere. */
@@ -210,7 +210,7 @@ export class ReconciliationService {
 }
 
 @Controller('reconciliation')
-@Roles('OWNER', 'HEAD', 'BURSAR')
+@RequirePermission('fees.reconcile')
 @RequireEntitlement('fees.reconciliation')
 export class ReconciliationController {
   constructor(private svc: ReconciliationService) {}

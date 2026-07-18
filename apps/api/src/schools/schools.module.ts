@@ -31,7 +31,7 @@ import { LevelCategory, ReportTemplate } from '@prisma/client';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { PrismaService } from '../prisma/prisma.service';
 import { checkTemplate, previewAdmissionNo } from '../common/admission-no';
-import { AuthUser, CurrentUser, Roles } from '../common/auth';
+import { AuthUser, CurrentUser, RequirePermission } from '../common/auth';
 import { IMAGE_TYPES, MAX_UPLOAD_BYTES, objectKey, storage } from '../common/storage';
 
 const CATEGORIES = ['PRE_SCHOOL', 'PRIMARY', 'JHS', 'SHS'] as const;
@@ -528,7 +528,7 @@ export class SchoolsController {
   }
 
   @Patch('settings')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('school.settings')
   updateSettings(@CurrentUser() user: AuthUser, @Body() dto: SchoolSettingsDto) {
     return this.svc.updateSettings(user, dto);
   }
@@ -539,13 +539,13 @@ export class SchoolsController {
   }
 
   @Patch('profile')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('school.branding')
   updateProfile(@CurrentUser() user: AuthUser, @Body() dto: SchoolProfileDto) {
     return this.svc.updateProfile(user, dto);
   }
 
   @Post('logo')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('school.branding')
   @UseInterceptors(FileInterceptor('file'))
   uploadLogo(@CurrentUser() user: AuthUser, @UploadedFile() file: UploadedFileLike) {
     return this.svc.uploadLogo(user, file);
@@ -559,79 +559,79 @@ export class SchoolsController {
   }
 
   @Delete('logo')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('school.branding')
   removeLogo(@CurrentUser() user: AuthUser) {
     return this.svc.removeLogo(user);
   }
 
   @Post('years')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('school.settings')
   createYear(@CurrentUser() user: AuthUser, @Body() dto: AcademicYearDto) {
     return this.svc.createYear(user, dto);
   }
 
   @Post('years/:id/terms')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('school.settings')
   createTerm(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: TermDto) {
     return this.svc.createTerm(user, id, dto);
   }
 
   @Patch('terms/:id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('school.settings')
   updateTerm(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateTermDto) {
     return this.svc.updateTerm(user, id, dto);
   }
 
   @Post('terms/:id/current')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('school.settings')
   setCurrent(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.setCurrentTerm(user, id);
   }
 
   @Post('levels')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('school.settings')
   createLevel(@CurrentUser() user: AuthUser, @Body() dto: LevelDto) {
     return this.svc.createLevel(user, dto);
   }
 
   @Patch('levels/:id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('school.settings')
   updateLevel(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateLevelDto) {
     return this.svc.updateLevel(user, id, dto);
   }
 
   @Delete('levels/:id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('school.settings')
   deleteLevel(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.deleteLevel(user, id);
   }
 
   @Post('classes')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('school.settings')
   createClass(@CurrentUser() user: AuthUser, @Body() dto: ClassDto) {
     return this.svc.createClass(user, dto);
   }
 
   @Patch('classes/:id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('school.settings')
   updateClass(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ClassDto) {
     return this.svc.updateClass(user, id, dto);
   }
 
   @Delete('classes/:id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('school.settings')
   deleteClass(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.deleteClass(user, id);
   }
 
   @Post('subjects')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('school.settings')
   createSubject(@CurrentUser() user: AuthUser, @Body() dto: SubjectDto) {
     return this.svc.createSubject(user, dto);
   }
 
   @Delete('subjects/:id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('school.settings')
   deleteSubject(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.deleteSubject(user, id);
   }

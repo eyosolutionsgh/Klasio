@@ -13,7 +13,7 @@ import {
 import { IsIn, IsOptional, IsString } from 'class-validator';
 import { GatewayProvider, Prisma, Tier } from '@prisma/client';
 import { PrismaService, withTenant } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, Public, Roles } from '../common/auth';
+import { AuthUser, CurrentUser, Public, RequirePermission, Roles } from '../common/auth';
 import { publicToken } from '../common/crypto';
 import { PaymentProvider } from '../common/payments/provider';
 import { PaystackProvider } from '../common/payments/paystack';
@@ -333,26 +333,32 @@ export class BillingController {
   constructor(private svc: BillingService) {}
 
   @Get('plans')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('billing.manage')
   plans(@CurrentUser() user: AuthUser) {
     return this.svc.plans(user);
   }
 
   @Get('invoices')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('billing.manage')
   invoices(@CurrentUser() user: AuthUser) {
     return this.svc.invoices(user);
   }
 
+  /**
+   * Both gates, deliberately. `billing.manage` is the permission the school can hand out, but
+   * committing to a recurring bill stays the proprietor's own decision — it is the one place
+   * where "the owner personally" is the right rule rather than "whoever holds the permission".
+   */
   @Post('subscribe')
-  // Only the owner commits the school to a bill.
   @Roles('OWNER')
+  @RequirePermission('billing.manage')
   subscribe(@CurrentUser() user: AuthUser, @Body() dto: SubscribeDto) {
     return this.svc.subscribe(user, dto);
   }
 
   @Post('change-tier')
   @Roles('OWNER')
+  @RequirePermission('billing.manage')
   changeTier(@CurrentUser() user: AuthUser, @Body() dto: ChangeTierDto) {
     return this.svc.changeTier(user, dto);
   }

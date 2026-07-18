@@ -21,7 +21,7 @@ import { CustodyFlag, Gender, StudentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { checkTemplate, DEFAULT_TEMPLATE, formatAdmissionNo } from '../common/admission-no';
 import { studentIdCardSheet, type StudentIdCardData } from '../common/pdf';
-import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
+import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
 import { enrolmentHeadroom, studentCapFor } from '../common/entitlements';
 import { demoteOthers, reconcileLink, successorPrimary } from '../common/guardianship';
 import { normalizeMsisdn } from '../common/phone';
@@ -155,6 +155,12 @@ export class StudentsService {
     });
     if (!s) throw new NotFoundException('Student not found');
 
+    // `students.view` opens this record, but it does not open everything on it. Medical notes and
+    // money each need their own permission, or a librarian would read both simply by opening a
+    // child's page while the nurse who holds `students.medical` gained nothing from it.
+    const mayReadMedical = auth.permissions?.includes('students.medical') ?? false;
+    const mayReadFees = auth.permissions?.includes('fees.view') ?? false;
+
     const [ledger, attendance] = await Promise.all([
       this.db.ledgerEntry.findMany({
         where: { studentId: id },
@@ -187,7 +193,15 @@ export class StudentsService {
       exitReason: s.exitReason,
       // Storage key only — bytes are served by GET /students/:id/photo behind auth.
       photoUrl: s.photoUrl,
-      medicalNotes: s.medicalNotes,
+      /**
+       * Medical notes and money are on this payload but are NOT part of `students.view`.
+       *
+       * Without this a librarian could read every child's medical notes and fee balance simply
+       * by opening their record, while the school nurse who actually holds `students.medical`
+       * gained nothing from it. A permission that guards no route guards nothing — the gate has
+       * to be on the field, because the field is what is sensitive.
+       */
+      medicalNotes: mayReadMedical ? s.medicalNotes : undefined,
       className: s.classRoom?.name,
       levelCategory: s.classRoom?.level.category,
       guardians: s.guardians.map((g) => ({
@@ -202,17 +216,19 @@ export class StudentsService {
         /** Other students who share this guardian — 0 means the edit affects this child only. */
         alsoGuardianTo: Math.max(0, g.guardian._count.students - 1),
       })),
-      feeBalance: Math.round(balance * 100) / 100,
-      ledger: ledger.slice(0, 20).map((e) => ({
-        id: e.id,
-        type: e.type,
-        amount: Number(e.amount),
-        method: e.method,
-        reference: e.reference,
-        receiptNumber: e.receipt?.number ?? null,
-        note: e.note,
-        createdAt: e.createdAt,
-      })),
+      feeBalance: mayReadFees ? Math.round(balance * 100) / 100 : undefined,
+      ledger: !mayReadFees
+        ? undefined
+        : ledger.slice(0, 20).map((e) => ({
+            id: e.id,
+            type: e.type,
+            amount: Number(e.amount),
+            method: e.method,
+            reference: e.reference,
+            receiptNumber: e.receipt?.number ?? null,
+            note: e.note,
+            createdAt: e.createdAt,
+          })),
       attendanceSummary: attendance.reduce(
         (acc, a) => ({ ...acc, [a.status]: a._count }),
         {} as Record<string, number>,
@@ -824,6 +840,7 @@ export class StudentsController {
   constructor(private svc: StudentsService) {}
 
   @Get()
+  @RequirePermission('students.view')
   list(
     @CurrentUser() user: AuthUser,
     @Query('classId') classId?: string,
@@ -834,17 +851,19 @@ export class StudentsController {
   }
 
   @Post('promote')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('students.lifecycle')
   promote(@CurrentUser() user: AuthUser, @Body() dto: PromoteDto) {
     return this.svc.promote(user, dto);
   }
 
   @Get('enrolment')
+  @RequirePermission('students.view')
   enrolment(@CurrentUser() user: AuthUser) {
     return this.svc.enrolmentStatus(user);
   }
 
   @Get('export')
+  @RequirePermission('students.export')
   @RequireEntitlement('platform.export')
   async export(
     @CurrentUser() user: AuthUser,
@@ -865,12 +884,13 @@ export class StudentsController {
   }
 
   @Get(':id')
+  @RequirePermission('students.view')
   detail(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.detail(user, id);
   }
 
   @Post(':id/photo')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('students.edit')
   @UseInterceptors(FileInterceptor('file'))
   uploadPhoto(
     @CurrentUser() user: AuthUser,
@@ -881,7 +901,7 @@ export class StudentsController {
   }
 
   @Get('id-cards/print')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('students.view')
   @RequireEntitlement('sis.idcards')
   async idCards(
     @CurrentUser() user: AuthUser,
@@ -896,18 +916,20 @@ export class StudentsController {
   }
 
   @Get(':id/photo')
+  @RequirePermission('students.view')
   async photo(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     const buf = await this.svc.readPhoto(user, id);
     return new StreamableFile(buf, { type: 'image/jpeg' });
   }
 
   @Get(':id/documents')
+  @RequirePermission('students.documents')
   documents(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.listDocuments(user, id);
   }
 
   @Post(':id/documents')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('students.documents')
   @UseInterceptors(FileInterceptor('file'))
   uploadDocument(
     @CurrentUser() user: AuthUser,
@@ -919,13 +941,13 @@ export class StudentsController {
   }
 
   @Post(':id/guardians')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('students.guardians')
   addGuardian(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: AddGuardianDto) {
     return this.svc.addGuardian(user, id, dto);
   }
 
   @Patch(':id/guardians/:guardianId')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('students.guardians')
   updateGuardian(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -936,7 +958,7 @@ export class StudentsController {
   }
 
   @Delete(':id/guardians/:guardianId')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('students.guardians')
   removeGuardian(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -946,25 +968,25 @@ export class StudentsController {
   }
 
   @Post(':id/transfer')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('students.lifecycle')
   transfer(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ExitDto) {
     return this.svc.transfer(user, id, dto);
   }
 
   @Post(':id/withdraw')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('students.lifecycle')
   withdraw(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ExitDto) {
     return this.svc.withdraw(user, id, dto);
   }
 
   @Post()
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK', 'BURSAR')
+  @RequirePermission('students.create')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateStudentDto) {
     return this.svc.create(user, dto);
   }
 
   @Patch(':id')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('students.edit')
   update(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateStudentDto) {
     return this.svc.update(user, id, dto);
   }
@@ -975,6 +997,7 @@ export class StudentDocumentsController {
   constructor(private svc: StudentsService) {}
 
   @Get(':id')
+  @RequirePermission('students.documents')
   async read(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     const { buffer, doc } = await this.svc.readDocument(user, id);
     return new StreamableFile(buffer, {
@@ -984,7 +1007,7 @@ export class StudentDocumentsController {
   }
 
   @Delete(':id')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('students.documents')
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.deleteDocument(user, id);
   }

@@ -36,7 +36,7 @@ import { SmsModule, SmsService } from '../sms/sms.module';
 import { weighSubject } from '../common/weighting';
 import { PrismaService } from '../prisma/prisma.service';
 import { hasEntitlement } from '../common/entitlements';
-import { AuthUser, CurrentUser, Roles } from '../common/auth';
+import { AuthUser, CurrentUser, RequireAnyPermission, RequirePermission } from '../common/auth';
 import { reportCardPdf, ReportCardData, broadsheetPdf, BroadsheetData } from '../common/pdf';
 import { toCsv, toXlsx } from '../common/export';
 
@@ -182,10 +182,10 @@ export class AssessmentService {
   async createComponent(auth: AuthUser, dto: ComponentDto) {
     // A teacher may add assessments for a subject they are marking, which is the whole point of
     // this being flexible. Adding one to *every* subject changes every report card in the
-    // school, so that stays with the head.
-    if (auth.role === 'TEACHER' && !dto.subjectId) {
+    // school, so that needs authority over the school's assessment setup.
+    if (!auth.permissions?.includes('assessment.configure') && !dto.subjectId) {
       throw new BadRequestException(
-        'Choose a subject for this assessment — only a head can add one to every subject',
+        'Choose a subject for this assessment — adding one to every subject needs permission to set up assessments',
       );
     }
     // Any number of each category is fine — three tests and two papers is a normal term.
@@ -628,16 +628,18 @@ export class AssessmentService {
 
   /**
    * Record the human parts of a terminal report: conduct, interest and the two remarks.
-   * The head teacher's remark is reserved for HEAD/OWNER — a class teacher must not be able
-   * to put words in the head's mouth on a document that goes home to guardians.
+   * The head teacher's remark needs `reports.remark.head` — a class teacher must not be able to
+   * put words in the head's mouth on a document that goes home to guardians. It is a permission
+   * rather than a role so a school can hand it to an assistant head or an exams officer without
+   * making them the head.
    */
   async updateReport(auth: AuthUser, studentId: string, termId: string, dto: UpdateReportDto) {
     const report = await this.db.termReport.findFirst({
       where: { schoolId: auth.schoolId, studentId, termId },
     });
     if (!report) throw new NotFoundException('Report not generated yet');
-    if (dto.headRemark !== undefined && !['OWNER', 'HEAD'].includes(auth.role)) {
-      throw new ForbiddenException("Only the head teacher can write the head teacher's remark");
+    if (dto.headRemark !== undefined && !auth.permissions?.includes('reports.remark.head')) {
+      throw new ForbiddenException("You do not have permission to write the head teacher's remark");
     }
     if (report.publishedAt) {
       throw new BadRequestException('This report is published — unpublish it before editing');
@@ -944,29 +946,35 @@ export class AssessmentController {
   constructor(private svc: AssessmentService) {}
 
   @Get('weights')
+  @RequirePermission('marks.view')
   weights(@CurrentUser() user: AuthUser) {
     return this.svc.weights(user);
   }
 
   @Patch('weights')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('assessment.configure')
   setWeights(@CurrentUser() user: AuthUser, @Body() dto: WeightsDto) {
     return this.svc.setWeights(user, dto);
   }
 
   @Get('components')
+  @RequirePermission('marks.view')
   components(@CurrentUser() user: AuthUser) {
     return this.svc.components(user);
   }
 
+  // Entering marks is enough to add an assessment, because the service refuses anyone without
+  // `assessment.configure` who does not name a subject — a teacher may add their own column,
+  // not one that lands on every report card in the school.
   @Post('components')
-  @Roles('OWNER', 'HEAD', 'TEACHER')
+  // A teacher adds one for their own subject; an exams officer configures them school-wide.
+  @RequireAnyPermission('marks.enter', 'assessment.configure')
   createComponent(@CurrentUser() user: AuthUser, @Body() dto: ComponentDto) {
     return this.svc.createComponent(user, dto);
   }
 
   @Patch('components/:id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('assessment.configure')
   updateComponent(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -976,24 +984,25 @@ export class AssessmentController {
   }
 
   @Delete('components/:id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('assessment.configure')
   deleteComponent(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.deleteComponent(user, id);
   }
 
   @Get('schemes')
+  @RequirePermission('marks.view')
   schemes(@CurrentUser() user: AuthUser) {
     return this.svc.schemes(user);
   }
 
   @Post('schemes')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('assessment.configure')
   createScheme(@CurrentUser() user: AuthUser, @Body() dto: GradingSchemeDto) {
     return this.svc.createScheme(user, dto);
   }
 
   @Patch('schemes/:id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('assessment.configure')
   updateScheme(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -1003,12 +1012,13 @@ export class AssessmentController {
   }
 
   @Delete('schemes/:id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('assessment.configure')
   deleteScheme(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.deleteScheme(user, id);
   }
 
   @Get('scores')
+  @RequirePermission('marks.view')
   scores(
     @CurrentUser() user: AuthUser,
     @Query('classId') classId: string,
@@ -1019,23 +1029,25 @@ export class AssessmentController {
   }
 
   @Post('scores')
-  @Roles('OWNER', 'HEAD', 'TEACHER')
+  @RequirePermission('marks.enter')
   saveScores(@CurrentUser() user: AuthUser, @Body() dto: SaveScoresDto) {
     return this.svc.saveScores(user, dto);
   }
 
   @Post('reports/generate')
-  @Roles('OWNER', 'HEAD', 'TEACHER')
+  @RequirePermission('reports.generate')
   generate(@CurrentUser() user: AuthUser, @Body() dto: GenerateReportsDto) {
     return this.svc.generateReports(user, dto);
   }
 
   @Get('cumulative/:studentId')
+  @RequirePermission('reports.view')
   cumulative(@CurrentUser() user: AuthUser, @Param('studentId') studentId: string) {
     return this.svc.cumulative(user, studentId);
   }
 
   @Get('reports')
+  @RequirePermission('reports.view')
   list(
     @CurrentUser() user: AuthUser,
     @Query('classId') classId: string,
@@ -1045,6 +1057,7 @@ export class AssessmentController {
   }
 
   @Get('reports/:studentId/:termId')
+  @RequirePermission('reports.view')
   card(
     @CurrentUser() user: AuthUser,
     @Param('studentId') studentId: string,
@@ -1054,13 +1067,16 @@ export class AssessmentController {
   }
 
   @Post('reports/publish')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('reports.publish')
   publish(@CurrentUser() user: AuthUser, @Body() dto: PublishReportsDto) {
     return this.svc.publishReports(user, dto);
   }
 
+  // The route gate is the class teacher's remark; the head teacher's remark is checked in the
+  // service, because the same endpoint writes both.
   @Patch('reports/:studentId/:termId')
-  @Roles('OWNER', 'HEAD', 'TEACHER')
+  // Either remark gets you in; the service decides which fields you may actually write.
+  @RequireAnyPermission('reports.remark.teacher', 'reports.remark.head')
   updateReport(
     @CurrentUser() user: AuthUser,
     @Param('studentId') studentId: string,
@@ -1071,6 +1087,7 @@ export class AssessmentController {
   }
 
   @Get('broadsheet')
+  @RequirePermission('reports.view')
   broadsheet(
     @CurrentUser() user: AuthUser,
     @Query('classId') classId: string,
@@ -1080,6 +1097,7 @@ export class AssessmentController {
   }
 
   @Get('broadsheet/export')
+  @RequirePermission('reports.view')
   async broadsheetExport(
     @CurrentUser() user: AuthUser,
     @Query('classId') classId: string,
@@ -1094,6 +1112,7 @@ export class AssessmentController {
   }
 
   @Get('reports/:studentId/:termId/pdf')
+  @RequirePermission('reports.view')
   async cardPdf(
     @CurrentUser() user: AuthUser,
     @Param('studentId') studentId: string,

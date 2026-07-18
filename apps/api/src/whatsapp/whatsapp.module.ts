@@ -12,7 +12,13 @@ import {
 } from '@nestjs/common';
 import { IsString, MinLength } from 'class-validator';
 import { PrismaService, withTenant } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, Public, RequireEntitlement, Roles } from '../common/auth';
+import {
+  AuthUser,
+  CurrentUser,
+  Public,
+  RequireEntitlement,
+  RequirePermission,
+} from '../common/auth';
 import { canReply, minutesLeft, windowFromInbound } from '../common/whatsapp-window';
 import { normalizeMsisdn } from '../common/phone';
 
@@ -282,21 +288,21 @@ export class WhatsAppController {
   }
 
   @Get('conversations')
-  @Roles('OWNER', 'HEAD', 'BURSAR', 'FRONT_DESK')
+  @RequirePermission('comms.whatsapp')
   @RequireEntitlement('comms.whatsapp.templates')
   conversations(@CurrentUser() user: AuthUser) {
     return this.svc.conversations(user);
   }
 
   @Get('conversations/:id')
-  @Roles('OWNER', 'HEAD', 'BURSAR', 'FRONT_DESK')
+  @RequirePermission('comms.whatsapp')
   @RequireEntitlement('comms.whatsapp.templates')
   thread(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.thread(user, id);
   }
 
   @Post('conversations/:id/reply')
-  @Roles('OWNER', 'HEAD', 'BURSAR', 'FRONT_DESK')
+  @RequirePermission('comms.whatsapp')
   @RequireEntitlement('comms.whatsapp.templates')
   reply(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ReplyDto) {
     return this.svc.reply(user, id, dto);

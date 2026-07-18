@@ -17,7 +17,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { IsOptional, IsString, MinLength } from 'class-validator';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
+import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
 import { DOCUMENT_TYPES, MAX_UPLOAD_BYTES, objectKey, storage } from '../common/storage';
 
 /**
@@ -339,6 +339,7 @@ export class ResourcesController {
   constructor(private svc: ResourcesService) {}
 
   @Get()
+  @RequirePermission('resources.view')
   list(
     @CurrentUser() user: AuthUser,
     @Query('levelId') levelId?: string,
@@ -350,7 +351,7 @@ export class ResourcesController {
   }
 
   @Post()
-  @Roles('OWNER', 'HEAD', 'TEACHER')
+  @RequirePermission('resources.manage')
   @UseInterceptors(FileInterceptor('file'))
   upload(
     @CurrentUser() user: AuthUser,
@@ -361,6 +362,7 @@ export class ResourcesController {
   }
 
   @Get(':id/file')
+  @RequirePermission('resources.view')
   async file(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     const { buffer, resource } = await this.svc.download(user.schoolId, id, { userId: user.sub });
     return new StreamableFile(buffer, {
@@ -370,25 +372,25 @@ export class ResourcesController {
   }
 
   @Get(':id/downloads')
-  @Roles('OWNER', 'HEAD', 'TEACHER')
+  @RequirePermission('resources.manage')
   downloads(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.downloadLog(user, id);
   }
 
   @Post(':id/publish')
-  @Roles('OWNER', 'HEAD', 'TEACHER')
+  @RequirePermission('resources.manage')
   publish(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.setPublished(user, id, true);
   }
 
   @Post(':id/unpublish')
-  @Roles('OWNER', 'HEAD', 'TEACHER')
+  @RequirePermission('resources.manage')
   unpublish(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.setPublished(user, id, false);
   }
 
   @Delete(':id')
-  @Roles('OWNER', 'HEAD', 'TEACHER')
+  @RequirePermission('resources.manage')
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.remove(user, id);
   }

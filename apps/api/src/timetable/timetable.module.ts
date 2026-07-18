@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { IsBoolean, IsInt, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
+import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
 import {
   Assignment,
   WEEKDAYS,
@@ -477,23 +477,25 @@ export class TimetableController {
   constructor(private svc: TimetableService) {}
 
   @Get('options')
+  @RequirePermission('timetable.view')
   options(@CurrentUser() user: AuthUser) {
     return this.svc.options(user);
   }
 
   @Get('periods')
+  @RequirePermission('timetable.view')
   periods(@CurrentUser() user: AuthUser) {
     return this.svc.periods(user);
   }
 
   @Post('periods')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('timetable.manage')
   createPeriod(@CurrentUser() user: AuthUser, @Body() dto: PeriodDto) {
     return this.svc.createPeriod(user, dto);
   }
 
   @Patch('periods/:id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('timetable.manage')
   updatePeriod(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -503,37 +505,39 @@ export class TimetableController {
   }
 
   @Delete('periods/:id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('timetable.manage')
   deletePeriod(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.deletePeriod(user, id);
   }
 
   @Post('slots')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('timetable.manage')
   assign(@CurrentUser() user: AuthUser, @Body() dto: SlotDto) {
     return this.svc.assign(user, dto);
   }
 
   @Patch('slots/:id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('timetable.manage')
   updateSlot(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateSlotDto) {
     return this.svc.updateSlot(user, id, dto);
   }
 
   @Delete('slots/:id')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('timetable.manage')
   clearSlot(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.clearSlot(user, id);
   }
 
-  // Reading is open to any signed-in member of staff — a teacher has to be able to look up both
-  // their own week and the class they are covering for.
+  // Reading is open to anyone who may see the timetable — a teacher has to be able to look up
+  // both their own week and the class they are covering for.
   @Get('class/:classId')
+  @RequirePermission('timetable.view')
   byClass(@CurrentUser() user: AuthUser, @Param('classId') classId: string) {
     return this.svc.byClass(user, classId);
   }
 
   @Get('teacher/:teacherId')
+  @RequirePermission('timetable.view')
   byTeacher(@CurrentUser() user: AuthUser, @Param('teacherId') teacherId: string) {
     return this.svc.byTeacher(user, teacherId);
   }

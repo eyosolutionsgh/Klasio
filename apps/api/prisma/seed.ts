@@ -1,6 +1,7 @@
 /* Seed: demo Ghanaian private school with full term data. Idempotent (wipes + recreates demo school). */
 import { PrismaClient, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { ROLE_PRESETS } from '../src/common/permissions';
 
 const db = new PrismaClient();
 
@@ -109,6 +110,9 @@ async function main() {
     await db.receipt.deleteMany({ where: { schoolId: sid } });
     await db.ledgerEntry.deleteMany({ where: { schoolId: sid } });
     await db.invoice.deleteMany({ where: { schoolId: sid } });
+    // Users point at roles, so break the link before the roles go.
+    await db.user.updateMany({ where: { schoolId: sid }, data: { staffRoleId: null } });
+    await db.staffRole.deleteMany({ where: { schoolId: sid } });
     await db.concessionAward.deleteMany({ where: { schoolId: sid } });
     await db.concessionRule.deleteMany({ where: { schoolId: sid } });
     await db.feeItem.deleteMany({ where: { schoolId: sid } });
@@ -152,6 +156,22 @@ async function main() {
   });
   const sid = school.id;
 
+  // Every school gets the preset roles. Without them nobody but the proprietor can do anything,
+  // because authority now comes from a role rather than the legacy enum.
+  const roleByKey = new Map<string, string>();
+  for (const preset of ROLE_PRESETS) {
+    const created = await db.staffRole.create({
+      data: {
+        schoolId: sid,
+        name: preset.name,
+        description: preset.description,
+        permissions: [...preset.permissions],
+        presetKey: preset.key,
+      },
+    });
+    roleByKey.set(preset.key, created.id);
+  }
+
   const hash = await bcrypt.hash('Password1!', 10);
   const [owner, head, bursar, teacher] = await Promise.all([
     db.user.create({
@@ -169,6 +189,7 @@ async function main() {
         name: 'Mrs. Dora Ampofo',
         email: 'head@demo.school',
         role: 'HEAD',
+        staffRoleId: roleByKey.get('HEAD'),
         passwordHash: hash,
       },
     }),
@@ -178,6 +199,7 @@ async function main() {
         name: 'Mr. Ebo Quaye',
         email: 'bursar@demo.school',
         role: 'BURSAR',
+        staffRoleId: roleByKey.get('BURSAR'),
         passwordHash: hash,
       },
     }),
@@ -187,6 +209,7 @@ async function main() {
         name: 'Ms. Efua Sarpong',
         email: 'teacher@demo.school',
         role: 'TEACHER',
+        staffRoleId: roleByKey.get('CLASS_TEACHER'),
         passwordHash: hash,
       },
     }),

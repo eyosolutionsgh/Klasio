@@ -14,7 +14,7 @@ import {
 import { IsBoolean, IsDateString, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
 import { EventAudience } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
+import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
 
 class CreateEventDto {
   @IsString() @MinLength(3) title: string;
@@ -220,19 +220,19 @@ export class CalendarController {
   }
 
   @Post()
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('calendar.manage')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateEventDto) {
     return this.svc.create(user, dto);
   }
 
   @Patch(':id')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('calendar.manage')
   update(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateEventDto) {
     return this.svc.update(user, id, dto);
   }
 
   @Delete(':id')
-  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequirePermission('calendar.manage')
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.remove(user, id);
   }

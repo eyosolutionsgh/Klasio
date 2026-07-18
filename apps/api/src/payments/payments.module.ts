@@ -21,7 +21,13 @@ import IORedis from 'ioredis';
 import { IsIn, IsNumber, IsOptional, IsPositive, IsString, MinLength } from 'class-validator';
 import { GatewayProvider, PaymentChannel, PaymentMethod, Prisma } from '@prisma/client';
 import { PrismaService, withTenant } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, Public, RequireEntitlement, Roles } from '../common/auth';
+import {
+  AuthUser,
+  CurrentUser,
+  Public,
+  RequireEntitlement,
+  RequirePermission,
+} from '../common/auth';
 import { decryptSecret, encryptSecret, publicToken } from '../common/crypto';
 import { PaymentProvider, ProviderStatus } from '../common/payments/provider';
 import { PaystackProvider } from '../common/payments/paystack';
@@ -679,34 +685,35 @@ export class PaymentsController {
   constructor(private svc: PaymentsService) {}
 
   @Post('gateway')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('fees.gateways')
   @RequireEntitlement('fees.online')
   connect(@CurrentUser() user: AuthUser, @Body() dto: ConnectGatewayDto) {
     return this.svc.connectGateway(user, dto);
   }
 
   @Get('gateway')
-  @Roles('OWNER', 'HEAD')
+  @RequirePermission('fees.gateways')
   @RequireEntitlement('fees.online')
   gateways(@CurrentUser() user: AuthUser) {
     return this.svc.listGateways(user);
   }
 
   @Post('checkout')
-  @Roles('OWNER', 'HEAD', 'BURSAR', 'FRONT_DESK')
+  @RequirePermission('fees.record_payment')
   @RequireEntitlement('fees.online')
   checkout(@CurrentUser() user: AuthUser, @Body() dto: CheckoutDto) {
     return this.svc.checkout(user, dto);
   }
 
   @Post('link')
-  @Roles('OWNER', 'HEAD', 'BURSAR', 'FRONT_DESK')
+  @RequirePermission('fees.record_payment')
   @RequireEntitlement('fees.online')
   link(@CurrentUser() user: AuthUser, @Body() dto: CheckoutDto) {
     return this.svc.payLink(user, dto);
   }
 
   @Get()
+  @RequirePermission('fees.view')
   @RequireEntitlement('fees.online')
   list(@CurrentUser() user: AuthUser, @Query('status') status?: string) {
     return this.svc.list(user, status);
@@ -762,7 +769,9 @@ export class PaymentsController {
 
   /** Staff-only forced re-query (can settle money, so it must not be public). */
   @Post(':reference/refresh')
-  @Roles('OWNER', 'HEAD', 'BURSAR', 'FRONT_DESK')
+  // Settles money: this handler can append a PAYMENT entry and mint a receipt, so it needs the
+  // permission to take money, not merely to look at it.
+  @RequirePermission('fees.record_payment')
   @RequireEntitlement('fees.online')
   refresh(@CurrentUser() _user: AuthUser, @Param('reference') reference: string) {
     return this.svc.refreshStatus(reference);

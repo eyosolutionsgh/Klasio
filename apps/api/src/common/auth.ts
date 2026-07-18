@@ -50,6 +50,16 @@ export const RequireEntitlement = (code: string) => SetMetadata('entitlement', c
  */
 export const RequirePermission = (...codes: string[]) => SetMetadata('permissions', codes);
 
+/**
+ * Any one of these is enough.
+ *
+ * Most routes want every listed code, so `@RequirePermission` ANDs them. A few are genuinely
+ * reachable two ways: the report-card remark endpoint writes both the class teacher's remark and
+ * the head's, and either permission should get you in — the service then decides which fields you
+ * may actually touch. Expressing that as an AND locked heads out of their own remark.
+ */
+export const RequireAnyPermission = (...codes: string[]) => SetMetadata('anyPermissions', codes);
+
 export const CurrentUser = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext): AuthUser => {
     return ctx.switchToHttp().getRequest().user;
@@ -147,6 +157,17 @@ export class AuthGuard implements CanActivate {
             : 'You do not have permission to do that',
         );
       }
+    }
+
+    const anyOf = this.reflector.getAllAndOverride<string[]>('anyPermissions', [
+      ctx.getHandler(),
+      ctx.getClass(),
+    ]);
+    if (anyOf?.length && !anyOf.some((code) => permissions.includes(code))) {
+      const labels = anyOf
+        .map((c) => PERMISSIONS.find((p) => p.code === c)?.label ?? c)
+        .join(', or ');
+      throw new ForbiddenException(`You need permission to: ${labels}`);
     }
 
     const entitlement = this.reflector.getAllAndOverride<string>('entitlement', [

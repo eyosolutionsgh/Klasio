@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { IsArray, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
+import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
 
 type Audience = 'ALL' | 'CLASS' | 'LEVEL' | 'CUSTOM';
 
@@ -284,19 +284,21 @@ export class SmsController {
 
   @Get('balance')
   @RequireEntitlement('comms.sms')
+  @RequirePermission('comms.sms')
   balance(@CurrentUser() user: AuthUser) {
     return this.svc.balance(user);
   }
 
   @Get('messages')
   @RequireEntitlement('comms.sms')
+  @RequirePermission('comms.sms')
   messages(@CurrentUser() user: AuthUser) {
     return this.svc.messages(user);
   }
 
   @Post('send')
   @RequireEntitlement('comms.sms')
-  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequirePermission('comms.sms')
   send(@CurrentUser() user: AuthUser, @Body() dto: SendSmsDto) {
     return this.svc.send(user, dto);
   }
