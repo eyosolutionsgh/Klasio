@@ -5,7 +5,7 @@ export default function PrintButton() {
     <button
       onClick={() => window.print()}
       data-tip="Prints exactly as shown — A4 portrait"
-      className="tip rounded-lg bg-forest text-paper text-sm font-medium px-5 py-2 hover:bg-forest-deep transition"
+      className="tip rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition"
     >
       Print report card
     </button>

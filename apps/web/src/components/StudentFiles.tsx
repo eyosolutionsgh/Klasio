@@ -111,7 +111,7 @@ export default function StudentFiles({
               <span className="min-w-0">
                 <a
                   href={`/api/proxy/documents/${d.id}`}
-                  className="text-forest hover:underline underline-offset-2"
+                  className="text-brand hover:underline underline-offset-2"
                 >
                   {d.filename}
                 </a>
@@ -134,7 +134,7 @@ export default function StudentFiles({
           <select
             value={kind}
             onChange={(e) => setKind(e.target.value)}
-            className="rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-forest"
+            className="rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand"
           >
             {KINDS.map((k) => (
               <option key={k} value={k}>

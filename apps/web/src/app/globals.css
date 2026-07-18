@@ -19,6 +19,36 @@
   --color-oat: #8d8062;
   --color-leaf: #2e7d4f;
   --color-danger: #b3372c;
+
+  /* Brand tokens. A school sets one colour (--brand below); the darker and lighter variants are
+     derived from it, so there is a single value to store and validate. Only primary surfaces
+     use these — text, cards and the paper background stay fixed, so a badly-chosen colour can
+     never make the portal unreadable. */
+  --color-brand: var(--brand);
+  --color-brand-deep: var(--brand-deep);
+  --color-brand-mist: var(--brand-mist);
+}
+
+:root {
+  --brand: #17513c;
+  --brand-deep: color-mix(in srgb, var(--brand) 72%, #000);
+  --brand-mist: color-mix(in srgb, var(--brand) 14%, #fff);
+}
+
+/**
+ * Applied to any element that overrides --brand inline (the portal shell, the colour preview).
+ *
+ * The derivations must be re-declared here rather than only on :root: a custom property is
+ * resolved where it is *declared*, so --brand-deep computed at :root keeps :root's --brand
+ * forever and descendants just inherit that finished value. Declaring them on the same element
+ * that sets --brand is what makes the override actually cascade.
+ */
+.brand-scope {
+  --brand-deep: color-mix(in srgb, var(--brand) 72%, #000);
+  --brand-mist: color-mix(in srgb, var(--brand) 14%, #fff);
+  --color-brand: var(--brand);
+  --color-brand-deep: var(--brand-deep);
+  --color-brand-mist: var(--brand-mist);
 }
 
 html {

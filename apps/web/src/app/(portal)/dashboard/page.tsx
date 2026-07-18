@@ -94,7 +94,7 @@ export default async function DashboardPage() {
             <h2 className="font-display text-xl">Fees position — {stats.term?.name}</h2>
             <Link
               href="/fees"
-              className="text-[13px] text-forest font-medium hover:underline underline-offset-2"
+              className="text-[13px] text-brand font-medium hover:underline underline-offset-2"
             >
               Open fees →
             </Link>
@@ -131,7 +131,7 @@ export default async function DashboardPage() {
             <h2 className="font-display text-xl">Notice board</h2>
             <Link
               href="/announcements"
-              className="text-[13px] text-forest font-medium hover:underline underline-offset-2"
+              className="text-[13px] text-brand font-medium hover:underline underline-offset-2"
             >
               All notices →
             </Link>

@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
+import Link from 'next/link';
 import Sidebar from './Sidebar';
+import UserMenu from './UserMenu';
+import SchoolCrest from './SchoolCrest';
 
 /**
  * Portal chrome. The sidebar is a permanent column from `lg` up and an off-canvas drawer below
@@ -11,14 +14,20 @@ import Sidebar from './Sidebar';
  */
 export default function PortalShell({
   school,
+  hasLogo,
+  brandColor,
   userName,
+  userEmail,
   role,
   termLabel,
   tier,
   children,
 }: {
   school: string;
+  hasLogo: boolean;
+  brandColor: string | null;
   userName: string;
+  userEmail?: string;
   role: string;
   termLabel: string;
   tier: string;
@@ -54,7 +63,12 @@ export default function PortalShell({
   }, [open]);
 
   return (
-    <div className="flex">
+    // The school's colour enters the cascade here as --brand; the deep and mist variants are
+    // derived from it in globals.css, so one stored value themes every primary surface.
+    <div
+      className="brand-scope flex"
+      style={brandColor ? ({ '--brand': brandColor } as React.CSSProperties) : undefined}
+    >
       {open && (
         <div
           onClick={close}
@@ -63,10 +77,17 @@ export default function PortalShell({
         />
       )}
 
-      <Sidebar school={school} userName={userName} role={role} open={open} onClose={close} />
+      <Sidebar
+        school={school}
+        hasLogo={hasLogo}
+        userName={userName}
+        role={role}
+        open={open}
+        onClose={close}
+      />
 
       <div className="flex-1 min-w-0 overflow-x-clip">
-        <header className="no-print flex items-center justify-between gap-3 px-4 lg:px-8 h-14 border-b border-mist bg-paper/70 backdrop-blur sticky top-0 z-30">
+        <header className="no-print flex items-center justify-between gap-3 px-4 lg:px-6 h-16 border-b border-mist bg-paper/80 backdrop-blur sticky top-0 z-30">
           <div className="flex items-center gap-3 min-w-0">
             <button
               ref={triggerRef}
@@ -80,14 +101,29 @@ export default function PortalShell({
                 <path d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z" />
               </svg>
             </button>
-            <p className="text-[13px] text-oat truncate">{termLabel}</p>
+
+            {/* The crest also appears in the sidebar, but the sidebar is hidden on a phone —
+                so the top bar carries the school's identity at every width. */}
+            <Link href="/dashboard" className="flex items-center gap-2.5 min-w-0">
+              <SchoolCrest name={school} hasLogo={hasLogo} size={34} />
+              <span className="min-w-0 leading-tight">
+                <span className="block text-[13.5px] font-medium truncate max-w-[10rem] sm:max-w-none">
+                  {school}
+                </span>
+                <span className="block text-[11px] text-oat truncate">{termLabel}</span>
+              </span>
+            </Link>
           </div>
-          <span
-            data-tip="Your school's package — features unlock by package"
-            className="tip shrink-0 text-[11px] uppercase tracking-widest font-medium text-forest bg-forest-mist rounded-full px-3 py-1"
-          >
-            {tier}
-          </span>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <span
+              data-tip="Your school's package — features unlock by package"
+              className="tip hidden sm:block text-[11px] uppercase tracking-widest font-medium text-brand bg-brand-mist rounded-full px-3 py-1"
+            >
+              {tier}
+            </span>
+            <UserMenu name={userName} role={role} email={userEmail} />
+          </div>
         </header>
         <main className="px-4 py-6 lg:px-8 lg:py-8 max-w-6xl">{children}</main>
       </div>

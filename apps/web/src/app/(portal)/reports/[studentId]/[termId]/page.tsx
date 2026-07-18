@@ -54,7 +54,7 @@ export default async function ReportCardPage({
   return (
     <div>
       <div className="no-print flex flex-wrap items-center justify-between gap-x-4 gap-y-1 mb-6">
-        <Link href="/reports" className="text-[13px] text-oat hover:text-forest transition">
+        <Link href="/reports" className="text-[13px] text-oat hover:text-brand transition">
           ← Back to reports
         </Link>
         <div className="flex items-center gap-2">
@@ -74,7 +74,7 @@ export default async function ReportCardPage({
         <div className="kente-stripe h-1.5 absolute top-0 left-0 right-0" />
 
         {card.template === 'MODERN' ? (
-          <header className="-mx-10 -mt-10 mb-6 bg-forest-deep text-paper px-10 pt-8 pb-6">
+          <header className="-mx-10 -mt-10 mb-6 bg-brand-deep text-paper px-10 pt-8 pb-6">
             <h1 className="font-display text-3xl tracking-tight">{card.school.name}</h1>
             <p className="text-[11px] text-paper/70 mt-1.5">
               {[card.school.motto, card.school.address, card.school.phone]

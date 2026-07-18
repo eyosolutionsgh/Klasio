@@ -114,7 +114,7 @@ export default function GatewaysPage() {
               key={p}
               type="button"
               onClick={() => setProvider(p)}
-              className={`text-[13px] rounded-full px-3.5 py-1.5 border transition ${provider === p ? 'bg-forest text-paper border-forest' : 'border-mist bg-white hover:border-forest'}`}
+              className={`text-[13px] rounded-full px-3.5 py-1.5 border transition ${provider === p ? 'bg-brand text-paper border-brand' : 'border-mist bg-white hover:border-brand'}`}
             >
               {p}
             </button>
@@ -143,7 +143,7 @@ export default function GatewaysPage() {
             value={secret}
             onChange={(e) => setSecret(e.target.value)}
             placeholder={provider === 'PAYSTACK' ? 'sk_live_…' : 'client secret'}
-            className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-forest focus:ring-2 focus:ring-forest/15"
+            className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
           />
         </div>
         <div>
@@ -154,7 +154,7 @@ export default function GatewaysPage() {
             id="pk"
             value={publicKey}
             onChange={(e) => setPublicKey(e.target.value)}
-            className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-forest"
+            className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand"
           />
         </div>
         {provider === 'HUBTEL' && (
@@ -166,7 +166,7 @@ export default function GatewaysPage() {
               id="mn"
               value={merchantNumber}
               onChange={(e) => setMerchantNumber(e.target.value)}
-              className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-forest"
+              className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand"
             />
           </div>
         )}
@@ -174,11 +174,11 @@ export default function GatewaysPage() {
         <button
           type="submit"
           disabled={busy || !secret}
-          className="rounded-lg bg-forest text-paper text-sm font-medium px-5 py-2.5 hover:bg-forest-deep transition disabled:opacity-50"
+          className="rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2.5 hover:bg-brand-deep transition disabled:opacity-50"
         >
           {busy ? 'Saving…' : 'Connect gateway'}
         </button>
-        {message && <p className="text-sm text-forest">{message}</p>}
+        {message && <p className="text-sm text-brand">{message}</p>}
       </form>
     </div>
   );

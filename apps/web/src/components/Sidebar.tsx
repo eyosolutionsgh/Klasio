@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
+import SchoolCrest from './SchoolCrest';
 
 const NAV = [
   {
@@ -59,6 +60,12 @@ const NAV = [
     tip: 'Academic years, terms, levels, classes and subjects',
   },
   {
+    href: '/settings/branding',
+    label: 'Profile & Branding',
+    icon: 'M12 3l2.4 5 5.6.8-4 3.9 1 5.5-5-2.6-5 2.6 1-5.5-4-3.9 5.6-.8L12 3z',
+    tip: 'Your crest, colour and contact details',
+  },
+  {
     href: '/settings/fees',
     label: 'Fee Structure',
     icon: 'M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z',
@@ -86,12 +93,14 @@ const NAV = [
 
 export default function Sidebar({
   school,
+  hasLogo,
   userName,
   role,
   open = false,
   onClose,
 }: {
   school: string;
+  hasLogo: boolean;
   userName: string;
   role: string;
   /** Drawer state — only meaningful below `lg`, where the sidebar is off-canvas. */
@@ -99,20 +108,13 @@ export default function Sidebar({
   onClose?: () => void;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
-
-  async function signOut() {
-    await fetch('/api/session', { method: 'DELETE' });
-    router.push('/login');
-    router.refresh();
-  }
 
   return (
     <aside
       id="portal-nav"
       // Below lg: a fixed drawer that slides in. From lg: an ordinary sticky column, so the
       // desktop layout is untouched.
-      className={`no-print bg-forest-deep text-paper flex flex-col z-50
+      className={`no-print bg-brand-deep text-paper flex flex-col z-50
         fixed inset-y-0 left-0 w-[17rem] max-w-[85vw]
         transition-[transform,visibility] duration-200 ease-out motion-reduce:transition-none
         ${
@@ -127,9 +129,12 @@ export default function Sidebar({
     >
       <div className="kente-stripe h-1.5" />
       <div className="px-5 pt-6 pb-5 border-b border-paper/10 flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="font-display text-xl text-gold leading-none">EYO</p>
-          <p className="mt-2 text-[13px] font-medium leading-tight">{school}</p>
+        <div className="min-w-0 flex items-center gap-3">
+          <SchoolCrest name={school} hasLogo={hasLogo} size={38} onDark />
+          <div className="min-w-0">
+            <p className="text-[13px] font-medium leading-tight">{school}</p>
+            <p className="mt-0.5 font-display text-[13px] text-gold leading-none">EYO</p>
+          </div>
         </div>
         <button
           onClick={onClose}
@@ -174,17 +179,13 @@ export default function Sidebar({
         })}
       </nav>
 
+      {/* Who you are signed in as. Sign-out and profile now live in the top-bar avatar menu, so
+          there is exactly one place to look for them. */}
       <div className="px-5 py-4 border-t border-paper/10">
-        <p className="text-[13px] font-medium">{userName}</p>
+        <p className="text-[13px] font-medium truncate">{userName}</p>
         <p className="text-[11px] uppercase tracking-wider text-paper/50 mt-0.5">
           {role.toLowerCase().replace('_', ' ')}
         </p>
-        <button
-          onClick={signOut}
-          className="mt-3 text-[12px] text-paper/60 hover:text-gold transition underline underline-offset-2"
-        >
-          Sign out
-        </button>
       </div>
     </aside>
   );

@@ -10,7 +10,10 @@ export default async function PortalLayout({ children }: { children: React.React
   return (
     <PortalShell
       school={me.school.name}
+      hasLogo={!!me.school.hasLogo}
+      brandColor={me.school.brandColor ?? null}
       userName={me.user.name}
+      userEmail={me.user.email}
       role={me.user.role}
       termLabel={termLabel}
       tier={me.school.tier}

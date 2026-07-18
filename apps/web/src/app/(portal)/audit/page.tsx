@@ -61,7 +61,7 @@ export default function AuditPage() {
               setPage(1);
               setAction(e.target.value);
             }}
-            className="rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-forest"
+            className="rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand"
           >
             <option value="">All actions</option>
             {actions.map((a) => (
@@ -80,7 +80,7 @@ export default function AuditPage() {
               setPage(1);
               setFrom(e.target.value);
             }}
-            className="rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-forest"
+            className="rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand"
           />
         </label>
         <label className="text-[13px]">
@@ -92,7 +92,7 @@ export default function AuditPage() {
               setPage(1);
               setTo(e.target.value);
             }}
-            className="rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-forest"
+            className="rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand"
           />
         </label>
       </div>
@@ -150,14 +150,14 @@ export default function AuditPage() {
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={data.page <= 1}
-              className="rounded-lg border border-mist px-3 py-1.5 hover:border-forest transition disabled:opacity-40"
+              className="rounded-lg border border-mist px-3 py-1.5 hover:border-brand transition disabled:opacity-40"
             >
               ← Prev
             </button>
             <button
               onClick={() => setPage((p) => Math.min(data.pages, p + 1))}
               disabled={data.page >= data.pages}
-              className="rounded-lg border border-mist px-3 py-1.5 hover:border-forest transition disabled:opacity-40"
+              className="rounded-lg border border-mist px-3 py-1.5 hover:border-brand transition disabled:opacity-40"
             >
               Next →
             </button>

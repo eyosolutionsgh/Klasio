@@ -117,7 +117,7 @@ export default function FeeStructurePage() {
 
   const compulsory = items.filter((i) => !i.optional).reduce((a, i) => a + i.amount, 0);
   const field =
-    'rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-forest focus:ring-2 focus:ring-forest/15';
+    'rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
 
   return (
     <div>
@@ -245,7 +245,7 @@ export default function FeeStructurePage() {
           <button
             type="submit"
             disabled={busy || !termId}
-            className="rounded-lg bg-forest text-paper text-sm font-medium px-5 py-2 hover:bg-forest-deep transition disabled:opacity-50"
+            className="rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition disabled:opacity-50"
           >
             {busy ? 'Adding…' : 'Add item'}
           </button>
@@ -280,7 +280,7 @@ export default function FeeStructurePage() {
             onClick={generateInvoices}
             disabled={billing || !termId || compulsory === 0}
             data-tip={compulsory === 0 ? 'Add at least one compulsory fee item first' : undefined}
-            className="tip rounded-lg bg-forest text-paper text-sm font-medium px-5 py-2 hover:bg-forest-deep transition disabled:opacity-50"
+            className="tip rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition disabled:opacity-50"
           >
             {billing ? 'Generating…' : `Bill ${money(compulsory)} per student`}
           </button>

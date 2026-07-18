@@ -41,12 +41,12 @@ export default function PayAction({ token, reference }: { token: string; referen
         value={phone}
         onChange={(e) => setPhone(e.target.value)}
         placeholder="024 123 4567"
-        className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-forest focus:ring-2 focus:ring-forest/15"
+        className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
       />
       <button
         onClick={pay}
         disabled={busy}
-        className="mt-4 w-full rounded-lg bg-forest text-paper font-medium py-3 hover:bg-forest-deep transition disabled:opacity-60"
+        className="mt-4 w-full rounded-lg bg-brand text-paper font-medium py-3 hover:bg-brand-deep transition disabled:opacity-60"
       >
         {busy ? 'Starting payment…' : 'Pay now'}
       </button>

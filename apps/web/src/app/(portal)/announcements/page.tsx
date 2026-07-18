@@ -67,7 +67,7 @@ export default function AnnouncementsPage() {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="e.g. PTA meeting on Saturday"
-            className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-forest focus:ring-2 focus:ring-forest/15"
+            className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
           />
           <label className="block text-sm font-medium mt-4 mb-1.5" htmlFor="body">
             Message
@@ -80,7 +80,7 @@ export default function AnnouncementsPage() {
             value={body}
             onChange={(e) => setBody(e.target.value)}
             placeholder="Write the full notice here…"
-            className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-forest focus:ring-2 focus:ring-forest/15 resize-y"
+            className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15 resize-y"
           />
           {error && (
             <p role="alert" className="mt-3 text-sm text-danger">
@@ -90,7 +90,7 @@ export default function AnnouncementsPage() {
           <button
             type="submit"
             disabled={busy}
-            className="mt-5 rounded-lg bg-forest text-paper text-sm font-medium px-5 py-2.5 hover:bg-forest-deep transition disabled:opacity-60"
+            className="mt-5 rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2.5 hover:bg-brand-deep transition disabled:opacity-60"
           >
             {busy ? 'Posting…' : 'Post notice'}
           </button>

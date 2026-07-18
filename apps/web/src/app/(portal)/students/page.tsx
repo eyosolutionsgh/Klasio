@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { api, getMe } from '@/lib/api';
 import PromoteClass from '@/components/PromoteClass';
 import DownloadButton from '@/components/DownloadButton';
+import StudentFilters from '@/components/StudentFilters';
 
 interface StudentRow {
   id: string;
@@ -13,7 +14,7 @@ interface StudentRow {
   primaryGuardian: { name: string; phone: string } | null;
 }
 interface Structure {
-  classes: { id: string; name: string; studentCount: number }[];
+  classes: { id: string; name: string; level: string; studentCount: number }[];
 }
 
 const STATUS_TABS = [
@@ -44,15 +45,6 @@ export default async function StudentsPage({
 
   const canPromote = ['OWNER', 'HEAD'].includes(me.user.role);
   const selectedClass = structure.classes.find((c) => c.id === classId);
-  const keep = (extra: Record<string, string>) => {
-    const p = new URLSearchParams();
-    if (classId) p.set('classId', classId);
-    if (q) p.set('q', q);
-    p.set('status', status);
-    for (const [k, v] of Object.entries(extra)) p.set(k, v);
-    return `/students?${p}`;
-  };
-
   return (
     <div>
       <div className="rise rise-1 flex items-end justify-between flex-wrap gap-4">
@@ -74,7 +66,7 @@ export default async function StudentsPage({
         <div className="flex flex-wrap items-center gap-2">
           <Link
             href="/students/onboarding"
-            className="tip rounded-lg border border-mist text-forest text-sm font-medium px-4 py-2 hover:bg-forest-mist transition"
+            className="tip rounded-lg border border-mist text-brand text-sm font-medium px-4 py-2 hover:bg-brand-mist transition"
             data-tip="Bulk-import students from an Excel template"
           >
             Import
@@ -94,47 +86,23 @@ export default async function StudentsPage({
               name="q"
               defaultValue={q}
               placeholder="Search name or admission no."
-              className="rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-forest focus:ring-2 focus:ring-forest/15 flex-1 min-w-0 sm:w-64 sm:flex-none"
+              className="rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15 flex-1 min-w-0 sm:w-64 sm:flex-none"
             />
-            <button className="rounded-lg bg-forest text-paper text-sm font-medium px-4 hover:bg-forest-deep transition">
+            <button className="rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
               Search
             </button>
           </form>
         </div>
       </div>
 
-      {/* status tabs */}
-      <div className="mt-6 flex flex-wrap gap-1.5 rise rise-2">
-        {STATUS_TABS.map((t) => (
-          <Link
-            key={t.key}
-            href={keep({ status: t.key })}
-            className={`text-[12.5px] rounded-full px-3 py-1.5 border transition ${status === t.key ? 'bg-forest text-paper border-forest' : 'border-mist bg-white text-ink hover:border-forest'}`}
-          >
-            {t.label}
-          </Link>
-        ))}
-      </div>
-
-      {/* class filter chips */}
-      <div className="mt-3 flex flex-wrap gap-1.5 rise rise-2">
-        <Link
-          href={`/students?status=${status}`}
-          className={`text-[12.5px] rounded-full px-3 py-1.5 border transition ${!classId ? 'bg-forest text-paper border-forest' : 'border-mist bg-white text-ink hover:border-forest'}`}
-        >
-          All classes
-        </Link>
-        {structure.classes
-          .filter((c) => c.studentCount > 0)
-          .map((c) => (
-            <Link
-              key={c.id}
-              href={`/students?classId=${c.id}&status=${status}`}
-              className={`text-[12.5px] rounded-full px-3 py-1.5 border transition tabular ${classId === c.id ? 'bg-forest text-paper border-forest' : 'border-mist bg-white text-ink hover:border-forest'}`}
-            >
-              {c.name} · {c.studentCount}
-            </Link>
-          ))}
+      <div className="mt-6 rise rise-2">
+        <StudentFilters
+          status={status}
+          classId={classId}
+          q={q}
+          statuses={STATUS_TABS}
+          classes={structure.classes}
+        />
       </div>
 
       {canPromote && selectedClass && status === 'ACTIVE' && (
@@ -168,7 +136,7 @@ export default async function StudentsPage({
                 <td className="px-5 py-3">
                   <Link
                     href={`/students/${s.id}`}
-                    className="font-medium text-forest hover:underline underline-offset-2"
+                    className="font-medium text-brand hover:underline underline-offset-2"
                   >
                     {s.name}
                   </Link>

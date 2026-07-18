@@ -57,7 +57,7 @@ export default function PromoteClass({
           </p>
           <button
             onClick={() => setOpen(true)}
-            className="rounded-lg bg-forest text-paper text-sm font-medium px-4 py-2 hover:bg-forest-deep transition shrink-0"
+            className="rounded-lg bg-brand text-paper text-sm font-medium px-4 py-2 hover:bg-brand-deep transition shrink-0"
           >
             Promote {fromClassName}
           </button>
@@ -68,7 +68,7 @@ export default function PromoteClass({
           <select
             value={toClassId}
             onChange={(e) => setToClassId(e.target.value)}
-            className="rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-forest"
+            className="rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand"
           >
             <option value="">— choose class —</option>
             {classes
@@ -82,27 +82,27 @@ export default function PromoteClass({
           <button
             onClick={() => submit(false)}
             disabled={busy}
-            className="rounded-lg bg-forest text-paper text-sm font-medium px-4 py-2 hover:bg-forest-deep transition disabled:opacity-50"
+            className="rounded-lg bg-brand text-paper text-sm font-medium px-4 py-2 hover:bg-brand-deep transition disabled:opacity-50"
           >
             {busy ? 'Working…' : 'Promote'}
           </button>
           <button
             onClick={() => submit(true)}
             disabled={busy}
-            className="rounded-lg border border-mist text-forest text-sm font-medium px-4 py-2 hover:bg-forest-mist transition disabled:opacity-50"
+            className="rounded-lg border border-mist text-brand text-sm font-medium px-4 py-2 hover:bg-brand-mist transition disabled:opacity-50"
             data-tip="Mark all active students as graduated"
           >
             Graduate class
           </button>
           <button
             onClick={() => setOpen(false)}
-            className="text-sm text-oat hover:text-forest transition"
+            className="text-sm text-oat hover:text-brand transition"
           >
             Cancel
           </button>
         </div>
       )}
-      {msg && <p className="text-xs text-forest mt-2">{msg}</p>}
+      {msg && <p className="text-xs text-brand mt-2">{msg}</p>}
     </div>
   );
 }

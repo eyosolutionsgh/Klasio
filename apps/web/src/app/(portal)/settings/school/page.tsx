@@ -44,7 +44,7 @@ const fmt = (d: string | null) =>
     : '—';
 
 const field =
-  'rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-forest focus:ring-2 focus:ring-forest/15';
+  'rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
 
 export default function SchoolSetupPage() {
   const [years, setYears] = useState<Year[]>([]);
@@ -139,8 +139,8 @@ export default function SchoolSetupPage() {
               }}
               className={`text-[13px] rounded-full px-4 py-1.5 border transition ${
                 template === t
-                  ? 'bg-forest text-paper border-forest'
-                  : 'border-mist bg-white hover:border-forest'
+                  ? 'bg-brand text-paper border-brand'
+                  : 'border-mist bg-white hover:border-brand'
               }`}
             >
               {t === 'GES' ? 'GES classic' : 'Modern'}
@@ -157,7 +157,7 @@ export default function SchoolSetupPage() {
             <p className="font-medium">
               {y.name}
               {y.isCurrent && (
-                <span className="ml-2 text-[10px] uppercase tracking-wider bg-forest-mist text-forest rounded-full px-2 py-0.5">
+                <span className="ml-2 text-[10px] uppercase tracking-wider bg-brand-mist text-brand rounded-full px-2 py-0.5">
                   Current
                 </span>
               )}
@@ -179,7 +179,7 @@ export default function SchoolSetupPage() {
                   ) : (
                     <button
                       onClick={() => send(`terms/${t.id}/current`)}
-                      className="text-[12px] text-forest hover:underline underline-offset-2"
+                      className="text-[12px] text-brand hover:underline underline-offset-2"
                     >
                       Make current
                     </button>
@@ -224,7 +224,7 @@ export default function SchoolSetupPage() {
                   className={`${field} flex-1`}
                 />
               </div>
-              <button className="rounded-lg bg-forest text-paper text-sm font-medium px-4 py-2 hover:bg-forest-deep transition">
+              <button className="rounded-lg bg-brand text-paper text-sm font-medium px-4 py-2 hover:bg-brand-deep transition">
                 Add year
               </button>
             </div>
@@ -291,7 +291,7 @@ export default function SchoolSetupPage() {
                   className={`${field} w-full mt-1`}
                 />
               </label>
-              <button className="rounded-lg bg-forest text-paper text-sm font-medium px-4 py-2 hover:bg-forest-deep transition">
+              <button className="rounded-lg bg-brand text-paper text-sm font-medium px-4 py-2 hover:bg-brand-deep transition">
                 Add term
               </button>
             </div>
@@ -355,7 +355,7 @@ export default function SchoolSetupPage() {
                   </option>
                 ))}
               </select>
-              <button className="rounded-lg bg-forest text-paper text-sm px-3 hover:bg-forest-deep transition">
+              <button className="rounded-lg bg-brand text-paper text-sm px-3 hover:bg-brand-deep transition">
                 Add
               </button>
             </form>
@@ -406,7 +406,7 @@ export default function SchoolSetupPage() {
                   </option>
                 ))}
               </select>
-              <button className="rounded-lg bg-forest text-paper text-sm px-3 hover:bg-forest-deep transition">
+              <button className="rounded-lg bg-brand text-paper text-sm px-3 hover:bg-brand-deep transition">
                 Add
               </button>
             </form>
@@ -425,7 +425,7 @@ export default function SchoolSetupPage() {
             >
               <span>
                 {s.name} <span className="text-oat">({s.code})</span>
-                {s.isCore && <span className="ml-1 text-[10px] uppercase text-forest">core</span>}
+                {s.isCore && <span className="ml-1 text-[10px] uppercase text-brand">core</span>}
               </span>
               <button
                 onClick={() => send(`subjects/${s.id}`, undefined, 'DELETE')}
@@ -468,7 +468,7 @@ export default function SchoolSetupPage() {
             />
             Core
           </label>
-          <button className="rounded-lg bg-forest text-paper text-sm px-4 hover:bg-forest-deep transition">
+          <button className="rounded-lg bg-brand text-paper text-sm px-4 hover:bg-brand-deep transition">
             Add subject
           </button>
         </form>

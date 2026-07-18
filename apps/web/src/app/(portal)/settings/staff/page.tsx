@@ -18,7 +18,7 @@ const ROLES = ['OWNER', 'HEAD', 'BURSAR', 'TEACHER', 'FRONT_DESK'];
 const label = (r: string) => r.toLowerCase().replace('_', ' ');
 
 const field =
-  'rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-forest focus:ring-2 focus:ring-forest/15';
+  'rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
 
 export default function StaffPage() {
   const [users, setUsers] = useState<StaffUser[]>([]);
@@ -111,13 +111,13 @@ export default function StaffPage() {
           <p className="font-display text-2xl tabular mt-3 select-all">{credential.password}</p>
           <button
             onClick={() => setCredential(null)}
-            className="mt-3 text-[12px] text-oat hover:text-forest transition underline underline-offset-2"
+            className="mt-3 text-[12px] text-oat hover:text-brand transition underline underline-offset-2"
           >
             I have copied it
           </button>
         </div>
       )}
-      {message && <p className="text-sm text-forest mt-4">{message}</p>}
+      {message && <p className="text-sm text-brand mt-4">{message}</p>}
       {error && <p className="text-sm text-danger mt-4">{error}</p>}
 
       <div className="card mt-6 overflow-x-auto rise rise-2">
@@ -161,7 +161,7 @@ export default function StaffPage() {
                 </td>
                 <td className="px-5 py-3">
                   <span
-                    className={`text-[11px] uppercase tracking-wider rounded-full px-2 py-0.5 ${u.active ? 'bg-forest-mist text-forest' : 'bg-parchment text-oat'}`}
+                    className={`text-[11px] uppercase tracking-wider rounded-full px-2 py-0.5 ${u.active ? 'bg-brand-mist text-brand' : 'bg-parchment text-oat'}`}
                   >
                     {u.active ? 'active' : 'deactivated'}
                   </span>
@@ -175,13 +175,13 @@ export default function StaffPage() {
                           if (d?.temporaryPassword)
                             setCredential({ email: d.email, password: d.temporaryPassword });
                         }}
-                        className="text-[12.5px] text-forest hover:underline underline-offset-2 mr-3"
+                        className="text-[12.5px] text-brand hover:underline underline-offset-2 mr-3"
                       >
                         Reset password
                       </button>
                       <button
                         onClick={() => send(`/${u.id}`, { active: !u.active }, 'PATCH')}
-                        className={`text-[12.5px] hover:underline underline-offset-2 ${u.active ? 'text-clay' : 'text-forest'}`}
+                        className={`text-[12.5px] hover:underline underline-offset-2 ${u.active ? 'text-clay' : 'text-brand'}`}
                       >
                         {u.active ? 'Deactivate' : 'Reactivate'}
                       </button>
@@ -250,7 +250,7 @@ export default function StaffPage() {
           <button
             type="submit"
             disabled={busy}
-            className="rounded-lg bg-forest text-paper text-sm font-medium px-5 py-2 hover:bg-forest-deep transition disabled:opacity-50"
+            className="rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition disabled:opacity-50"
           >
             {busy ? 'Adding…' : 'Add staff'}
           </button>

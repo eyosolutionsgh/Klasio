@@ -28,7 +28,7 @@ interface Level {
 }
 
 const field =
-  'rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-forest focus:ring-2 focus:ring-forest/15';
+  'rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
 
 export default function AssessmentSettingsPage() {
   const [components, setComponents] = useState<Component[]>([]);
@@ -161,7 +161,7 @@ export default function AssessmentSettingsPage() {
             <input type="checkbox" checked={isExam} onChange={(e) => setIsExam(e.target.checked)} />
             End-of-term exam
           </label>
-          <button className="rounded-lg bg-forest text-paper text-sm font-medium px-4 py-2 hover:bg-forest-deep transition">
+          <button className="rounded-lg bg-brand text-paper text-sm font-medium px-4 py-2 hover:bg-brand-deep transition">
             Add component
           </button>
         </form>

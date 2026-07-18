@@ -27,7 +27,19 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 export interface Me {
   user: { id: string; name: string; email: string; role: string };
-  school: { id: string; name: string; motto: string | null; tier: string; currency: string };
+  school: {
+    id: string;
+    name: string;
+    motto: string | null;
+    tier: string;
+    currency: string;
+    address: string | null;
+    phone: string | null;
+    email: string | null;
+    website: string | null;
+    brandColor: string | null;
+    hasLogo: boolean;
+  };
   currentTerm: {
     id: string;
     name: string;

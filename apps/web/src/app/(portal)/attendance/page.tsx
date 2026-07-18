@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Combobox from '@/components/Combobox';
 
 interface RosterRow {
   id: string;
@@ -15,7 +16,7 @@ interface ClassOpt {
 }
 
 const STATUSES = [
-  { key: 'PRESENT', label: 'Present', cls: 'bg-forest text-paper border-forest' },
+  { key: 'PRESENT', label: 'Present', cls: 'bg-brand text-paper border-brand' },
   { key: 'LATE', label: 'Late', cls: 'bg-gold text-ink border-gold' },
   { key: 'ABSENT', label: 'Absent', cls: 'bg-danger text-paper border-danger' },
   { key: 'EXCUSED', label: 'Excused', cls: 'bg-oat text-paper border-oat' },
@@ -85,30 +86,31 @@ export default function AttendancePage() {
         </p>
       </div>
 
-      <div className="mt-6 flex flex-wrap items-center gap-3 rise rise-2">
-        <select
+      <div className="mt-6 flex flex-wrap items-end gap-3 rise rise-2">
+        <Combobox
+          label="Class"
+          className="w-full sm:w-60"
+          allowClear={false}
+          placeholder="Search classes…"
+          options={classes.map((c) => ({
+            value: c.id,
+            label: c.name,
+            hint: `${c.studentCount} student${c.studentCount === 1 ? '' : 's'}`,
+          }))}
           value={classId}
-          onChange={(e) => setClassId(e.target.value)}
-          aria-label="Class"
-          className="rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-forest"
-        >
-          {classes.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name} ({c.studentCount})
-            </option>
-          ))}
-        </select>
+          onChange={setClassId}
+        />
         <input
           type="date"
           value={date}
           onChange={(e) => setDate(e.target.value)}
           aria-label="Date"
-          className="rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-forest tabular"
+          className="rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-brand tabular"
         />
         <button
           onClick={() => markAll('PRESENT')}
           data-tip="Set every child to Present, then adjust exceptions"
-          className="tip rounded-lg border border-forest text-forest text-sm font-medium px-4 py-2 hover:bg-forest-mist transition"
+          className="tip rounded-lg border border-brand text-brand text-sm font-medium px-4 py-2 hover:bg-brand-mist transition"
         >
           All present
         </button>
@@ -119,7 +121,7 @@ export default function AttendancePage() {
           <button
             onClick={save}
             disabled={saveState === 'saving' || marked === 0}
-            className="rounded-lg bg-forest text-paper text-sm font-medium px-5 py-2 hover:bg-forest-deep transition disabled:opacity-50"
+            className="rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition disabled:opacity-50"
           >
             {saveState === 'saving' ? 'Saving…' : 'Save register'}
           </button>
@@ -171,7 +173,7 @@ export default function AttendancePage() {
                       className={`text-[12px] rounded-full border px-3 py-1.5 transition ${
                         r.status === s.key
                           ? s.cls
-                          : 'border-mist bg-white text-oat hover:border-forest hover:text-forest'
+                          : 'border-mist bg-white text-oat hover:border-brand hover:text-brand'
                       }`}
                     >
                       {s.label}

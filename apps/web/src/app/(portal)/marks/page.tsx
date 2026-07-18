@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Combobox from '@/components/Combobox';
 
 interface Component {
   id: string;
@@ -113,37 +114,31 @@ export default function MarksPage() {
         </p>
       </div>
 
-      <div className="mt-6 flex flex-wrap items-center gap-3 rise rise-2">
-        <select
+      <div className="mt-6 flex flex-wrap items-end gap-3 rise rise-2">
+        <Combobox
+          label="Class"
+          className="w-full sm:w-56"
+          allowClear={false}
+          placeholder="Search classes…"
+          options={classes.map((c) => ({ value: c.id, label: c.name }))}
           value={classId}
-          onChange={(e) => setClassId(e.target.value)}
-          aria-label="Class"
-          className="rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-forest"
-        >
-          {classes.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-        <select
+          onChange={setClassId}
+        />
+        <Combobox
+          label="Subject"
+          className="w-full sm:w-56"
+          allowClear={false}
+          placeholder="Search subjects…"
+          options={subjects.map((s) => ({ value: s.id, label: s.name }))}
           value={subjectId}
-          onChange={(e) => setSubjectId(e.target.value)}
-          aria-label="Subject"
-          className="rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-forest"
-        >
-          {subjects.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
+          onChange={setSubjectId}
+        />
         <div className="ml-auto flex items-center gap-3">
           {dirty && <p className="text-[13px] text-clay">Unsaved changes</p>}
           <button
             onClick={save}
             disabled={saveState === 'saving' || !dirty}
-            className="rounded-lg bg-forest text-paper text-sm font-medium px-5 py-2 hover:bg-forest-deep transition disabled:opacity-50"
+            className="rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition disabled:opacity-50"
           >
             {saveState === 'saving' ? 'Saving…' : 'Save scores'}
           </button>
@@ -203,7 +198,7 @@ export default function MarksPage() {
                       value={r.scores[c.id] ?? ''}
                       onChange={(e) => setScore(r.studentId, c.id, e.target.value)}
                       aria-label={`${c.name} for ${r.name}`}
-                      className="w-16 rounded-md border border-mist bg-white px-2 py-1.5 text-center tabular outline-none focus:border-forest focus:ring-2 focus:ring-forest/15"
+                      className="w-16 rounded-md border border-mist bg-white px-2 py-1.5 text-center tabular outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
                     />
                   </td>
                 ))}

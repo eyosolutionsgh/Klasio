@@ -53,13 +53,13 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
 
   return (
     <div>
-      <Link href="/students" className="no-print text-[13px] text-oat hover:text-forest transition">
+      <Link href="/students" className="no-print text-[13px] text-oat hover:text-brand transition">
         ← Back to students
       </Link>
 
       <div className="rise rise-1 mt-4 flex items-start justify-between flex-wrap gap-4">
         <div className="flex items-center gap-5">
-          <div className="w-16 h-16 rounded-full bg-forest text-paper font-display text-2xl flex items-center justify-center">
+          <div className="w-16 h-16 rounded-full bg-brand text-paper font-display text-2xl flex items-center justify-center">
             {s.firstName[0]}
             {s.lastName[0]}
           </div>
@@ -166,7 +166,7 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
                     {e.type === 'PAYMENT' && e.receiptNumber && (
                       <a
                         href={`/api/proxy/fees/receipts/${e.reference}/pdf`}
-                        className="no-print text-[11px] text-forest hover:underline underline-offset-2"
+                        className="no-print text-[11px] text-brand hover:underline underline-offset-2"
                       >
                         Download receipt ↓
                       </a>

@@ -10,24 +10,56 @@ import {
   Param,
   Patch,
   Post,
+  StreamableFile,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   IsBoolean,
   IsDateString,
+  IsEmail,
   IsIn,
   IsInt,
   IsOptional,
   IsString,
+  IsUrl,
+  Matches,
   MinLength,
 } from 'class-validator';
 import { LevelCategory, ReportTemplate } from '@prisma/client';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, Roles } from '../common/auth';
+import { IMAGE_TYPES, MAX_UPLOAD_BYTES, objectKey, storage } from '../common/storage';
 
 const CATEGORIES = ['PRE_SCHOOL', 'PRIMARY', 'JHS', 'SHS'] as const;
 
+/** Minimal shape of a Multer upload — avoids depending on @types/multer. */
+interface UploadedFileLike {
+  buffer: Buffer;
+  originalname: string;
+  mimetype: string;
+  size: number;
+}
+
 class SchoolSettingsDto {
   @IsOptional() @IsIn(['GES', 'MODERN']) reportTemplate?: ReportTemplate;
+}
+
+/** Everything a school puts on its own letterhead — contact details plus branding. */
+class SchoolProfileDto {
+  @IsOptional() @IsString() @MinLength(2) name?: string;
+  @IsOptional() @IsString() motto?: string;
+  @IsOptional() @IsString() address?: string;
+  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsEmail() email?: string;
+  @IsOptional() @IsString() region?: string;
+  @IsOptional() @IsUrl({ require_protocol: false }) website?: string;
+  // Anchored 6-digit hex: the value is interpolated into a CSS custom property, so nothing
+  // else may ever reach the stylesheet.
+  @IsOptional()
+  @Matches(/^#[0-9a-fA-F]{6}$/, { message: 'Use a colour like #0d3627' })
+  brandColor?: string;
 }
 
 class AcademicYearDto {
@@ -128,6 +160,82 @@ export class SchoolsService {
       dto as object,
     );
     return { reportTemplate: school.reportTemplate };
+  }
+
+  /** The school's own details — shown in settings and on the top bar. */
+  async profile(auth: AuthUser) {
+    const s = await this.db.school.findUnique({ where: { id: auth.schoolId } });
+    if (!s) throw new NotFoundException('School not found');
+    return {
+      id: s.id,
+      name: s.name,
+      motto: s.motto,
+      address: s.address,
+      phone: s.phone,
+      email: s.email,
+      region: s.region,
+      country: s.country,
+      website: s.website,
+      currency: s.currency,
+      tier: s.tier,
+      brandColor: s.brandColor,
+      reportTemplate: s.reportTemplate,
+      hasLogo: !!s.logoUrl,
+    };
+  }
+
+  async updateProfile(auth: AuthUser, dto: SchoolProfileDto) {
+    await this.db.school.update({
+      where: { id: auth.schoolId },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(dto.motto !== undefined ? { motto: dto.motto } : {}),
+        ...(dto.address !== undefined ? { address: dto.address } : {}),
+        ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
+        ...(dto.email !== undefined ? { email: dto.email } : {}),
+        ...(dto.region !== undefined ? { region: dto.region } : {}),
+        ...(dto.website !== undefined ? { website: dto.website } : {}),
+        ...(dto.brandColor !== undefined ? { brandColor: dto.brandColor } : {}),
+      },
+    });
+    await this.db.audit(
+      auth.schoolId,
+      auth.sub,
+      'school.profile.update',
+      'School',
+      auth.schoolId,
+      dto as object,
+    );
+    return this.profile(auth);
+  }
+
+  async uploadLogo(auth: AuthUser, file: UploadedFileLike) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    if (!IMAGE_TYPES.includes(file.mimetype)) {
+      throw new BadRequestException('The logo must be a JPEG, PNG or WebP image');
+    }
+    if (file.size > MAX_UPLOAD_BYTES) throw new BadRequestException('That image is too large');
+
+    const key = objectKey(auth.schoolId, 'logo', auth.schoolId, file.originalname);
+    await storage().put(key, file.buffer, file.mimetype);
+    await this.db.school.update({ where: { id: auth.schoolId }, data: { logoUrl: key } });
+    await this.db.audit(auth.schoolId, auth.sub, 'school.logo.upload', 'School', auth.schoolId);
+    return { ok: true };
+  }
+
+  /** Bytes for the crest. Behind auth like every other stored object — no public URLs. */
+  async readLogo(auth: AuthUser) {
+    const s = await this.db.school.findUnique({ where: { id: auth.schoolId } });
+    if (!s?.logoUrl) throw new NotFoundException('No logo uploaded');
+    return storage().get(s.logoUrl);
+  }
+
+  async removeLogo(auth: AuthUser) {
+    const s = await this.db.school.findUnique({ where: { id: auth.schoolId } });
+    if (s?.logoUrl) await storage().delete(s.logoUrl);
+    await this.db.school.update({ where: { id: auth.schoolId }, data: { logoUrl: null } });
+    await this.db.audit(auth.schoolId, auth.sub, 'school.logo.remove', 'School', auth.schoolId);
+    return { ok: true };
   }
 
   // ── Academic years & terms ─────────────────────────────────────────
@@ -381,6 +489,37 @@ export class SchoolsController {
   @Roles('OWNER', 'HEAD')
   updateSettings(@CurrentUser() user: AuthUser, @Body() dto: SchoolSettingsDto) {
     return this.svc.updateSettings(user, dto);
+  }
+
+  @Get('profile')
+  profile(@CurrentUser() user: AuthUser) {
+    return this.svc.profile(user);
+  }
+
+  @Patch('profile')
+  @Roles('OWNER', 'HEAD')
+  updateProfile(@CurrentUser() user: AuthUser, @Body() dto: SchoolProfileDto) {
+    return this.svc.updateProfile(user, dto);
+  }
+
+  @Post('logo')
+  @Roles('OWNER', 'HEAD')
+  @UseInterceptors(FileInterceptor('file'))
+  uploadLogo(@CurrentUser() user: AuthUser, @UploadedFile() file: UploadedFileLike) {
+    return this.svc.uploadLogo(user, file);
+  }
+
+  // Any signed-in member of the school may render the crest — it is on every page.
+  @Get('logo')
+  async logo(@CurrentUser() user: AuthUser) {
+    const buf = await this.svc.readLogo(user);
+    return new StreamableFile(buf, { type: 'image/png' });
+  }
+
+  @Delete('logo')
+  @Roles('OWNER', 'HEAD')
+  removeLogo(@CurrentUser() user: AuthUser) {
+    return this.svc.removeLogo(user);
   }
 
   @Post('years')

@@ -106,7 +106,7 @@ export default function DepositQueue({ onSettled }: { onSettled: () => void }) {
                 {d.hasProof ? (
                   <a
                     href={`/api/proxy/fees/deposits/${d.id}/proof`}
-                    className="text-[12.5px] text-forest hover:underline underline-offset-2"
+                    className="text-[12.5px] text-brand hover:underline underline-offset-2"
                   >
                     View proof
                   </a>
@@ -118,7 +118,7 @@ export default function DepositQueue({ onSettled }: { onSettled: () => void }) {
                 <button
                   onClick={() => review(d.id, 'confirm')}
                   disabled={busy === d.id}
-                  className="text-[12.5px] font-medium text-forest border border-forest/40 rounded-full px-3 py-1 hover:bg-forest-mist transition disabled:opacity-50 mr-1.5"
+                  className="text-[12.5px] font-medium text-brand border border-brand/40 rounded-full px-3 py-1 hover:bg-brand-mist transition disabled:opacity-50 mr-1.5"
                 >
                   Confirm
                 </button>
@@ -134,7 +134,7 @@ export default function DepositQueue({ onSettled }: { onSettled: () => void }) {
           ))}
         </tbody>
       </table>
-      {message && <p className="px-6 py-3 text-sm text-forest">{message}</p>}
+      {message && <p className="px-6 py-3 text-sm text-brand">{message}</p>}
     </section>
   );
 }

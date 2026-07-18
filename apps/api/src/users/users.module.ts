@@ -38,6 +38,17 @@ class UpdateUserDto {
   @IsOptional() @IsBoolean() active?: boolean;
 }
 
+/** Self-service: what a signed-in member may change about their own account. */
+class UpdateMeDto {
+  @IsOptional() @IsString() @MinLength(2) name?: string;
+  @IsOptional() @IsString() phone?: string;
+}
+
+class ChangePasswordDto {
+  @IsString() currentPassword: string;
+  @IsString() @MinLength(8) newPassword: string;
+}
+
 /** Readable one-time password an office can dictate over the phone. */
 function tempPassword(): string {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no look-alikes
@@ -176,6 +187,49 @@ export class UsersService {
     await this.db.audit(auth.schoolId, auth.sub, 'user.resetPassword', 'User', id);
     return { id: target.id, email: target.email, temporaryPassword: plain };
   }
+
+  /** The signed-in member's own account — no role check, everyone owns their own profile. */
+  async me(auth: AuthUser) {
+    const u = await this.db.user.findFirst({
+      where: { id: auth.sub, schoolId: auth.schoolId },
+      select: { id: true, name: true, email: true, phone: true, role: true, createdAt: true },
+    });
+    if (!u) throw new NotFoundException('Account not found');
+    return u;
+  }
+
+  async updateMe(auth: AuthUser, dto: UpdateMeDto) {
+    await this.db.user.update({
+      where: { id: auth.sub },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
+      },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'user.self.update', 'User', auth.sub, dto);
+    return this.me(auth);
+  }
+
+  /**
+   * Changing your own password requires proving you know the current one, so a walked-away-from
+   * session cannot be turned into a permanent takeover.
+   */
+  async changePassword(auth: AuthUser, dto: ChangePasswordDto) {
+    const u = await this.db.user.findUnique({ where: { id: auth.sub } });
+    if (!u) throw new NotFoundException('Account not found');
+    if (!(await bcrypt.compare(dto.currentPassword, u.passwordHash))) {
+      throw new BadRequestException('That is not your current password');
+    }
+    if (dto.currentPassword === dto.newPassword) {
+      throw new BadRequestException('The new password must be different');
+    }
+    await this.db.user.update({
+      where: { id: auth.sub },
+      data: { passwordHash: await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS) },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'user.self.password', 'User', auth.sub);
+    return { ok: true };
+  }
 }
 
 @Controller('users')
@@ -186,6 +240,23 @@ export class UsersController {
   @Roles('OWNER', 'HEAD')
   list(@CurrentUser() user: AuthUser, @Query('includeInactive') includeInactive?: string) {
     return this.svc.list(user, includeInactive === 'true');
+  }
+
+  // Declared before the ':id' routes — otherwise 'me' matches those and a teacher editing their
+  // own profile is refused by the OWNER/HEAD guard on them.
+  @Get('me')
+  me(@CurrentUser() user: AuthUser) {
+    return this.svc.me(user);
+  }
+
+  @Patch('me')
+  updateMe(@CurrentUser() user: AuthUser, @Body() dto: UpdateMeDto) {
+    return this.svc.updateMe(user, dto);
+  }
+
+  @Post('me/password')
+  changePassword(@CurrentUser() user: AuthUser, @Body() dto: ChangePasswordDto) {
+    return this.svc.changePassword(user, dto);
   }
 
   @Post()

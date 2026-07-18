@@ -64,7 +64,7 @@ export default function ReportRemarks({
   }
 
   const field =
-    'w-full rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-forest focus:ring-2 focus:ring-forest/15';
+    'w-full rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
 
   return (
     <div className="no-print card p-5 mt-6">
@@ -106,11 +106,11 @@ export default function ReportRemarks({
         <button
           onClick={save}
           disabled={busy}
-          className="rounded-lg bg-forest text-paper text-sm font-medium px-5 py-2 hover:bg-forest-deep transition disabled:opacity-50"
+          className="rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition disabled:opacity-50"
         >
           {busy ? 'Saving…' : 'Save remarks'}
         </button>
-        {message && <p className="text-sm text-forest">{message}</p>}
+        {message && <p className="text-sm text-brand">{message}</p>}
       </div>
     </div>
   );

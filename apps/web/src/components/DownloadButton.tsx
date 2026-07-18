@@ -46,8 +46,8 @@ export default function DownloadButton({
 
   const cls =
     variant === 'solid'
-      ? 'rounded-lg bg-forest text-paper hover:bg-forest-deep'
-      : 'rounded-lg border border-mist text-forest hover:bg-forest-mist';
+      ? 'rounded-lg bg-brand text-paper hover:bg-brand-deep'
+      : 'rounded-lg border border-mist text-brand hover:bg-brand-mist';
 
   return (
     <span className="inline-flex items-center gap-2">

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Combobox from '@/components/Combobox';
 
 type Audience = 'ALL' | 'CLASS' | 'LEVEL' | 'CUSTOM';
 interface ClassOpt {
@@ -105,7 +106,7 @@ export default function MessagingPage() {
         {balance && (
           <div className="card px-5 py-3 text-right">
             <p className="text-[11px] uppercase tracking-widest text-oat">SMS credits</p>
-            <p className="font-display text-2xl tabular mt-1 text-forest">{balance.credits}</p>
+            <p className="font-display text-2xl tabular mt-1 text-brand">{balance.credits}</p>
             <p className="text-[11px] text-oat">
               Sender {balance.senderId ?? '—'} · {balance.provider}
             </p>
@@ -119,7 +120,7 @@ export default function MessagingPage() {
             <button
               key={a}
               onClick={() => setAudience(a)}
-              className={`text-[13px] rounded-full px-3.5 py-1.5 border transition ${audience === a ? 'bg-forest text-paper border-forest' : 'border-mist bg-white text-ink hover:border-forest'}`}
+              className={`text-[13px] rounded-full px-3.5 py-1.5 border transition ${audience === a ? 'bg-brand text-paper border-brand' : 'border-mist bg-white text-ink hover:border-brand'}`}
             >
               {a === 'ALL'
                 ? 'All guardians'
@@ -133,30 +134,30 @@ export default function MessagingPage() {
         </div>
 
         {audience === 'CLASS' && (
-          <select
+          <Combobox
+            label="Class"
+            className="w-full sm:w-64"
+            allowClear={false}
+            placeholder="Search classes…"
+            options={classes.map((c) => ({
+              value: c.id,
+              label: c.name,
+              hint: `${c.studentCount} student${c.studentCount === 1 ? '' : 's'}`,
+            }))}
             value={classId}
-            onChange={(e) => setClassId(e.target.value)}
-            className="rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-forest"
-          >
-            {classes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} · {c.studentCount}
-              </option>
-            ))}
-          </select>
+            onChange={setClassId}
+          />
         )}
         {audience === 'LEVEL' && (
-          <select
+          <Combobox
+            label="Level"
+            className="w-full sm:w-64"
+            allowClear={false}
+            placeholder="Search levels…"
+            options={levels.map((l) => ({ value: l.id, label: l.name }))}
             value={levelId}
-            onChange={(e) => setLevelId(e.target.value)}
-            className="rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-forest"
-          >
-            {levels.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
+            onChange={setLevelId}
+          />
         )}
         {audience === 'CUSTOM' && (
           <textarea
@@ -164,7 +165,7 @@ export default function MessagingPage() {
             onChange={(e) => setRecipients(e.target.value)}
             placeholder="Phone numbers, comma or space separated (e.g. 0241234567, 233201112222)"
             rows={2}
-            className="w-full rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-forest"
+            className="w-full rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-brand"
           />
         )}
 
@@ -173,7 +174,7 @@ export default function MessagingPage() {
           onChange={(e) => setBody(e.target.value)}
           placeholder="Type your message to guardians…"
           rows={4}
-          className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-forest focus:ring-2 focus:ring-forest/15"
+          className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
         />
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
           <p className="text-xs text-oat">
@@ -183,12 +184,12 @@ export default function MessagingPage() {
           <button
             onClick={send}
             disabled={busy || !body.trim()}
-            className="rounded-lg bg-forest text-paper text-sm font-medium px-5 py-2 hover:bg-forest-deep transition disabled:opacity-50"
+            className="rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition disabled:opacity-50"
           >
             {busy ? 'Sending…' : 'Send SMS'}
           </button>
         </div>
-        {message && <p className="text-sm text-forest">{message}</p>}
+        {message && <p className="text-sm text-brand">{message}</p>}
       </div>
 
       <h2 className="font-display text-xl mt-8 rise rise-3">Recent messages</h2>
@@ -211,7 +212,7 @@ export default function MessagingPage() {
                 </td>
                 <td className="px-5 py-2.5">
                   <span
-                    className={`text-[11px] uppercase tracking-wider rounded-full px-2 py-0.5 ${m.status === 'SENT' ? 'bg-forest-mist text-forest' : m.status === 'FAILED' ? 'bg-danger/10 text-danger' : 'bg-parchment text-oat'}`}
+                    className={`text-[11px] uppercase tracking-wider rounded-full px-2 py-0.5 ${m.status === 'SENT' ? 'bg-brand-mist text-brand' : m.status === 'FAILED' ? 'bg-danger/10 text-danger' : 'bg-parchment text-oat'}`}
                   >
                     {m.status}
                   </span>

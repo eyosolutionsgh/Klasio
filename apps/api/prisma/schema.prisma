@@ -44,9 +44,13 @@ model School {
   email     String?
   region    String?
   country   String   @default("GH")
+  website   String?
   currency  String   @default("GHS")
   tier      Tier     @default(BASIC)
+  /// Storage key for the school crest. Bytes are served by GET /school/logo, never a public URL.
   logoUrl   String?
+  /// Hex brand colour applied to primary surfaces (sidebar, top bar, primary buttons).
+  brandColor String? @db.VarChar(7)
   smsSenderId String? // registered SMS sender ID (e.g. "BRIGHTON")
   smsCredits  Int      @default(0) // pay-as-you-go SMS units the school has bought
   reportTemplate ReportTemplate @default(GES)

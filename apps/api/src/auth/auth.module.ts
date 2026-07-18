@@ -64,7 +64,14 @@ export class AuthService {
         tier: school.tier,
         currency: school.currency,
         address: school.address,
+        phone: school.phone,
+        email: school.email,
+        website: school.website,
         reportTemplate: school.reportTemplate,
+        // The chrome renders the crest and brand colour on every page, so they ride along
+        // with /me rather than costing a second round trip per navigation.
+        brandColor: school.brandColor,
+        hasLogo: !!school.logoUrl,
       },
       currentTerm,
       entitlements: entitlementsForTier(school.tier),

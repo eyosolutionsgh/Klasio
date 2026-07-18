@@ -25,7 +25,7 @@ const CUSTODY = [
 ];
 
 const field =
-  'rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-forest focus:ring-2 focus:ring-forest/15';
+  'rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
 
 export default function StudentGuardians({
   studentId,
@@ -103,7 +103,7 @@ export default function StudentGuardians({
             setAdding((a) => !a);
             setEditing(null);
           }}
-          className="no-print text-[12.5px] font-medium text-forest hover:underline underline-offset-2"
+          className="no-print text-[12.5px] font-medium text-brand hover:underline underline-offset-2"
         >
           {adding ? 'Cancel' : '+ Add guardian'}
         </button>
@@ -164,7 +164,7 @@ export default function StudentGuardians({
           </div>
           <button
             disabled={busy}
-            className="rounded-lg bg-forest text-paper text-sm font-medium px-4 py-2 hover:bg-forest-deep transition disabled:opacity-60"
+            className="rounded-lg bg-brand text-paper text-sm font-medium px-4 py-2 hover:bg-brand-deep transition disabled:opacity-60"
           >
             {busy ? 'Saving…' : 'Add guardian'}
           </button>
@@ -246,7 +246,7 @@ export default function StudentGuardians({
                 <div className="flex items-center gap-3">
                   <button
                     disabled={busy}
-                    className="rounded-lg bg-forest text-paper text-sm font-medium px-4 py-2 hover:bg-forest-deep transition disabled:opacity-60"
+                    className="rounded-lg bg-brand text-paper text-sm font-medium px-4 py-2 hover:bg-brand-deep transition disabled:opacity-60"
                   >
                     {busy ? 'Saving…' : 'Save'}
                   </button>
@@ -292,7 +292,7 @@ export default function StudentGuardians({
                     setEditing(g.id);
                     setAdding(false);
                   }}
-                  className="no-print text-[12px] text-forest hover:underline underline-offset-2 mt-1"
+                  className="no-print text-[12px] text-brand hover:underline underline-offset-2 mt-1"
                 >
                   Edit
                 </button>
@@ -311,7 +311,7 @@ export default function StudentGuardians({
                   g.custodyFlag !== 'NONE'
                     ? 'bg-danger/10 text-danger'
                     : g.canPickup
-                      ? 'bg-forest-mist text-forest'
+                      ? 'bg-brand-mist text-brand'
                       : 'bg-parchment text-oat'
                 }`}
               >

@@ -41,7 +41,7 @@ export default function StudentLifecycle({ studentId, name }: { studentId: strin
       <div className="flex items-center gap-2">
         <button
           onClick={() => setAction('transfer')}
-          className="rounded-lg border border-mist text-forest text-sm font-medium px-4 py-2 hover:bg-forest-mist transition"
+          className="rounded-lg border border-mist text-brand text-sm font-medium px-4 py-2 hover:bg-brand-mist transition"
           data-tip="Record that this student moved to another school"
         >
           Transfer
@@ -67,12 +67,12 @@ export default function StudentLifecycle({ studentId, name }: { studentId: strin
         value={reason}
         onChange={(e) => setReason(e.target.value)}
         placeholder={action === 'transfer' ? 'e.g. relocated to Kumasi' : 'e.g. fees / relocation'}
-        className="rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-forest w-64"
+        className="rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand w-64"
       />
       <button
         onClick={submit}
         disabled={busy}
-        className="rounded-lg bg-forest text-paper text-sm font-medium px-4 py-2 hover:bg-forest-deep transition disabled:opacity-50"
+        className="rounded-lg bg-brand text-paper text-sm font-medium px-4 py-2 hover:bg-brand-deep transition disabled:opacity-50"
       >
         {busy ? 'Working…' : `Confirm ${action}`}
       </button>
@@ -81,7 +81,7 @@ export default function StudentLifecycle({ studentId, name }: { studentId: strin
           setAction(null);
           setError(null);
         }}
-        className="text-sm text-oat hover:text-forest transition"
+        className="text-sm text-oat hover:text-brand transition"
       >
         Cancel
       </button>

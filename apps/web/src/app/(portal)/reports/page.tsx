@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
+import Combobox from '@/components/Combobox';
 
 interface ReportRow {
   studentId: string;
@@ -133,31 +134,28 @@ export default function ReportsPage() {
         </p>
       </div>
 
-      <div className="mt-6 flex flex-wrap items-center gap-3 rise rise-2">
-        <select
+      <div className="mt-6 flex flex-wrap items-end gap-3 rise rise-2">
+        <Combobox
+          label="Class"
+          className="w-full sm:w-56"
+          allowClear={false}
+          placeholder="Search classes…"
+          options={classes.map((c) => ({ value: c.id, label: c.name }))}
           value={classId}
-          onChange={(e) => setClassId(e.target.value)}
-          aria-label="Class"
-          className="rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-forest"
-        >
-          {classes.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+          onChange={setClassId}
+        />
         <button
           onClick={generate}
           disabled={busy || !classId}
           data-tip="Recomputes every report in this class from the latest scores"
-          className="tip rounded-lg bg-forest text-paper text-sm font-medium px-5 py-2 hover:bg-forest-deep transition disabled:opacity-50"
+          className="tip rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition disabled:opacity-50"
         >
           {busy ? 'Computing…' : 'Generate reports'}
         </button>
         <button
           onClick={toggleBroadsheet}
           disabled={!classId || !termId}
-          className="rounded-lg border border-mist text-forest text-sm font-medium px-5 py-2 hover:bg-forest-mist transition disabled:opacity-50"
+          className="rounded-lg border border-mist text-brand text-sm font-medium px-5 py-2 hover:bg-brand-mist transition disabled:opacity-50"
         >
           {broadsheet ? 'Hide broadsheet' : 'View broadsheet'}
         </button>
@@ -188,7 +186,7 @@ export default function ReportsPage() {
               <a
                 key={f}
                 href={`/api/proxy/assessment/broadsheet/export?classId=${classId}&termId=${termId}&format=${f}`}
-                className="rounded-md border border-mist px-2.5 py-1 text-forest hover:bg-forest-mist transition uppercase"
+                className="rounded-md border border-mist px-2.5 py-1 text-brand hover:bg-brand-mist transition uppercase"
               >
                 {f}
               </a>
@@ -285,7 +283,7 @@ export default function ReportsPage() {
                   <p className="font-medium">
                     {r.name}
                     {r.publishedAt && (
-                      <span className="ml-2 text-[10px] uppercase tracking-wider bg-forest-mist text-forest rounded-full px-2 py-0.5">
+                      <span className="ml-2 text-[10px] uppercase tracking-wider bg-brand-mist text-brand rounded-full px-2 py-0.5">
                         Published
                       </span>
                     )}
@@ -298,7 +296,7 @@ export default function ReportsPage() {
                 <td className="px-5 py-3 text-right">
                   <Link
                     href={`/reports/${r.studentId}/${termId}`}
-                    className="text-forest font-medium text-[13px] hover:underline underline-offset-2"
+                    className="text-brand font-medium text-[13px] hover:underline underline-offset-2"
                   >
                     View report card →
                   </Link>

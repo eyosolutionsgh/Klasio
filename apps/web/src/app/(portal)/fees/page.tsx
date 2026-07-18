@@ -190,7 +190,7 @@ export default function FeesPage() {
                     <a
                       key={f}
                       href={`/api/proxy/fees/defaulters/export?termId=${termId}&format=${f}`}
-                      className="rounded-md border border-mist px-2 py-0.5 text-forest hover:bg-forest-mist transition uppercase"
+                      className="rounded-md border border-mist px-2 py-0.5 text-brand hover:bg-brand-mist transition uppercase"
                     >
                       {f}
                     </a>
@@ -222,14 +222,14 @@ export default function FeesPage() {
                           <button
                             onClick={() => setDepositFor(d)}
                             data-tip="Record a bank deposit with proof for a bursar to confirm"
-                            className="tip text-[12.5px] font-medium text-forest border border-forest/40 rounded-full px-3 py-1 hover:bg-forest-mist transition mr-1.5"
+                            className="tip text-[12.5px] font-medium text-brand border border-brand/40 rounded-full px-3 py-1 hover:bg-brand-mist transition mr-1.5"
                           >
                             Bank deposit
                           </button>
                           <button
                             onClick={() => createPayLink(d)}
                             data-tip="Create a pay-online link to send to the guardian"
-                            className="tip text-[12.5px] font-medium text-forest border border-forest/40 rounded-full px-3 py-1 hover:bg-forest-mist transition mr-1.5"
+                            className="tip text-[12.5px] font-medium text-brand border border-brand/40 rounded-full px-3 py-1 hover:bg-brand-mist transition mr-1.5"
                           >
                             Pay link
                           </button>
@@ -238,7 +238,7 @@ export default function FeesPage() {
                               setPayFor(d);
                               setAmount(String(d.balance));
                             }}
-                            className="text-[12.5px] font-medium text-forest border border-forest/40 rounded-full px-3 py-1 hover:bg-forest-mist transition"
+                            className="text-[12.5px] font-medium text-brand border border-brand/40 rounded-full px-3 py-1 hover:bg-brand-mist transition"
                           >
                             Record payment
                           </button>
@@ -274,7 +274,7 @@ export default function FeesPage() {
                         </div>
                         <div className="h-2 rounded-full bg-parchment mt-1.5 overflow-hidden">
                           <div
-                            className="h-full rounded-full bg-forest"
+                            className="h-full rounded-full bg-brand"
                             style={{ width: `${pct}%` }}
                           />
                         </div>
@@ -352,7 +352,7 @@ export default function FeesPage() {
               step="0.01"
               required
               defaultValue={depositFor.balance}
-              className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 tabular outline-none focus:border-forest focus:ring-2 focus:ring-forest/15"
+              className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 tabular outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
             />
 
             <label className="block text-sm font-medium mt-4 mb-1.5">Date deposited</label>
@@ -361,7 +361,7 @@ export default function FeesPage() {
               type="date"
               required
               defaultValue={new Date().toISOString().slice(0, 10)}
-              className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-forest"
+              className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand"
             />
 
             <div className="grid grid-cols-2 gap-3 mt-4">
@@ -370,14 +370,14 @@ export default function FeesPage() {
                 <input
                   name="bankName"
                   placeholder="GCB"
-                  className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-forest"
+                  className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand"
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1.5">Teller / ref</label>
                 <input
                   name="bankRef"
-                  className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-forest"
+                  className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand"
                 />
               </div>
             </div>
@@ -403,7 +403,7 @@ export default function FeesPage() {
               <button
                 type="submit"
                 disabled={busy}
-                className="flex-1 rounded-lg bg-forest text-paper text-sm font-medium py-2.5 hover:bg-forest-deep transition disabled:opacity-60"
+                className="flex-1 rounded-lg bg-brand text-paper text-sm font-medium py-2.5 hover:bg-brand-deep transition disabled:opacity-60"
               >
                 {busy ? 'Recording…' : 'Submit for confirmation'}
               </button>
@@ -434,7 +434,7 @@ export default function FeesPage() {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={() => navigator.clipboard?.writeText(payLink.url)}
-                className="flex-1 rounded-lg bg-forest text-paper text-sm font-medium py-2.5 hover:bg-forest-deep transition"
+                className="flex-1 rounded-lg bg-brand text-paper text-sm font-medium py-2.5 hover:bg-brand-deep transition"
               >
                 Copy link
               </button>
@@ -475,7 +475,7 @@ export default function FeesPage() {
               required
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 tabular outline-none focus:border-forest focus:ring-2 focus:ring-forest/15"
+              className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 tabular outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
             />
 
             <label className="block text-sm font-medium mt-4 mb-1.5">Payment method</label>
@@ -487,8 +487,8 @@ export default function FeesPage() {
                   onClick={() => setMethod(m)}
                   className={`rounded-lg border px-3 py-2 text-sm transition ${
                     method === m
-                      ? 'bg-forest text-paper border-forest'
-                      : 'border-mist bg-white hover:border-forest'
+                      ? 'bg-brand text-paper border-brand'
+                      : 'border-mist bg-white hover:border-brand'
                   }`}
                 >
                   {METHOD_LABEL[m]}
@@ -504,7 +504,7 @@ export default function FeesPage() {
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="e.g. MoMo from 024 xxx, part payment"
-              className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-forest focus:ring-2 focus:ring-forest/15"
+              className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
             />
 
             <div className="flex gap-3 mt-7">
@@ -518,7 +518,7 @@ export default function FeesPage() {
               <button
                 type="submit"
                 disabled={busy}
-                className="flex-1 rounded-lg bg-forest text-paper text-sm font-medium py-2.5 hover:bg-forest-deep transition disabled:opacity-60"
+                className="flex-1 rounded-lg bg-brand text-paper text-sm font-medium py-2.5 hover:bg-brand-deep transition disabled:opacity-60"
               >
                 {busy ? 'Recording…' : 'Record & issue receipt'}
               </button>

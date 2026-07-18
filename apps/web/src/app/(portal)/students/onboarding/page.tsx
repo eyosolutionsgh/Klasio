@@ -45,7 +45,7 @@ export default function OnboardingPage() {
 
   return (
     <div>
-      <Link href="/students" className="text-[13px] text-oat hover:text-forest transition">
+      <Link href="/students" className="text-[13px] text-oat hover:text-brand transition">
         ← Back to students
       </Link>
       <div className="rise rise-1 mt-4">
@@ -64,7 +64,7 @@ export default function OnboardingPage() {
               setResult(null);
               setError(null);
             }}
-            className={`card p-4 text-left transition ${kind === k.key ? 'ring-2 ring-forest' : 'hover:border-forest'}`}
+            className={`card p-4 text-left transition ${kind === k.key ? 'ring-2 ring-brand' : 'hover:border-brand'}`}
           >
             <p className="font-medium">{k.label}</p>
             <p className="text-xs text-oat mt-1">{k.blurb}</p>
@@ -77,7 +77,7 @@ export default function OnboardingPage() {
           <span className="text-sm text-oat">Step 1 —</span>
           <a
             href={`/api/proxy/onboarding/templates/${kind}`}
-            className="rounded-lg border border-mist text-forest text-sm font-medium px-4 py-2 hover:bg-forest-mist transition"
+            className="rounded-lg border border-mist text-brand text-sm font-medium px-4 py-2 hover:bg-brand-mist transition"
           >
             Download {kind} template
           </a>
@@ -93,7 +93,7 @@ export default function OnboardingPage() {
           <button
             onClick={upload}
             disabled={busy || !file}
-            className="rounded-lg bg-forest text-paper text-sm font-medium px-5 py-2 hover:bg-forest-deep transition disabled:opacity-50"
+            className="rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition disabled:opacity-50"
           >
             {busy ? 'Importing…' : 'Upload & import'}
           </button>
@@ -101,7 +101,7 @@ export default function OnboardingPage() {
         {error && <p className="text-sm text-danger">{error}</p>}
         {result && (
           <div className="rounded-lg bg-parchment/60 p-4">
-            <p className="text-sm font-medium text-forest">
+            <p className="text-sm font-medium text-brand">
               Imported {result.imported} · skipped {result.skipped} · {result.errors.length} error
               {result.errors.length === 1 ? '' : 's'}
             </p>

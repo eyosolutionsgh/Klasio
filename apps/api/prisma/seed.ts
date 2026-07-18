@@ -133,6 +133,8 @@ async function main() {
       phone: '+233 24 000 0000',
       email: 'info@brightonacademy.edu.gh',
       region: 'Greater Accra',
+      website: 'www.brightonacademy.edu.gh',
+      brandColor: '#17513c',
       tier: 'MEDIUM',
       smsSenderId: 'BRIGHTON',
       smsCredits: 500,
