@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { api, money } from '@/lib/api';
+import StudentLifecycle from '@/components/StudentLifecycle';
 
 interface Detail {
   id: string;
@@ -10,6 +11,8 @@ interface Detail {
   dateOfBirth: string;
   status: string;
   enrolledAt: string;
+  exitDate: string | null;
+  exitReason: string | null;
   className: string | null;
   guardians: {
     id: string;
@@ -57,13 +60,24 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
             {s.lastName[0]}
           </div>
           <div>
-            <h1 className="font-display text-3xl">
+            <h1 className="font-display text-3xl flex items-center gap-3">
               {s.firstName} {s.lastName}
+              {s.status !== 'ACTIVE' && (
+                <span className="text-[10px] uppercase tracking-wider bg-parchment text-oat rounded-full px-2.5 py-1 align-middle">
+                  {s.status.toLowerCase()}
+                </span>
+              )}
             </h1>
             <p className="text-sm text-oat mt-1 tabular">
               {s.admissionNo} · {s.className ?? 'Unassigned'} ·{' '}
               {s.gender === 'MALE' ? 'Boy' : 'Girl'} · Born {fmtDate(s.dateOfBirth)}
             </p>
+            {s.status !== 'ACTIVE' && s.exitDate && (
+              <p className="text-xs text-oat mt-1">
+                Left {fmtDate(s.exitDate)}
+                {s.exitReason ? ` · ${s.exitReason}` : ''}
+              </p>
+            )}
           </div>
         </div>
         <div
@@ -78,6 +92,12 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
           </p>
         </div>
       </div>
+
+      {s.status === 'ACTIVE' && (
+        <div className="no-print mt-6 rise rise-2">
+          <StudentLifecycle studentId={s.id} name={`${s.firstName} ${s.lastName}`} />
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-[1fr_1.3fr] gap-6 mt-8">
         <div className="space-y-6">
@@ -178,6 +198,14 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
                       {e.reference}
                       {e.receiptNumber && ` · ${e.receiptNumber}`}
                     </p>
+                    {e.type === 'PAYMENT' && e.receiptNumber && (
+                      <a
+                        href={`/api/proxy/fees/receipts/${e.reference}/pdf`}
+                        className="no-print text-[11px] text-forest hover:underline underline-offset-2"
+                      >
+                        Download receipt ↓
+                      </a>
+                    )}
                   </td>
                   <td
                     className={`py-2.5 text-right tabular font-medium ${e.type === 'INVOICE' ? 'text-ink' : 'text-leaf'}`}

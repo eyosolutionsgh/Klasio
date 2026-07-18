@@ -1,11 +1,14 @@
 import Link from 'next/link';
-import { api } from '@/lib/api';
+import { api, getMe } from '@/lib/api';
+import PromoteClass from '@/components/PromoteClass';
+import DownloadButton from '@/components/DownloadButton';
 
 interface StudentRow {
   id: string;
   admissionNo: string;
   name: string;
   gender: string;
+  status: string;
   className: string;
   primaryGuardian: { name: string; phone: string } | null;
 }
@@ -13,19 +16,39 @@ interface Structure {
   classes: { id: string; name: string; studentCount: number }[];
 }
 
+const STATUS_TABS = [
+  { key: 'ACTIVE', label: 'Active' },
+  { key: 'GRADUATED', label: 'Alumni' },
+  { key: 'TRANSFERRED', label: 'Transferred' },
+  { key: 'WITHDRAWN', label: 'Withdrawn' },
+];
+
 export default async function StudentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ classId?: string; q?: string }>;
+  searchParams: Promise<{ classId?: string; q?: string; status?: string }>;
 }) {
-  const { classId, q } = await searchParams;
+  const { classId, q, status = 'ACTIVE' } = await searchParams;
   const qs = new URLSearchParams();
   if (classId) qs.set('classId', classId);
   if (q) qs.set('q', q);
-  const [students, structure] = await Promise.all([
+  qs.set('status', status);
+  const [students, structure, me] = await Promise.all([
     api<StudentRow[]>(`/students?${qs}`),
     api<Structure>('/school/structure'),
+    getMe(),
   ]);
+
+  const canPromote = ['OWNER', 'HEAD'].includes(me.user.role);
+  const selectedClass = structure.classes.find((c) => c.id === classId);
+  const keep = (extra: Record<string, string>) => {
+    const p = new URLSearchParams();
+    if (classId) p.set('classId', classId);
+    if (q) p.set('q', q);
+    p.set('status', status);
+    for (const [k, v] of Object.entries(extra)) p.set(k, v);
+    return `/students?${p}`;
+  };
 
   return (
     <div>
@@ -34,24 +57,55 @@ export default async function StudentsPage({
           <h1 className="font-display text-3xl">Students</h1>
           <p className="text-sm text-oat mt-1.5">The register — {students.length} shown</p>
         </div>
-        <form className="flex gap-2" action="/students" method="get">
-          <input
-            type="search"
-            name="q"
-            defaultValue={q}
-            placeholder="Search name or admission no."
-            className="rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-forest focus:ring-2 focus:ring-forest/15 w-64"
+        <div className="flex items-center gap-2">
+          <Link
+            href="/students/onboarding"
+            className="tip rounded-lg border border-mist text-forest text-sm font-medium px-4 py-2 hover:bg-forest-mist transition"
+            data-tip="Bulk-import students from an Excel template"
+          >
+            Import
+          </Link>
+          <DownloadButton
+            path={`/students/export?format=xlsx${classId ? `&classId=${classId}` : ''}&status=${status}`}
+            filename={`students-${status.toLowerCase()}.xlsx`}
+            label="Export"
+            variant="ghost"
+            tip="Download this list as Excel"
           />
-          <button className="rounded-lg bg-forest text-paper text-sm font-medium px-4 hover:bg-forest-deep transition">
-            Search
-          </button>
-        </form>
+          <form className="flex gap-2" action="/students" method="get">
+            {classId && <input type="hidden" name="classId" value={classId} />}
+            <input type="hidden" name="status" value={status} />
+            <input
+              type="search"
+              name="q"
+              defaultValue={q}
+              placeholder="Search name or admission no."
+              className="rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-forest focus:ring-2 focus:ring-forest/15 w-64"
+            />
+            <button className="rounded-lg bg-forest text-paper text-sm font-medium px-4 hover:bg-forest-deep transition">
+              Search
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {/* status tabs */}
+      <div className="mt-6 flex flex-wrap gap-1.5 rise rise-2">
+        {STATUS_TABS.map((t) => (
+          <Link
+            key={t.key}
+            href={keep({ status: t.key })}
+            className={`text-[12.5px] rounded-full px-3 py-1.5 border transition ${status === t.key ? 'bg-forest text-paper border-forest' : 'border-mist bg-white text-ink hover:border-forest'}`}
+          >
+            {t.label}
+          </Link>
+        ))}
       </div>
 
       {/* class filter chips */}
-      <div className="mt-6 flex flex-wrap gap-1.5 rise rise-2">
+      <div className="mt-3 flex flex-wrap gap-1.5 rise rise-2">
         <Link
-          href="/students"
+          href={`/students?status=${status}`}
           className={`text-[12.5px] rounded-full px-3 py-1.5 border transition ${!classId ? 'bg-forest text-paper border-forest' : 'border-mist bg-white text-ink hover:border-forest'}`}
         >
           All classes
@@ -61,13 +115,23 @@ export default async function StudentsPage({
           .map((c) => (
             <Link
               key={c.id}
-              href={`/students?classId=${c.id}`}
+              href={`/students?classId=${c.id}&status=${status}`}
               className={`text-[12.5px] rounded-full px-3 py-1.5 border transition tabular ${classId === c.id ? 'bg-forest text-paper border-forest' : 'border-mist bg-white text-ink hover:border-forest'}`}
             >
               {c.name} · {c.studentCount}
             </Link>
           ))}
       </div>
+
+      {canPromote && selectedClass && status === 'ACTIVE' && (
+        <div className="mt-4 rise rise-2">
+          <PromoteClass
+            fromClassId={selectedClass.id}
+            fromClassName={selectedClass.name}
+            classes={structure.classes.map((c) => ({ id: c.id, name: c.name }))}
+          />
+        </div>
+      )}
 
       <div className="card mt-6 overflow-hidden rise rise-3">
         <table className="w-full text-sm">
@@ -103,7 +167,7 @@ export default async function StudentsPage({
             {students.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-5 py-10 text-center text-oat">
-                  No students match. Try a different class or search term.
+                  No students match. Try a different class, status, or search term.
                 </td>
               </tr>
             )}
