@@ -90,7 +90,7 @@ export default async function DashboardPage() {
       <div className="grid lg:grid-cols-[1.4fr_1fr] gap-6 mt-8">
         {/* Fees position */}
         <section className="card p-6 rise rise-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
             <h2 className="font-display text-xl">Fees position — {stats.term?.name}</h2>
             <Link
               href="/fees"
@@ -127,7 +127,7 @@ export default async function DashboardPage() {
 
         {/* Announcements */}
         <section className="card p-6 rise rise-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
             <h2 className="font-display text-xl">Notice board</h2>
             <Link
               href="/announcements"

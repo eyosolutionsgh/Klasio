@@ -88,10 +88,15 @@ export default function Sidebar({
   school,
   userName,
   role,
+  open = false,
+  onClose,
 }: {
   school: string;
   userName: string;
   role: string;
+  /** Drawer state — only meaningful below `lg`, where the sidebar is off-canvas. */
+  open?: boolean;
+  onClose?: () => void;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -103,11 +108,38 @@ export default function Sidebar({
   }
 
   return (
-    <aside className="w-60 shrink-0 bg-forest-deep text-paper flex flex-col min-h-screen sticky top-0 max-h-screen">
+    <aside
+      id="portal-nav"
+      // Below lg: a fixed drawer that slides in. From lg: an ordinary sticky column, so the
+      // desktop layout is untouched.
+      className={`no-print bg-forest-deep text-paper flex flex-col z-50
+        fixed inset-y-0 left-0 w-[17rem] max-w-[85vw]
+        transition-[transform,visibility] duration-200 ease-out motion-reduce:transition-none
+        ${
+          open
+            ? 'translate-x-0 visible shadow-2xl'
+            : // invisible keeps the off-screen links out of the tab order; lg:visible puts the
+              // permanent desktop column back.
+              '-translate-x-full invisible lg:visible'
+        }
+        lg:translate-x-0 lg:w-60 lg:shrink-0 lg:shadow-none
+        lg:sticky lg:top-0 lg:min-h-screen lg:max-h-screen`}
+    >
       <div className="kente-stripe h-1.5" />
-      <div className="px-5 pt-6 pb-5 border-b border-paper/10">
-        <p className="font-display text-xl text-gold leading-none">EYO</p>
-        <p className="mt-2 text-[13px] font-medium leading-tight">{school}</p>
+      <div className="px-5 pt-6 pb-5 border-b border-paper/10 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-display text-xl text-gold leading-none">EYO</p>
+          <p className="mt-2 text-[13px] font-medium leading-tight">{school}</p>
+        </div>
+        <button
+          onClick={onClose}
+          aria-label="Close menu"
+          className="lg:hidden -mr-1 -mt-1 p-2 rounded-lg text-paper/60 hover:text-paper hover:bg-paper/10 transition"
+        >
+          <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current" aria-hidden>
+            <path d="M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z" />
+          </svg>
+        </button>
       </div>
 
       {/* overflow-y-auto alone would coerce the x axis to auto and give the nav its own

@@ -71,7 +71,7 @@ export default async function StudentsPage({
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Link
             href="/students/onboarding"
             className="tip rounded-lg border border-mist text-forest text-sm font-medium px-4 py-2 hover:bg-forest-mist transition"
@@ -86,7 +86,7 @@ export default async function StudentsPage({
             variant="ghost"
             tip="Download this list as Excel"
           />
-          <form className="flex gap-2" action="/students" method="get">
+          <form className="flex gap-2 flex-1 min-w-[15rem]" action="/students" method="get">
             {classId && <input type="hidden" name="classId" value={classId} />}
             <input type="hidden" name="status" value={status} />
             <input
@@ -94,7 +94,7 @@ export default async function StudentsPage({
               name="q"
               defaultValue={q}
               placeholder="Search name or admission no."
-              className="rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-forest focus:ring-2 focus:ring-forest/15 w-64"
+              className="rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-forest focus:ring-2 focus:ring-forest/15 flex-1 min-w-0 sm:w-64 sm:flex-none"
             />
             <button className="rounded-lg bg-forest text-paper text-sm font-medium px-4 hover:bg-forest-deep transition">
               Search

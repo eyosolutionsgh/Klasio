@@ -142,7 +142,7 @@ export default function AuditPage() {
       </div>
 
       {data && data.pages > 1 && (
-        <div className="mt-4 flex items-center justify-between text-sm rise">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-sm rise">
           <span className="text-oat">
             Page {data.page} of {data.pages} · {data.total} entries
           </span>

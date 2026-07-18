@@ -175,7 +175,7 @@ export default function MessagingPage() {
           rows={4}
           className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-forest focus:ring-2 focus:ring-forest/15"
         />
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
           <p className="text-xs text-oat">
             {body.length} characters · {segments} SMS segment{segments === 1 ? '' : 's'} per
             recipient

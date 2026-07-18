@@ -182,7 +182,7 @@ export default function FeesPage() {
           <div className="grid lg:grid-cols-[1.3fr_1fr] gap-6 mt-8">
             {/* Defaulters */}
             <section className="card overflow-hidden rise rise-3">
-              <div className="px-6 pt-5 pb-3 flex items-center justify-between">
+              <div className="px-6 pt-5 pb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
                 <h2 className="font-display text-xl">Defaulters</h2>
                 <span className="flex items-center gap-1 text-[12px]">
                   <span className="text-oat">Export:</span>

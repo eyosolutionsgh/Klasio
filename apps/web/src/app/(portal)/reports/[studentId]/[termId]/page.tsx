@@ -53,7 +53,7 @@ export default async function ReportCardPage({
 
   return (
     <div>
-      <div className="no-print flex items-center justify-between mb-6">
+      <div className="no-print flex flex-wrap items-center justify-between gap-x-4 gap-y-1 mb-6">
         <Link href="/reports" className="text-[13px] text-oat hover:text-forest transition">
           ← Back to reports
         </Link>

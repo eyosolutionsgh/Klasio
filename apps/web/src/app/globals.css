@@ -124,6 +124,13 @@ html {
     transform: translateX(-50%) translateY(4px);
   }
 }
+/* On touch there is no hover to leave, so a tapped tooltip sticks until you tap elsewhere.
+   Keyboard focus still shows one. */
+@media (hover: none) {
+  .tip[data-tip]:hover::after {
+    display: none;
+  }
+}
 
 /* page-load reveal */
 @keyframes rise {
