@@ -110,7 +110,12 @@ export default function Sidebar({
         <p className="mt-2 text-[13px] font-medium leading-tight">{school}</p>
       </div>
 
-      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto" aria-label="Main">
+      {/* overflow-y-auto alone would coerce the x axis to auto and give the nav its own
+          horizontal scrollbar the moment a tooltip is wider than the sidebar. */}
+      <nav
+        className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto overflow-x-clip"
+        aria-label="Main"
+      >
         {NAV.map((item) => {
           const active = pathname.startsWith(item.href);
           return (

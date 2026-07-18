@@ -147,7 +147,7 @@ export default async function StudentsPage({
         </div>
       )}
 
-      <div className="card mt-6 overflow-hidden rise rise-3">
+      <div className="card mt-6 overflow-x-auto rise rise-3">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">

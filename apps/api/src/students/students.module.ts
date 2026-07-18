@@ -144,7 +144,11 @@ export class StudentsService {
       where: { id, schoolId: auth.schoolId },
       include: {
         classRoom: { include: { level: true } },
-        guardians: { include: { guardian: true } },
+        // _count.students tells the UI a guardian is shared with siblings, so editing their
+        // contact details can warn that the change lands on every child they belong to.
+        guardians: {
+          include: { guardian: { include: { _count: { select: { students: true } } } } },
+        },
       },
     });
     if (!s) throw new NotFoundException('Student not found');
@@ -193,6 +197,8 @@ export class StudentsService {
         canPickup: g.canPickup,
         custodyFlag: g.custodyFlag,
         whatsappOptIn: g.guardian.whatsappOptIn,
+        /** Other students who share this guardian — 0 means the edit affects this child only. */
+        alsoGuardianTo: Math.max(0, g.guardian._count.students - 1),
       })),
       feeBalance: Math.round(balance * 100) / 100,
       ledger: ledger.slice(0, 20).map((e) => ({

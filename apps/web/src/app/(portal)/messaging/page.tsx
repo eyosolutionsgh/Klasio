@@ -192,7 +192,7 @@ export default function MessagingPage() {
       </div>
 
       <h2 className="font-display text-xl mt-8 rise rise-3">Recent messages</h2>
-      <div className="card mt-3 overflow-hidden rise rise-3">
+      <div className="card mt-3 overflow-x-auto rise rise-3">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">

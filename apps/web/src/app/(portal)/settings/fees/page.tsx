@@ -129,64 +129,69 @@ export default function FeeStructurePage() {
         </p>
       </div>
 
+      {/* The table scrolls inside its own card on narrow screens rather than widening the page. */}
       <div className="card mt-6 overflow-hidden rise rise-2">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
-              <th className="px-5 py-3 font-medium">Item</th>
-              <th className="px-5 py-3 font-medium">Applies to</th>
-              <th className="px-5 py-3 font-medium text-right">Amount</th>
-              <th className="px-5 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((i) => (
-              <tr key={i.id} className="border-b border-mist/60 last:border-0">
-                <td className="px-5 py-3 font-medium">
-                  {i.name}
-                  {i.optional && (
-                    <span className="ml-2 text-[10px] uppercase tracking-wider bg-parchment text-oat rounded-full px-2 py-0.5">
-                      Optional
-                    </span>
-                  )}
-                </td>
-                <td className="px-5 py-3 text-oat">
-                  {i.levelId ? (levels.find((l) => l.id === i.levelId)?.name ?? '—') : 'All levels'}
-                </td>
-                <td className="px-5 py-3 text-right tabular font-medium">{money(i.amount)}</td>
-                <td className="px-5 py-3 text-right">
-                  <button
-                    onClick={() => remove(i.id)}
-                    data-tip="Removes it from future invoices; bills already issued are unchanged"
-                    className="tip text-[12.5px] text-clay hover:underline underline-offset-2"
-                  >
-                    Remove
-                  </button>
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[520px]">
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
+                <th className="px-5 py-3 font-medium">Item</th>
+                <th className="px-5 py-3 font-medium">Applies to</th>
+                <th className="px-5 py-3 font-medium text-right">Amount</th>
+                <th className="px-5 py-3" />
               </tr>
-            ))}
-            {items.length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-5 py-10 text-center text-oat">
-                  No fee items yet for this term — add one below, then generate invoices.
-                </td>
-              </tr>
+            </thead>
+            <tbody>
+              {items.map((i) => (
+                <tr key={i.id} className="border-b border-mist/60 last:border-0">
+                  <td className="px-5 py-3 font-medium">
+                    {i.name}
+                    {i.optional && (
+                      <span className="ml-2 text-[10px] uppercase tracking-wider bg-parchment text-oat rounded-full px-2 py-0.5">
+                        Optional
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-5 py-3 text-oat">
+                    {i.levelId
+                      ? (levels.find((l) => l.id === i.levelId)?.name ?? '—')
+                      : 'All levels'}
+                  </td>
+                  <td className="px-5 py-3 text-right tabular font-medium">{money(i.amount)}</td>
+                  <td className="px-5 py-3 text-right">
+                    <button
+                      onClick={() => remove(i.id)}
+                      data-tip="Removes it from future invoices; bills already issued are unchanged"
+                      className="tip text-[12.5px] text-clay hover:underline underline-offset-2"
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {items.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-5 py-10 text-center text-oat">
+                    No fee items yet for this term — add one below, then generate invoices.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+            {items.length > 0 && (
+              <tfoot>
+                <tr className="bg-parchment/60">
+                  <td className="px-5 py-3 font-medium" colSpan={2}>
+                    Compulsory total per student
+                  </td>
+                  <td className="px-5 py-3 text-right tabular font-display text-base">
+                    {money(compulsory)}
+                  </td>
+                  <td />
+                </tr>
+              </tfoot>
             )}
-          </tbody>
-          {items.length > 0 && (
-            <tfoot>
-              <tr className="bg-parchment/60">
-                <td className="px-5 py-3 font-medium" colSpan={2}>
-                  Compulsory total per student
-                </td>
-                <td className="px-5 py-3 text-right tabular font-display text-base">
-                  {money(compulsory)}
-                </td>
-                <td />
-              </tr>
-            </tfoot>
-          )}
-        </table>
+          </table>
+        </div>
       </div>
 
       <form onSubmit={add} className="card p-6 mt-6 rise rise-3 max-w-2xl">

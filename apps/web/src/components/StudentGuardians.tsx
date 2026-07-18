@@ -12,7 +12,11 @@ export interface GuardianLink {
   canPickup: boolean;
   custodyFlag: string;
   whatsappOptIn: boolean;
+  /** Other students who share this guardian record. */
+  alsoGuardianTo: number;
 }
+
+const children = (n: number) => `${n} other ${n === 1 ? 'student' : 'students'}`;
 
 const CUSTODY = [
   { value: 'NONE', label: 'No restriction' },
@@ -70,6 +74,24 @@ export default function StudentGuardians({
       isPrimary: f.get('isPrimary') === 'on',
       whatsappOptIn: f.get('whatsappOptIn') === 'on',
     };
+  }
+
+  /**
+   * Name and phone live on the shared Guardian record, so editing them reaches every child that
+   * guardian belongs to. The per-student settings below (relationship, custody, pickup, primary)
+   * are on the link and only affect this child — so only a real contact change asks.
+   */
+  function confirmSharedEdit(g: GuardianLink, next: ReturnType<typeof formValues>) {
+    if (g.alsoGuardianTo === 0) return true;
+    const contactChanged =
+      `${next.firstName} ${next.lastName}`.trim() !== g.name.trim() || next.phone !== g.phone;
+    if (!contactChanged) return true;
+    return confirm(
+      `${g.name} is also guardian to ${children(g.alsoGuardianTo)} at this school.\n\n` +
+        `Changing the name or phone number updates their record everywhere — ` +
+        `including who the school calls about those children, and the phone they sign in ` +
+        `to the parent portal with.\n\nApply this change to all of them?`,
+    );
   }
 
   return (
@@ -156,10 +178,19 @@ export default function StudentGuardians({
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  send(`/guardians/${g.id}`, 'PATCH', formValues(e.currentTarget));
+                  const next = formValues(e.currentTarget);
+                  if (!confirmSharedEdit(g, next)) return;
+                  send(`/guardians/${g.id}`, 'PATCH', next);
                 }}
                 className="rounded-lg bg-parchment/60 p-4 space-y-3"
               >
+                {g.alsoGuardianTo > 0 && (
+                  <p className="text-xs text-clay bg-clay/10 rounded-md px-3 py-2">
+                    Shared contact — also guardian to {children(g.alsoGuardianTo)}. The name and
+                    phone below are theirs everywhere; custody, pickup and primary apply to this
+                    child only.
+                  </p>
+                )}
                 <div className="flex flex-wrap gap-2">
                   <input
                     name="firstName"

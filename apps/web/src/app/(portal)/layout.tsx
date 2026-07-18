@@ -6,7 +6,9 @@ export default async function PortalLayout({ children }: { children: React.React
   return (
     <div className="flex">
       <Sidebar school={me.school.name} userName={me.user.name} role={me.user.role} />
-      <div className="flex-1 min-w-0">
+      {/* clip (not hidden/auto) so a tooltip at the right edge is trimmed instead of widening
+          the page — clip creates no scroll container, so the sticky header still sticks. */}
+      <div className="flex-1 min-w-0 overflow-x-clip">
         <header className="no-print flex items-center justify-between px-8 h-14 border-b border-mist bg-paper/70 backdrop-blur sticky top-0 z-40">
           <p className="text-[13px] text-oat">
             {me.currentTerm

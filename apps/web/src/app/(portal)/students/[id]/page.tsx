@@ -26,6 +26,7 @@ interface Detail {
     canPickup: boolean;
     custodyFlag: string;
     whatsappOptIn: boolean;
+    alsoGuardianTo: number;
   }[];
   feeBalance: number;
   ledger: {

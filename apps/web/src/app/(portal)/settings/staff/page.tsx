@@ -120,7 +120,7 @@ export default function StaffPage() {
       {message && <p className="text-sm text-forest mt-4">{message}</p>}
       {error && <p className="text-sm text-danger mt-4">{error}</p>}
 
-      <div className="card mt-6 overflow-hidden rise rise-2">
+      <div className="card mt-6 overflow-x-auto rise rise-2">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">

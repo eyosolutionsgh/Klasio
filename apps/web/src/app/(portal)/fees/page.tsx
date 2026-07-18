@@ -197,62 +197,64 @@ export default function FeesPage() {
                   ))}
                 </span>
               </div>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
-                    <th className="px-6 py-2.5 font-medium">Student</th>
-                    <th className="px-3 py-2.5 font-medium">Class</th>
-                    <th className="px-3 py-2.5 font-medium text-right">Balance</th>
-                    <th className="px-6 py-2.5" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {defaulters.slice(0, 12).map((d) => (
-                    <tr key={d.studentId} className="border-b border-mist/60 last:border-0">
-                      <td className="px-6 py-2.5">
-                        <p className="font-medium">{d.name}</p>
-                        <p className="text-[11px] text-oat tabular">{d.admissionNo}</p>
-                      </td>
-                      <td className="px-3 py-2.5">{d.className}</td>
-                      <td className="px-3 py-2.5 text-right tabular font-medium text-clay">
-                        {money(d.balance)}
-                      </td>
-                      <td className="px-6 py-2.5 text-right whitespace-nowrap">
-                        <button
-                          onClick={() => setDepositFor(d)}
-                          data-tip="Record a bank deposit with proof for a bursar to confirm"
-                          className="tip text-[12.5px] font-medium text-forest border border-forest/40 rounded-full px-3 py-1 hover:bg-forest-mist transition mr-1.5"
-                        >
-                          Bank deposit
-                        </button>
-                        <button
-                          onClick={() => createPayLink(d)}
-                          data-tip="Create a pay-online link to send to the guardian"
-                          className="tip text-[12.5px] font-medium text-forest border border-forest/40 rounded-full px-3 py-1 hover:bg-forest-mist transition mr-1.5"
-                        >
-                          Pay link
-                        </button>
-                        <button
-                          onClick={() => {
-                            setPayFor(d);
-                            setAmount(String(d.balance));
-                          }}
-                          className="text-[12.5px] font-medium text-forest border border-forest/40 rounded-full px-3 py-1 hover:bg-forest-mist transition"
-                        >
-                          Record payment
-                        </button>
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[380px]">
+                  <thead>
+                    <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
+                      <th className="px-6 py-2.5 font-medium">Student</th>
+                      <th className="px-3 py-2.5 font-medium">Class</th>
+                      <th className="px-3 py-2.5 font-medium text-right">Balance</th>
+                      <th className="px-6 py-2.5" />
                     </tr>
-                  ))}
-                  {defaulters.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-10 text-center text-oat">
-                        No outstanding balances — every invoice is settled. 🎉
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {defaulters.slice(0, 12).map((d) => (
+                      <tr key={d.studentId} className="border-b border-mist/60 last:border-0">
+                        <td className="px-6 py-2.5">
+                          <p className="font-medium">{d.name}</p>
+                          <p className="text-[11px] text-oat tabular">{d.admissionNo}</p>
+                        </td>
+                        <td className="px-3 py-2.5">{d.className}</td>
+                        <td className="px-3 py-2.5 text-right tabular font-medium text-clay">
+                          {money(d.balance)}
+                        </td>
+                        <td className="px-6 py-2.5 text-right whitespace-nowrap">
+                          <button
+                            onClick={() => setDepositFor(d)}
+                            data-tip="Record a bank deposit with proof for a bursar to confirm"
+                            className="tip text-[12.5px] font-medium text-forest border border-forest/40 rounded-full px-3 py-1 hover:bg-forest-mist transition mr-1.5"
+                          >
+                            Bank deposit
+                          </button>
+                          <button
+                            onClick={() => createPayLink(d)}
+                            data-tip="Create a pay-online link to send to the guardian"
+                            className="tip text-[12.5px] font-medium text-forest border border-forest/40 rounded-full px-3 py-1 hover:bg-forest-mist transition mr-1.5"
+                          >
+                            Pay link
+                          </button>
+                          <button
+                            onClick={() => {
+                              setPayFor(d);
+                              setAmount(String(d.balance));
+                            }}
+                            className="text-[12.5px] font-medium text-forest border border-forest/40 rounded-full px-3 py-1 hover:bg-forest-mist transition"
+                          >
+                            Record payment
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {defaulters.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-6 py-10 text-center text-oat">
+                          No outstanding balances — every invoice is settled. 🎉
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </section>
 
             {/* Recent payments + methods */}
