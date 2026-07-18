@@ -53,6 +53,18 @@ const NAV = [
     tip: 'Send bulk SMS to guardians',
   },
   {
+    href: '/settings/school',
+    label: 'School Setup',
+    icon: 'M12 3L2 8l10 5 8-4v6h2V8L12 3zM6 13.2V17c0 1.7 2.7 3 6 3s6-1.3 6-3v-3.8l-6 3-6-3z',
+    tip: 'Academic years, terms, levels, classes and subjects',
+  },
+  {
+    href: '/settings/fees',
+    label: 'Fee Structure',
+    icon: 'M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z',
+    tip: 'What each student is billed per term',
+  },
+  {
     href: '/audit',
     label: 'Audit Log',
     icon: 'M12 1L3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5l-9-4zm-2 16l-4-4 1.4-1.4L10 14.2l6.6-6.6L18 9l-8 8z',
