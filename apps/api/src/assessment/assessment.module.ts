@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   Injectable,
@@ -17,14 +18,18 @@ import { Prisma } from '@prisma/client';
 import {
   IsArray,
   IsBoolean,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
   Max,
   MaxLength,
   Min,
+  MinLength,
   ValidateNested,
 } from 'class-validator';
+import type { GradingKind } from '@prisma/client';
+import { Band, validateBands } from '../common/grading';
 import { Type } from 'class-transformer';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, Roles } from '../common/auth';
@@ -61,18 +66,24 @@ class UpdateReportDto {
   @IsOptional() @IsString() @MaxLength(120) interest?: string;
 }
 
+class ComponentDto {
+  @IsString() @MinLength(2) name: string;
+  @IsNumber() @Min(1) @Max(100) maxScore: number;
+  @IsOptional() @IsBoolean() isExam?: boolean;
+  @IsOptional() @IsNumber() order?: number;
+}
+
+class GradingSchemeDto {
+  @IsString() @MinLength(2) name: string;
+  @IsIn(['GES_CLASSIC', 'NACCA_BANDS', 'EARLY_YEARS']) kind: GradingKind;
+  @IsArray() bands: Band[];
+}
+
 class PublishReportsDto {
   @IsString() classId: string;
   @IsString() termId: string;
   /** false un-publishes (e.g. a mistake spotted after release). */
   @IsOptional() @IsBoolean() published?: boolean;
-}
-
-interface Band {
-  min: number;
-  max: number;
-  grade: string;
-  remark: string;
 }
 
 const SBA_WEIGHT = 30;
@@ -87,6 +98,167 @@ export class AssessmentService {
       where: { schoolId: auth.schoolId },
       orderBy: { order: 'asc' },
     });
+  }
+
+  // ── Configuration: SBA components & grading schemes ────────────────
+
+  /**
+   * Exactly one component may be the exam: the 30/70 split reads `isExam` to decide which
+   * score carries the exam weight, so a second one would silently change every report.
+   */
+  private async assertSingleExam(auth: AuthUser, isExam: boolean, excludeId?: string) {
+    if (!isExam) return;
+    const existing = await this.db.assessmentComponent.findFirst({
+      where: {
+        schoolId: auth.schoolId,
+        isExam: true,
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+    });
+    if (existing) {
+      throw new BadRequestException(
+        `"${existing.name}" is already the exam component — only one is allowed`,
+      );
+    }
+  }
+
+  async createComponent(auth: AuthUser, dto: ComponentDto) {
+    await this.assertSingleExam(auth, dto.isExam ?? false);
+    const count = await this.db.assessmentComponent.count({ where: { schoolId: auth.schoolId } });
+    const component = await this.db.assessmentComponent.create({
+      data: {
+        schoolId: auth.schoolId,
+        name: dto.name,
+        maxScore: dto.maxScore,
+        isExam: dto.isExam ?? false,
+        order: dto.order ?? count + 1,
+      },
+    });
+    await this.db.audit(
+      auth.schoolId,
+      auth.sub,
+      'assessment.component.create',
+      'AssessmentComponent',
+      component.id,
+      { name: dto.name },
+    );
+    return component;
+  }
+
+  async updateComponent(auth: AuthUser, id: string, dto: Partial<ComponentDto>) {
+    const existing = await this.db.assessmentComponent.findFirst({
+      where: { id, schoolId: auth.schoolId },
+    });
+    if (!existing) throw new NotFoundException('Component not found');
+    if (dto.isExam !== undefined) await this.assertSingleExam(auth, dto.isExam, id);
+    const component = await this.db.assessmentComponent.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(dto.maxScore !== undefined ? { maxScore: dto.maxScore } : {}),
+        ...(dto.isExam !== undefined ? { isExam: dto.isExam } : {}),
+        ...(dto.order !== undefined ? { order: dto.order } : {}),
+      },
+    });
+    await this.db.audit(
+      auth.schoolId,
+      auth.sub,
+      'assessment.component.update',
+      'AssessmentComponent',
+      id,
+      dto,
+    );
+    return component;
+  }
+
+  async deleteComponent(auth: AuthUser, id: string) {
+    const existing = await this.db.assessmentComponent.findFirst({
+      where: { id, schoolId: auth.schoolId },
+    });
+    if (!existing) throw new NotFoundException('Component not found');
+    const scores = await this.db.score.count({ where: { componentId: id } });
+    if (scores > 0) {
+      throw new BadRequestException(
+        'Marks have already been entered against this component — it cannot be deleted',
+      );
+    }
+    await this.db.assessmentComponent.delete({ where: { id } });
+    await this.db.audit(
+      auth.schoolId,
+      auth.sub,
+      'assessment.component.delete',
+      'AssessmentComponent',
+      id,
+    );
+    return { deleted: true };
+  }
+
+  schemes(auth: AuthUser) {
+    return this.db.gradingScheme.findMany({
+      where: { schoolId: auth.schoolId },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async createScheme(auth: AuthUser, dto: GradingSchemeDto) {
+    const check = validateBands(dto.bands);
+    if (!check.ok) throw new BadRequestException(check.error);
+    const scheme = await this.db.gradingScheme.create({
+      data: {
+        schoolId: auth.schoolId,
+        name: dto.name,
+        kind: dto.kind,
+        bands: dto.bands as unknown as Prisma.InputJsonValue,
+      },
+    });
+    await this.db.audit(
+      auth.schoolId,
+      auth.sub,
+      'assessment.scheme.create',
+      'GradingScheme',
+      scheme.id,
+      { name: dto.name, kind: dto.kind },
+    );
+    return scheme;
+  }
+
+  async updateScheme(auth: AuthUser, id: string, dto: Partial<GradingSchemeDto>) {
+    const existing = await this.db.gradingScheme.findFirst({
+      where: { id, schoolId: auth.schoolId },
+    });
+    if (!existing) throw new NotFoundException('Grading scheme not found');
+    if (dto.bands) {
+      const check = validateBands(dto.bands);
+      if (!check.ok) throw new BadRequestException(check.error);
+    }
+    const scheme = await this.db.gradingScheme.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(dto.kind !== undefined ? { kind: dto.kind } : {}),
+        ...(dto.bands !== undefined
+          ? { bands: dto.bands as unknown as Prisma.InputJsonValue }
+          : {}),
+      },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'assessment.scheme.update', 'GradingScheme', id, {
+      name: dto.name,
+    });
+    return scheme;
+  }
+
+  async deleteScheme(auth: AuthUser, id: string) {
+    const existing = await this.db.gradingScheme.findFirst({
+      where: { id, schoolId: auth.schoolId },
+      include: { _count: { select: { levels: true } } },
+    });
+    if (!existing) throw new NotFoundException('Grading scheme not found');
+    if (existing._count.levels > 0) {
+      throw new BadRequestException('This scheme is assigned to a level — reassign it first');
+    }
+    await this.db.gradingScheme.delete({ where: { id } });
+    await this.db.audit(auth.schoolId, auth.sub, 'assessment.scheme.delete', 'GradingScheme', id);
+    return { deleted: true };
   }
 
   async scoreMatrix(auth: AuthUser, classId: string, subjectId: string, termId: string) {
@@ -567,6 +739,55 @@ export class AssessmentController {
   @Get('components')
   components(@CurrentUser() user: AuthUser) {
     return this.svc.components(user);
+  }
+
+  @Post('components')
+  @Roles('OWNER', 'HEAD')
+  createComponent(@CurrentUser() user: AuthUser, @Body() dto: ComponentDto) {
+    return this.svc.createComponent(user, dto);
+  }
+
+  @Patch('components/:id')
+  @Roles('OWNER', 'HEAD')
+  updateComponent(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: ComponentDto,
+  ) {
+    return this.svc.updateComponent(user, id, dto);
+  }
+
+  @Delete('components/:id')
+  @Roles('OWNER', 'HEAD')
+  deleteComponent(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.deleteComponent(user, id);
+  }
+
+  @Get('schemes')
+  schemes(@CurrentUser() user: AuthUser) {
+    return this.svc.schemes(user);
+  }
+
+  @Post('schemes')
+  @Roles('OWNER', 'HEAD')
+  createScheme(@CurrentUser() user: AuthUser, @Body() dto: GradingSchemeDto) {
+    return this.svc.createScheme(user, dto);
+  }
+
+  @Patch('schemes/:id')
+  @Roles('OWNER', 'HEAD')
+  updateScheme(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: GradingSchemeDto,
+  ) {
+    return this.svc.updateScheme(user, id, dto);
+  }
+
+  @Delete('schemes/:id')
+  @Roles('OWNER', 'HEAD')
+  deleteScheme(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.deleteScheme(user, id);
   }
 
   @Get('scores')
