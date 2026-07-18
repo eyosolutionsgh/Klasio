@@ -64,7 +64,10 @@ export class AuthGuard implements CanActivate {
 
     // Guardian sessions are signed with the same secret but are a different kind of principal.
     // Reject them explicitly so a guardian token can never reach a staff route.
-    if ((user as { kind?: string }).kind === 'guardian') {
+    // Guardians and students are different kinds of principal signed with the same secret.
+    // Neither may reach a staff route, whatever their token otherwise says.
+    const kind = (user as { kind?: string }).kind;
+    if (kind === 'guardian' || kind === 'student') {
       throw new UnauthorizedException('Not a staff session');
     }
 

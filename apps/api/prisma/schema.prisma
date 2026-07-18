@@ -32,6 +32,9 @@ enum Role {
   TEACHER
   FRONT_DESK
   GUARDIAN
+  /// Students authenticate through their own portal (admission number + PIN), not the staff
+  /// login; the role exists so RBAC can name them (docs/02 §2.10).
+  STUDENT
 }
 
 model School {
@@ -200,6 +203,9 @@ model Student {
   exitDate     DateTime? // set on transfer / withdrawal / graduation
   exitReason   String?
   medicalNotes String?
+  /// Hash of the portal PIN the school issues. Null until a PIN is set; students without one
+  /// simply cannot sign in, which is the right default for the youngest classes.
+  portalPinHash String?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 

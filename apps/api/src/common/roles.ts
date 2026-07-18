@@ -18,6 +18,8 @@ const RANK: Record<Role, number> = {
   TEACHER: 1,
   FRONT_DESK: 1,
   GUARDIAN: 0,
+  // Students never act on staff routes; ranked lowest so they can never administer anyone.
+  STUDENT: 0,
 };
 
 export function isStaffRole(role: Role): boolean {

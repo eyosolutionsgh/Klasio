@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import RegisterServiceWorker from '@/components/RegisterServiceWorker';
 
 export const metadata: Metadata = {
   title: 'EYO — School Management',
@@ -15,7 +16,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="paper-bg min-h-screen antialiased">{children}</body>
+      <body className="paper-bg min-h-screen antialiased">
+        <RegisterServiceWorker />
+        {children}
+      </body>
     </html>
   );
 }

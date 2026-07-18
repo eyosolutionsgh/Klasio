@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Combobox from '@/components/Combobox';
+import OfflineBar from '@/components/OfflineBar';
+import { submitOrQueue } from '@/lib/offline';
 
 interface Component {
   id: string;
@@ -36,6 +38,7 @@ export default function MarksPage() {
   const [dirty, setDirty] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
+  const [queued, setQueued] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -78,7 +81,7 @@ export default function MarksPage() {
     setSaveState('idle');
   }
 
-  async function save() {
+  const save = useCallback(async () => {
     setSaveState('saving');
     setErrorMsg('');
     const entries = rows.flatMap((r) =>
@@ -89,23 +92,42 @@ export default function MarksPage() {
             e.rawScore != null,
         ),
     );
-    const res = await fetch('/api/proxy/assessment/scores', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ termId, subjectId, classId, entries }),
-    });
+    const cls = classes.find((c) => c.id === classId)?.name ?? 'class';
+    const subj = subjects.find((x) => x.id === subjectId)?.name ?? 'subject';
+    // Scores upsert on (student, component, term), so a replayed save is the same save.
+    const res = await submitOrQueue(
+      '/api/proxy/assessment/scores',
+      { termId, subjectId, classId, entries },
+      `${cls} · ${subj} marks`,
+    );
+    setQueued(res.queued);
     if (res.ok) {
       setSaveState('saved');
       setDirty(false);
     } else {
-      const body = await res.json().catch(() => ({}));
-      setErrorMsg(body.message ?? 'Could not save scores.');
+      setErrorMsg(res.message ?? 'Could not save scores.');
       setSaveState('error');
     }
-  }
+  }, [rows, components, termId, subjectId, classId, classes, subjects]);
+
+  /**
+   * Autosave a moment after typing stops. Marks entry is long and repetitive, and a teacher
+   * interrupted mid-column should not lose the column — but saving on every keystroke would
+   * hammer the API, so it waits for a pause.
+   */
+  useEffect(() => {
+    if (!dirty || saveState === 'saving') return;
+    // Never retry a rejected save on a timer. The server said no — "score exceeds max", say —
+    // and repeating it just hammers the API and buries the message. Editing a cell resets the
+    // state to idle, which is what lets autosave start again.
+    if (saveState === 'error') return;
+    const t = setTimeout(() => save(), 1200);
+    return () => clearTimeout(t);
+  }, [dirty, saveState, save]);
 
   return (
     <div>
+      <OfflineBar />
       <div className="rise rise-1">
         <h1 className="font-display text-3xl">Marks entry</h1>
         <p className="text-sm text-oat mt-1.5">
@@ -134,13 +156,23 @@ export default function MarksPage() {
           onChange={setSubjectId}
         />
         <div className="ml-auto flex items-center gap-3">
-          {dirty && <p className="text-[13px] text-clay">Unsaved changes</p>}
+          <p className="text-[13px] text-oat">
+            {saveState === 'saving'
+              ? 'Saving…'
+              : dirty
+                ? 'Saving shortly…'
+                : saveState === 'saved'
+                  ? queued
+                    ? 'Saved on this device'
+                    : 'All changes saved'
+                  : ''}
+          </p>
           <button
             onClick={save}
             disabled={saveState === 'saving' || !dirty}
             className="rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition disabled:opacity-50"
           >
-            {saveState === 'saving' ? 'Saving…' : 'Save scores'}
+            {saveState === 'saving' ? 'Saving…' : 'Save now'}
           </button>
         </div>
       </div>
@@ -150,7 +182,9 @@ export default function MarksPage() {
           role="status"
           className="mt-3 text-sm text-leaf bg-leaf/10 border border-leaf/20 rounded-lg px-3 py-2 rise"
         >
-          Scores saved.
+          {queued
+            ? 'Scores saved on this device — they will sync when the connection returns.'
+            : 'Scores saved.'}
         </p>
       )}
       {saveState === 'error' && (

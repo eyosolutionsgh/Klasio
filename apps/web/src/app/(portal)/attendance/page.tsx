@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Combobox from '@/components/Combobox';
+import OfflineBar from '@/components/OfflineBar';
+import { submitOrQueue } from '@/lib/offline';
 import Link from 'next/link';
 
 interface RosterRow {
@@ -29,6 +31,8 @@ export default function AttendancePage() {
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [rows, setRows] = useState<RosterRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [queued, setQueued] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   useEffect(() => {
@@ -68,18 +72,23 @@ export default function AttendancePage() {
     const entries = rows
       .filter((r) => r.status)
       .map((r) => ({ studentId: r.id, status: r.status }));
-    const res = await fetch('/api/proxy/attendance/mark', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ classId, date, entries }),
-    });
+    const className = classes.find((c) => c.id === classId)?.name ?? 'class';
+    // Marking is an upsert keyed on (student, date), so replaying it offline is safe.
+    const res = await submitOrQueue(
+      '/api/proxy/attendance/mark',
+      { classId, date, entries },
+      `${className} register · ${date}`,
+    );
+    setQueued(res.queued);
     setSaveState(res.ok ? 'saved' : 'error');
+    if (!res.ok) setErrorMsg(res.message ?? 'That did not save.');
   }
 
   const marked = rows.filter((r) => r.status).length;
 
   return (
     <div>
+      <OfflineBar />
       <div className="rise rise-1">
         <h1 className="font-display text-3xl">Attendance</h1>
         <p className="text-sm text-oat mt-1.5">
@@ -137,7 +146,9 @@ export default function AttendancePage() {
           role="status"
           className="mt-3 text-sm text-leaf bg-leaf/10 border border-leaf/20 rounded-lg px-3 py-2 rise"
         >
-          Register saved. Guardians of absent children can be notified from the Medium package.
+          {queued
+            ? 'Register saved on this device — it will sync when the connection returns.'
+            : 'Register saved. Guardians of absent children are texted automatically.'}
         </p>
       )}
       {saveState === 'error' && (
@@ -145,7 +156,7 @@ export default function AttendancePage() {
           role="alert"
           className="mt-3 text-sm text-danger bg-danger/5 border border-danger/20 rounded-lg px-3 py-2"
         >
-          Could not save — please try again.
+          {errorMsg || 'Could not save the register — please try again.'}
         </p>
       )}
 

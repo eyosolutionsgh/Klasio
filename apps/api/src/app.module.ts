@@ -17,6 +17,7 @@ import { UsersModule } from './users/users.module';
 import { GuardianModule } from './guardian/guardian.module';
 import { PaymentsModule } from './payments/payments.module';
 import { PickupModule } from './pickup/pickup.module';
+import { StudentPortalModule } from './student-portal/student-portal.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { PickupModule } from './pickup/pickup.module';
     GuardianModule,
     PaymentsModule,
     PickupModule,
+    StudentPortalModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })
