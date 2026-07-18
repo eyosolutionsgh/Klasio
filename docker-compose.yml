@@ -18,6 +18,21 @@ services:
       timeout: 5s
       retries: 10
 
+  # Queue backend for webhook retries and payment status re-query (docs/04 §4.1).
+  # Online payments are connectivity-dependent by nature (docs/03 §3.4) — an air-gapped
+  # install simply never enqueues gateway work.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   api:
     build:
       context: .
@@ -27,6 +42,9 @@ services:
       DATABASE_URL: postgresql://eyo:${DB_PASSWORD:-change-me}@db:5432/eyo_sms
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       API_PORT: 4000
+      REDIS_URL: redis://redis:6379
+      PAYMENTS_ENCRYPTION_KEY: ${PAYMENTS_ENCRYPTION_KEY:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
       # Files land on the mounted volume unless an S3 bucket is configured, so a LAN box
       # keeps working with no object store at all (docs/03 §3.1 shape 3).
       STORAGE_LOCAL_DIR: /data/storage
@@ -39,6 +57,8 @@ services:
       - filedata:/data/storage
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - '4000:4000'
@@ -60,4 +80,5 @@ services:
 
 volumes:
   dbdata:
+  redisdata:
   filedata:
