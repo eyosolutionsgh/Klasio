@@ -8,19 +8,33 @@ async function forward(req: NextRequest, params: Promise<{ path: string[] }>) {
   const token = req.cookies.get('eyo_token')?.value;
   if (!token) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
   const url = `${API_URL}/${path.join('/')}${req.nextUrl.search}`;
+
+  const isBodyless = req.method === 'GET' || req.method === 'HEAD';
+  // Preserve the client's Content-Type so multipart uploads (onboarding import) pass through.
+  const contentType = req.headers.get('content-type');
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+  if (!isBodyless && contentType) headers['Content-Type'] = contentType;
+
   const res = await fetch(url, {
     method: req.method,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: req.method === 'GET' || req.method === 'HEAD' ? undefined : await req.text(),
+    headers,
+    body: isBodyless ? undefined : Buffer.from(await req.arrayBuffer()),
   });
-  const body = await res.text();
-  return new NextResponse(body, {
-    status: res.status,
-    headers: { 'Content-Type': 'application/json' },
-  });
+
+  const resType = res.headers.get('content-type') ?? '';
+  // JSON is forwarded as text; binary (PDF/xlsx/csv) is streamed through with its headers intact.
+  if (resType.includes('application/json') || resType === '') {
+    const body = await res.text();
+    return new NextResponse(body, {
+      status: res.status,
+      headers: { 'Content-Type': resType || 'application/json' },
+    });
+  }
+  const buf = await res.arrayBuffer();
+  const passthrough: Record<string, string> = { 'Content-Type': resType };
+  const disposition = res.headers.get('content-disposition');
+  if (disposition) passthrough['Content-Disposition'] = disposition;
+  return new NextResponse(buf, { status: res.status, headers: passthrough });
 }
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
@@ -30,5 +44,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ path: stri
   return forward(req, ctx.params);
 }
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
+  return forward(req, ctx.params);
+}
+export async function PUT(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
+  return forward(req, ctx.params);
+}
+export async function DELETE(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
   return forward(req, ctx.params);
 }

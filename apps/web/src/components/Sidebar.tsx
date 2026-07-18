@@ -46,6 +46,18 @@ const NAV = [
     icon: 'M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.1-1.6-5.6-4.5-6.3V4c0-.8-.7-1.5-1.5-1.5S10.5 3.2 10.5 4v.7C7.6 5.4 6 7.9 6 11v5l-2 2v1h16v-1l-2-2z',
     tip: 'Notices for staff and guardians',
   },
+  {
+    href: '/messaging',
+    label: 'Messaging',
+    icon: 'M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 9h-2V9h2v2zm0-4h-2V5h2v2z',
+    tip: 'Send bulk SMS to guardians',
+  },
+  {
+    href: '/audit',
+    label: 'Audit Log',
+    icon: 'M12 1L3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5l-9-4zm-2 16l-4-4 1.4-1.4L10 14.2l6.6-6.6L18 9l-8 8z',
+    tip: 'Who changed what, and when',
+  },
 ];
 
 export default function Sidebar({
