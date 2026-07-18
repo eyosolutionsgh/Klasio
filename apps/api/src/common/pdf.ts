@@ -544,3 +544,88 @@ export function broadsheetPdf(data: BroadsheetData): Promise<Buffer> {
   });
   return toBuffer(doc);
 }
+
+// ── Pickup card ──────────────────────────────────────────────────────
+
+export interface PickupCardData {
+  school: DocSchool;
+  holder: string;
+  children: string[];
+  token: string;
+  pin: string;
+}
+
+/**
+ * A wallet-sized card carrying the QR and the PIN.
+ *
+ * This is the "printed card path for guardians without a smartphone" from docs/02 §2.5: the
+ * gate scans the QR, and if the card is left at home the PIN still identifies the holder.
+ */
+export async function pickupCardPdf(data: PickupCardData): Promise<Buffer> {
+  const qrcode = await import('qrcode');
+  const qr = await qrcode.toBuffer(data.token, { type: 'png', width: 320, margin: 1 });
+
+  // A6 landscape — near enough a large luggage tag, and four fit on an A4 sheet.
+  const doc = new PDFDocument({ size: [420, 298], margin: 22 });
+  const left = doc.page.margins.left;
+  const width = doc.page.width - left - doc.page.margins.right;
+  const BRAND = brandOf(data.school);
+
+  doc.rect(0, 0, doc.page.width, 8).fill(BRAND);
+  doc
+    .fillColor(BRAND)
+    .font('Helvetica-Bold')
+    .fontSize(13)
+    .text(data.school.name, left, 24, { width });
+  doc
+    .fillColor(OAT)
+    .font('Helvetica')
+    .fontSize(7.5)
+    .text('PICKUP CARD — present at the gate', { width });
+
+  doc.image(qr, left, 58, { fit: [104, 104] });
+
+  const infoX = left + 120;
+  const infoW = width - 120;
+  doc
+    .fillColor(INK)
+    .font('Helvetica-Bold')
+    .fontSize(12)
+    .text(data.holder, infoX, 62, { width: infoW });
+  doc
+    .fillColor(OAT)
+    .font('Helvetica')
+    .fontSize(8)
+    .text('AUTHORISED TO COLLECT', infoX, doc.y + 2, { width: infoW });
+  doc
+    .fillColor(INK)
+    .fontSize(9)
+    .text(data.children.join(', '), infoX, doc.y + 1, { width: infoW });
+
+  doc.rect(infoX, 128, infoW, 34).fill('#f5f5f4');
+  doc
+    .fillColor(OAT)
+    .font('Helvetica')
+    .fontSize(7.5)
+    .text('PIN (if the card is not to hand)', infoX + 8, 134);
+  doc
+    .fillColor(INK)
+    .font('Helvetica-Bold')
+    .fontSize(17)
+    .text(data.pin.replace(/(\d{3})(\d{3})/, '$1 $2'), infoX + 8, 143);
+
+  doc
+    .fillColor(OAT)
+    .font('Helvetica')
+    .fontSize(7)
+    .text(
+      'Keep this card safe and do not share the PIN. Report a lost card to the school at once — it will be cancelled and a new one issued.',
+      left,
+      182,
+      { width },
+    );
+  if (data.school.phone) {
+    doc.fillColor(INK).fontSize(7.5).text(data.school.phone, left, 208, { width });
+  }
+  return toBuffer(doc);
+}

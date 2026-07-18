@@ -29,6 +29,7 @@
     "ioredis": "^5.11.1",
     "jsonwebtoken": "^9.0.2",
     "pdfkit": "^0.19.1",
+    "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },
@@ -38,6 +39,7 @@
     "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^22.10.5",
     "@types/pdfkit": "^0.17.6",
+    "@types/qrcode": "^1.5.6",
     "prisma": "^5.22.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.2",

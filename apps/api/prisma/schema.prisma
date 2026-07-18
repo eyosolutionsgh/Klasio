@@ -213,6 +213,9 @@ model Student {
   bankDeposits   BankDeposit[]
   paymentIntents PaymentIntent[]
   feeItems       StudentFeeItem[]
+  pickupDelegates PickupDelegate[]
+  releases        ReleaseLog[]
+  dismissalRequests DismissalRequest[]
 
   @@unique([schoolId, admissionNo])
   @@index([schoolId, classId])
@@ -287,6 +290,8 @@ model Guardian {
 
   students StudentGuardian[]
   otps     GuardianOtp[]
+  pickupCredential PickupCredential?
+  dismissalRequests DismissalRequest[]
 
   @@index([schoolId, phone])
 }
@@ -651,4 +656,103 @@ model SmsMessage {
 
   @@index([schoolId, createdAt])
   @@index([schoolId, batchId])
+}
+
+// ── Pickup & drop-off safety (docs/02 §2.5) ──────────────────────────
+
+/// Someone other than a guardian who may collect a child — a driver, an aunt, a neighbour.
+/// Time-limited by default, because "just this term" is how these arrangements actually work.
+model PickupDelegate {
+  id           String    @id @default(cuid())
+  schoolId     String
+  studentId    String
+  student      Student   @relation(fields: [studentId], references: [id])
+  name         String
+  phone        String
+  relationship String
+  expiresAt    DateTime?
+  active       Boolean   @default(true)
+  createdById  String
+  createdAt    DateTime  @default(now())
+
+  credential PickupCredential?
+
+  @@index([schoolId, studentId])
+}
+
+/// The credential a collector presents at the gate: a QR token on a printed card or a phone,
+/// with a PIN as the fallback for guardians without a smartphone.
+///
+/// Only hashes of the PIN are stored, and the QR token is opaque random — a leaked database
+/// must not let anyone walk out with a child.
+model PickupCredential {
+  id         String          @id @default(cuid())
+  schoolId   String
+  /// Exactly one of these is set.
+  guardianId String?         @unique
+  guardian   Guardian?       @relation(fields: [guardianId], references: [id])
+  delegateId String?         @unique
+  delegate   PickupDelegate? @relation(fields: [delegateId], references: [id], onDelete: Cascade)
+  /// Looked up on scan; random and unguessable, rotated when a card is lost.
+  token      String          @unique
+  pinHash    String
+  issuedAt   DateTime        @default(now())
+  revokedAt  DateTime?
+
+  @@index([schoolId])
+}
+
+/// How the collector was identified at the gate. Whether staff released *against advice* is a
+/// separate fact, carried by overrideReason — conflating the two makes the log unreadable.
+enum ReleaseMethod {
+  QR
+  PIN
+  MANUAL
+}
+
+/// Immutable record of a child leaving: who, to whom, when, how, and who authorised it.
+/// Never updated or deleted — this is the document you reach for when something goes wrong.
+model ReleaseLog {
+  id             String        @id @default(cuid())
+  schoolId       String
+  studentId      String
+  student        Student       @relation(fields: [studentId], references: [id])
+  /// Name captured at the time: a delegate may later be removed, but the log must still read.
+  collectedBy    String
+  collectorKind  String
+  collectorId    String?
+  method         ReleaseMethod
+  /// Set when staff released against the system's advice; carries their stated reason.
+  overrideReason String?
+  releasedById   String
+  releasedAt     DateTime      @default(now())
+
+  @@index([schoolId, releasedAt])
+  @@index([studentId])
+}
+
+enum DismissalStatus {
+  PENDING
+  APPROVED
+  DECLINED
+}
+
+/// A guardian telling the school, today, that the usual arrangement is changing.
+model DismissalRequest {
+  id          String          @id @default(cuid())
+  schoolId    String
+  studentId   String
+  student     Student         @relation(fields: [studentId], references: [id])
+  guardianId  String
+  guardian    Guardian        @relation(fields: [guardianId], references: [id])
+  forDate     DateTime
+  details     String
+  status      DismissalStatus @default(PENDING)
+  decidedById String?
+  decidedAt   DateTime?
+  decisionNote String?
+  createdAt   DateTime        @default(now())
+
+  @@index([schoolId, forDate])
+  @@index([studentId])
 }

@@ -6,6 +6,7 @@ import StudentGuardians from '@/components/StudentGuardians';
 import StudentExtras from '@/components/StudentExtras';
 import MedicalNotes from '@/components/MedicalNotes';
 import GrantConcession from '@/components/GrantConcession';
+import PickupList from '@/components/PickupList';
 
 interface Detail {
   id: string;
@@ -112,6 +113,8 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
           <StudentGuardians studentId={s.id} guardians={s.guardians} />
 
           <StudentFiles studentId={s.id} hasPhoto={!!s.photoUrl} />
+
+          <PickupList studentId={s.id} />
 
           <StudentExtras studentId={s.id} />
 

@@ -218,6 +218,56 @@ export class GuardianService {
     return this.fees.receiptPdf(auth.schoolId, reference, student.id);
   }
 
+  /**
+   * A guardian telling the school that today's arrangement is changing. It is a request, not an
+   * instruction: nothing about the pickup rules changes until the front office approves it.
+   */
+  async requestDismissalChange(
+    auth: GuardianUser,
+    studentId: string,
+    forDate: string,
+    details: string,
+  ) {
+    const student = await this.ward(auth, studentId);
+    const req = await this.db.dismissalRequest.create({
+      data: {
+        schoolId: auth.schoolId,
+        studentId: student.id,
+        guardianId: auth.sub,
+        forDate: new Date(forDate),
+        details,
+      },
+    });
+    await this.db.audit(
+      auth.schoolId,
+      auth.sub,
+      'pickup.dismissal.request',
+      'Student',
+      student.id,
+      {
+        forDate,
+      },
+    );
+    return { id: req.id, status: req.status };
+  }
+
+  async myDismissalRequests(auth: GuardianUser) {
+    const requests = await this.db.dismissalRequest.findMany({
+      where: { guardianId: auth.sub, schoolId: auth.schoolId },
+      include: { student: { select: { firstName: true, lastName: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    });
+    return requests.map((r) => ({
+      id: r.id,
+      student: `${r.student.firstName} ${r.student.lastName}`,
+      forDate: r.forDate,
+      details: r.details,
+      status: r.status,
+      decisionNote: r.decisionNote,
+    }));
+  }
+
   async me(auth: GuardianUser) {
     const [links, school] = await Promise.all([
       this.db.studentGuardian.findMany({
@@ -435,6 +485,20 @@ export class GuardianPortalController {
     @Param('termId') termId: string,
   ) {
     return this.svc.reportCard(g, studentId, termId);
+  }
+
+  @Post('wards/:studentId/dismissal-requests')
+  requestDismissal(
+    @CurrentGuardian() g: GuardianUser,
+    @Param('studentId') studentId: string,
+    @Body() body: { forDate: string; details: string },
+  ) {
+    return this.svc.requestDismissalChange(g, studentId, body.forDate, body.details);
+  }
+
+  @Get('dismissal-requests')
+  myDismissals(@CurrentGuardian() g: GuardianUser) {
+    return this.svc.myDismissalRequests(g);
   }
 
   @Get('wards/:studentId/receipts/:reference/pdf')

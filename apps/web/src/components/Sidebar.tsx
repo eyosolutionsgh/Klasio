@@ -42,6 +42,12 @@ const NAV = [
     tip: 'Billing, payments and defaulters',
   },
   {
+    href: '/pickup',
+    label: 'Dismissal',
+    icon: 'M12 2a5 5 0 015 5v3h1a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2v-8a2 2 0 012-2h1V7a5 5 0 015-5zm0 2a3 3 0 00-3 3v3h6V7a3 3 0 00-3-3zm0 9a2 2 0 00-1 3.7V18h2v-1.3A2 2 0 0012 13z',
+    tip: 'Check who is collecting and log every release',
+  },
+  {
     href: '/announcements',
     label: 'Announcements',
     icon: 'M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.1-1.6-5.6-4.5-6.3V4c0-.8-.7-1.5-1.5-1.5S10.5 3.2 10.5 4v.7C7.6 5.4 6 7.9 6 11v5l-2 2v1h16v-1l-2-2z',

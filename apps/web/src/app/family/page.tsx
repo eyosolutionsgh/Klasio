@@ -54,6 +54,7 @@ export default function FamilyPage() {
   const [reports, setReports] = useState<ReportRow[]>([]);
   const [notices, setNotices] = useState<Notice[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dismissalNote, setDismissalNote] = useState<string | null>(null);
 
   const money = (n: number) =>
     `${me?.school.currency ?? 'GHS'} ${n.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -266,6 +267,57 @@ export default function FamilyPage() {
               </ul>
             </section>
           </>
+        )}
+
+        {overview && (
+          <section className="card p-6">
+            <h2 className="font-display text-xl">Change today&apos;s pickup</h2>
+            <p className="text-sm text-oat mt-1.5">
+              Someone else collecting, or an early finish? Tell the school here. They will confirm —
+              nothing changes until they do.
+            </p>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const f = new FormData(e.currentTarget);
+                const res = await fetch(`/api/family/guardian/wards/${wardId}/dismissal-requests`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    forDate: String(f.get('forDate')),
+                    details: String(f.get('details')),
+                  }),
+                });
+                setDismissalNote(
+                  res.ok
+                    ? 'Sent to the school. You will get a text once they confirm.'
+                    : 'Could not send that just now.',
+                );
+                if (res.ok) (e.target as HTMLFormElement).reset();
+              }}
+              className="mt-4 space-y-3"
+            >
+              <input
+                name="forDate"
+                type="date"
+                required
+                defaultValue={new Date().toISOString().slice(0, 10)}
+                className="w-full min-h-11 rounded-lg border border-mist bg-white px-3.5 py-2 text-base outline-none focus:border-forest focus:ring-2 focus:ring-forest/15"
+              />
+              <textarea
+                name="details"
+                required
+                minLength={6}
+                rows={3}
+                placeholder="My brother Kofi Mensah will collect Ama today at 2pm."
+                className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-base outline-none focus:border-forest focus:ring-2 focus:ring-forest/15"
+              />
+              <button className="w-full min-h-11 rounded-lg bg-forest text-paper font-medium hover:bg-forest-deep transition">
+                Send to the school
+              </button>
+            </form>
+            {dismissalNote && <p className="text-sm text-leaf mt-3">{dismissalNote}</p>}
+          </section>
         )}
 
         <section className="card p-6">

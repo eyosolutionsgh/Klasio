@@ -93,6 +93,14 @@ async function main() {
     const sid = existing.id;
     // wipe in FK-safe order
     // These all reference students/invoices — clear them first.
+    // Pickup safety: credentials point at guardians and delegates, so they go first, and the
+    // whole set must precede students and guardians below.
+    await db.pickupCredential.deleteMany({ where: { schoolId: sid } });
+    await db.pickupDelegate.deleteMany({ where: { schoolId: sid } });
+    await db.releaseLog.deleteMany({ where: { schoolId: sid } });
+    await db.dismissalRequest.deleteMany({ where: { schoolId: sid } });
+    // Optional-fee subscriptions reference both students and fee items.
+    await db.studentFeeItem.deleteMany({ where: { schoolId: sid } });
     await db.studentDocument.deleteMany({ where: { schoolId: sid } });
     await db.bankDeposit.deleteMany({ where: { schoolId: sid } });
     await db.paymentIntent.deleteMany({ where: { schoolId: sid } });
