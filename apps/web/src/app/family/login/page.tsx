@@ -69,7 +69,9 @@ export default function FamilyLoginPage() {
             </label>
             <input
               id="phone"
+              type="tel"
               inputMode="tel"
+              autoComplete="tel"
               required
               autoFocus
               value={phone}
@@ -113,7 +115,7 @@ export default function FamilyLoginPage() {
                 setCode('');
                 setError(null);
               }}
-              className="mt-3 w-full text-[13px] text-oat hover:text-forest transition"
+              className="mt-2 w-full min-h-11 text-[13px] text-oat hover:text-forest transition"
             >
               Use a different number
             </button>

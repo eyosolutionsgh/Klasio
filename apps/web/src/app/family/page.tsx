@@ -102,7 +102,7 @@ export default function FamilyPage() {
 
   return (
     <main className="min-h-screen">
-      <header className="bg-forest-deep text-paper">
+      <header className="bg-forest-deep text-paper pt-[env(safe-area-inset-top)]">
         <div className="kente-stripe h-1.5" />
         <div className="max-w-3xl mx-auto px-5 py-5 flex items-start justify-between gap-4">
           <div>
@@ -111,7 +111,7 @@ export default function FamilyPage() {
           </div>
           <button
             onClick={signOut}
-            className="text-[12px] text-paper/60 hover:text-gold transition underline underline-offset-2"
+            className="shrink-0 -mr-2 -mt-1 min-h-11 px-2 text-[13px] text-paper/70 hover:text-gold transition underline underline-offset-2"
           >
             Sign out
           </button>
@@ -120,14 +120,28 @@ export default function FamilyPage() {
 
       <div className="max-w-3xl mx-auto px-5 py-6 space-y-6">
         {me.wards.length > 1 && (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-2">
             {me.wards.map((w) => (
               <button
                 key={w.id}
                 onClick={() => setWardId(w.id)}
-                className={`text-[13px] rounded-full px-3.5 py-1.5 border transition ${wardId === w.id ? 'bg-forest text-paper border-forest' : 'border-mist bg-white hover:border-forest'}`}
+                aria-pressed={wardId === w.id}
+                // Two children can share a name, and on a phone the pill is all the parent sees —
+                // so the class rides along to tell them apart.
+                className={`min-h-11 text-sm rounded-2xl px-4 py-2 border text-left leading-tight transition ${
+                  wardId === w.id
+                    ? 'bg-forest text-paper border-forest'
+                    : 'border-mist bg-white hover:border-forest'
+                }`}
               >
                 {w.name}
+                {w.className && (
+                  <span
+                    className={`block text-[11px] ${wardId === w.id ? 'text-paper/70' : 'text-oat'}`}
+                  >
+                    {w.className}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -186,7 +200,7 @@ export default function FamilyPage() {
                   {reports.map((r) => (
                     <li
                       key={r.termId}
-                      className="flex items-center justify-between border-b border-mist/50 last:border-0 pb-3 last:pb-0"
+                      className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-mist/50 last:border-0 pb-3 last:pb-0"
                     >
                       <div>
                         <p className="font-medium text-sm">
@@ -199,7 +213,7 @@ export default function FamilyPage() {
                       </div>
                       <a
                         href={`/api/family/guardian/wards/${wardId}/reports/${r.termId}/pdf`}
-                        className="text-[13px] font-medium text-forest border border-forest/40 rounded-full px-3.5 py-1.5 hover:bg-forest-mist transition"
+                        className="inline-flex items-center justify-center min-h-11 text-[13px] font-medium text-forest border border-forest/40 rounded-full px-4 hover:bg-forest-mist transition"
                       >
                         Download PDF
                       </a>
@@ -260,8 +274,22 @@ export default function FamilyPage() {
           </ul>
         </section>
 
-        <p className="text-[11px] text-oat text-center pb-4">
-          Questions? Call the school{me.school.phone ? ` on ${me.school.phone}` : ''}.
+        {/* On a phone this is the parent's fastest route to a human — make it dial. */}
+        <p className="text-xs text-oat text-center pb-[max(1rem,env(safe-area-inset-bottom))]">
+          Questions?{' '}
+          {me.school.phone ? (
+            <>
+              Call the school on{' '}
+              <a
+                href={`tel:${me.school.phone.replace(/[^\d+]/g, '')}`}
+                className="inline-flex items-center min-h-11 font-medium text-forest underline underline-offset-2"
+              >
+                {me.school.phone}
+              </a>
+            </>
+          ) : (
+            'Call the school.'
+          )}
         </p>
       </div>
     </main>
