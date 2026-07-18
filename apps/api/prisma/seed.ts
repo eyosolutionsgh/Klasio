@@ -105,6 +105,8 @@ async function main() {
     await db.attendanceRecord.deleteMany({ where: { schoolId: sid } });
     await db.announcement.deleteMany({ where: { schoolId: sid } });
     await db.studentGuardian.deleteMany({ where: { student: { schoolId: sid } } });
+    // Sign-in codes reference guardians — clear them before the guardians themselves.
+    await db.guardianOtp.deleteMany({ where: { schoolId: sid } });
     await db.guardian.deleteMany({ where: { schoolId: sid } });
     await db.student.deleteMany({ where: { schoolId: sid } });
     await db.subject.deleteMany({ where: { schoolId: sid } });

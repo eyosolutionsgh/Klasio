@@ -14,6 +14,7 @@ import { SmsModule } from './sms/sms.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { AuditModule } from './audit/audit.module';
 import { UsersModule } from './users/users.module';
+import { GuardianModule } from './guardian/guardian.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { UsersModule } from './users/users.module';
     OnboardingModule,
     AuditModule,
     UsersModule,
+    GuardianModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })

@@ -280,8 +280,27 @@ model Guardian {
   createdAt     DateTime @default(now())
 
   students StudentGuardian[]
+  otps     GuardianOtp[]
 
   @@index([schoolId, phone])
+}
+
+/// One-time sign-in codes for the guardian portal. Only a hash of the code is stored, so a
+/// database leak cannot be replayed into guardian accounts.
+model GuardianOtp {
+  id         String    @id @default(cuid())
+  schoolId   String
+  guardianId String
+  guardian   Guardian  @relation(fields: [guardianId], references: [id])
+  phone      String
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([phone, createdAt])
+  @@index([guardianId])
 }
 
 model StudentGuardian {

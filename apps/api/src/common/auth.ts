@@ -62,6 +62,12 @@ export class AuthGuard implements CanActivate {
       throw new UnauthorizedException('Invalid or expired token');
     }
 
+    // Guardian sessions are signed with the same secret but are a different kind of principal.
+    // Reject them explicitly so a guardian token can never reach a staff route.
+    if ((user as { kind?: string }).kind === 'guardian') {
+      throw new UnauthorizedException('Not a staff session');
+    }
+
     /**
      * Re-check the account on every request. Tokens live 12h, so without this a deactivated
      * staff member would keep full access until their token expired — which defeats the point
