@@ -10,6 +10,7 @@ import MedicalNotes from '@/components/MedicalNotes';
 import StudentCustomFields from '@/components/StudentCustomFields';
 import StudentChecklist from '@/components/StudentChecklist';
 import GrantConcession from '@/components/GrantConcession';
+import StudentConcessions from '@/components/StudentConcessions';
 import PickupList from '@/components/PickupList';
 import CumulativeRecord from '@/components/CumulativeRecord';
 
@@ -63,6 +64,9 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
   // Both are presentation only — the API refuses either way. Hiding them keeps a teacher from
   // triggering a 403 that would read as the portal breaking.
   const canPlan = ['OWNER', 'HEAD', 'BURSAR'].includes(me.user.role);
+  // A bursar may read a child's scholarships but not revoke one — awarding and revoking are the
+  // head's call, so the button is hidden rather than left to 403.
+  const canAwardConcessions = ['OWNER', 'HEAD'].includes(me.user.role);
   const canPrintCard =
     ['OWNER', 'HEAD', 'FRONT_DESK'].includes(me.user.role) &&
     me.entitlements.includes('sis.idcards');
@@ -145,6 +149,13 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
           <PickupList studentId={s.id} />
 
           <StudentExtras studentId={s.id} />
+
+          <StudentConcessions
+            studentId={s.id}
+            studentName={s.firstName}
+            balance={s.feeBalance}
+            canManage={canAwardConcessions}
+          />
 
           <InstallmentPlan studentId={s.id} balance={s.feeBalance} canEdit={canPlan} />
 

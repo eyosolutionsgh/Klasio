@@ -109,6 +109,8 @@ async function main() {
     await db.receipt.deleteMany({ where: { schoolId: sid } });
     await db.ledgerEntry.deleteMany({ where: { schoolId: sid } });
     await db.invoice.deleteMany({ where: { schoolId: sid } });
+    await db.concessionAward.deleteMany({ where: { schoolId: sid } });
+    await db.concessionRule.deleteMany({ where: { schoolId: sid } });
     await db.feeItem.deleteMany({ where: { schoolId: sid } });
     await db.termReport.deleteMany({ where: { schoolId: sid } });
     await db.score.deleteMany({ where: { schoolId: sid } });
@@ -340,6 +342,8 @@ async function main() {
   ];
   let admissionSeq = 1;
   const allStudents: { id: string; classId: string; first: string; last: string }[] = [];
+  /** One guardian per surname, so siblings genuinely share a parent. */
+  const guardiansByFamily = new Map<string, { id: string }>();
   for (const grp of focus) {
     for (let i = 0; i < grp.count; i++) {
       const male = rng() > 0.5;
@@ -361,16 +365,22 @@ async function main() {
         },
       });
       allStudents.push({ id: st.id, classId: grp.cls.id, first, last });
-      const gFirst = male ? pick(FIRST_F) : pick(FIRST_M);
-      const guardian = await db.guardian.create({
-        data: {
-          schoolId: sid,
-          firstName: gFirst,
-          lastName: last,
-          phone: `+23324${String(1000000 + Math.floor(rng() * 8999999))}`,
-          whatsappOptIn: rng() > 0.3,
-        },
-      });
+      // Real schools are full of siblings, and features like the sibling discount are invisible
+      // without them. Children sharing a surname share a parent, which is how the production
+      // code deduplicates guardians anyway — one guardian row per phone, reused across siblings.
+      const existing = guardiansByFamily.get(last);
+      const guardian =
+        existing ??
+        (await db.guardian.create({
+          data: {
+            schoolId: sid,
+            firstName: male ? pick(FIRST_F) : pick(FIRST_M),
+            lastName: last,
+            phone: `+23324${String(1000000 + Math.floor(rng() * 8999999))}`,
+            whatsappOptIn: rng() > 0.3,
+          },
+        }));
+      guardiansByFamily.set(last, guardian);
       await db.studentGuardian.create({
         data: {
           studentId: st.id,

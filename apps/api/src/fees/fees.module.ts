@@ -49,6 +49,7 @@ import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
 import { markSchedule, scheduleTotals } from '../common/installments';
+import { concessionsFor, rankSiblings } from '../common/concessions';
 import { SmsModule, SmsService } from '../sms/sms.module';
 import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
 import { receiptPdf } from '../common/pdf';
@@ -130,6 +131,25 @@ class InstallmentPlanDto {
   @ValidateNested({ each: true })
   @Type(() => InstallmentPartDto)
   parts: InstallmentPartDto[];
+}
+
+class ConcessionRuleDto {
+  @IsString() @MinLength(2) name: string;
+  @IsIn(['SCHOLARSHIP', 'SIBLING']) kind: 'SCHOLARSHIP' | 'SIBLING';
+  @IsIn(['PERCENT', 'AMOUNT']) basis: 'PERCENT' | 'AMOUNT';
+  @IsNumber() @IsPositive() value: number;
+  /** SIBLING only: which child the discount starts at, eldest first. */
+  @IsOptional() @IsInt() @Min(2) fromSibling?: number;
+  @IsOptional() @IsString() levelId?: string;
+  @IsOptional() @IsDateString() startsOn?: string;
+  @IsOptional() @IsDateString() endsOn?: string;
+}
+
+class AwardDto {
+  @IsString() ruleId: string;
+  @IsString() studentId: string;
+  /** A scholarship without a stated reason is a favour, not a policy. */
+  @IsString() @MinLength(4) reason: string;
 }
 
 class RolloverDto {
@@ -329,36 +349,56 @@ export class FeesService {
     const baseTotal = baseLines.reduce((a, l) => a + l.amount, 0);
     const count = await this.db.invoice.count({ where: { schoolId: auth.schoolId } });
 
+    // Concessions are resolved once for the whole run, not per student: sibling rank depends on
+    // the family, so it cannot be worked out from a student in isolation.
+    const { rules, contextFor } = await this.concessionContext(auth.schoolId);
+
     let created = 0;
     for (const st of students) {
       if (invoiced.has(st.id)) continue;
       const lines = [...baseLines, ...(extrasFor.get(st.id) ?? [])];
       const total = lines.reduce((a, l) => a + l.amount, 0);
       const number = `INV-2026-${String(count + created + 1).padStart(4, '0')}`;
-      await this.db.$transaction([
-        this.db.invoice.create({
+      await this.db.invoice.create({
+        data: {
+          schoolId: auth.schoolId,
+          studentId: st.id,
+          termId: dto.termId,
+          number,
+          lines: lines as unknown as Prisma.InputJsonValue,
+          total,
+        },
+      });
+      await this.db.ledgerEntry.create({
+        data: {
+          schoolId: auth.schoolId,
+          studentId: st.id,
+          termId: dto.termId,
+          type: 'INVOICE',
+          amount: total,
+          reference: `${number}-CHG`,
+          note: `Invoice ${number}`,
+          createdById: auth.sub,
+        },
+      });
+      // A rule is a policy; the DISCOUNT it produces is the money. In the same request
+      // transaction as the invoice, so a bill and its concession can never be half-recorded.
+      for (const c of concessionsFor(rules, contextFor(st.id, st.classId), total).applied) {
+        await this.db.ledgerEntry.create({
           data: {
             schoolId: auth.schoolId,
             studentId: st.id,
             termId: dto.termId,
-            number,
-            lines: lines as unknown as Prisma.InputJsonValue,
-            total,
-          },
-        }),
-        this.db.ledgerEntry.create({
-          data: {
-            schoolId: auth.schoolId,
-            studentId: st.id,
-            termId: dto.termId,
-            type: 'INVOICE',
-            amount: total,
-            reference: `${number}-CHG`,
-            note: `Invoice ${number}`,
+            type: 'DISCOUNT' as const,
+            amount: new Prisma.Decimal(c.amount),
+            // Keyed to the invoice and the rule, so re-running a generation that partly failed
+            // cannot apply the same concession twice.
+            reference: `${number}-DSC-${c.ruleId.slice(-6)}`,
+            note: c.name,
             createdById: auth.sub,
           },
-        }),
-      ]);
+        });
+      }
       created++;
     }
     await this.db.audit(auth.schoolId, auth.sub, 'invoices.generate', 'Term', dto.termId, {
@@ -1164,6 +1204,276 @@ export class FeesService {
     });
     return { credits: school.smsCredits, added: dto.credits };
   }
+
+  // ── Concession rules ───────────────────────────────────────────────
+
+  /**
+   * Everything needed to price concessions for a whole invoicing run.
+   *
+   * Built once per run rather than per student because sibling rank is a property of the
+   * *family*: you cannot tell whether a child is a second child by looking only at that child.
+   * Families are grouped by guardian, which is already deduplicated by phone across siblings
+   * (see students.module.ts), so two records of the same parent do not split one family in two.
+   */
+  private async concessionContext(schoolId: string) {
+    const [rules, awards, links, levels] = await Promise.all([
+      this.db.concessionRule.findMany({ where: { schoolId, active: true } }),
+      this.db.concessionAward.findMany({
+        where: { schoolId },
+        select: { studentId: true, ruleId: true },
+      }),
+      this.db.studentGuardian.findMany({
+        where: { student: { schoolId, status: 'ACTIVE' } },
+        select: {
+          guardianId: true,
+          student: { select: { id: true, createdAt: true, admissionNo: true } },
+        },
+      }),
+      this.db.classRoom.findMany({ where: { schoolId }, select: { id: true, levelId: true } }),
+    ]);
+
+    // One family per guardian. A child linked to two guardians appears in both, and takes the
+    // best (lowest) rank — being the eldest in one parent's family is enough to pay in full.
+    const byGuardian = new Map<
+      string,
+      { studentId: string; enrolledOn: Date; admissionNo: string }[]
+    >();
+    for (const l of links) {
+      const list = byGuardian.get(l.guardianId) ?? [];
+      list.push({
+        studentId: l.student.id,
+        enrolledOn: l.student.createdAt,
+        admissionNo: l.student.admissionNo,
+      });
+      byGuardian.set(l.guardianId, list);
+    }
+
+    const bestRank = new Map<string, number>();
+    for (const family of byGuardian.values()) {
+      for (const [studentId, rank] of rankSiblings(family)) {
+        bestRank.set(studentId, Math.min(bestRank.get(studentId) ?? Infinity, rank));
+      }
+    }
+
+    const awardsByStudent = new Map<string, string[]>();
+    for (const a of awards) {
+      awardsByStudent.set(a.studentId, [...(awardsByStudent.get(a.studentId) ?? []), a.ruleId]);
+    }
+    const levelOfClass = new Map(levels.map((c) => [c.id, c.levelId]));
+
+    return {
+      rules: rules.map((r) => ({
+        id: r.id,
+        name: r.name,
+        kind: r.kind,
+        basis: r.basis,
+        value: Number(r.value),
+        fromSibling: r.fromSibling,
+        levelId: r.levelId,
+        active: r.active,
+        startsOn: r.startsOn,
+        endsOn: r.endsOn,
+      })),
+      contextFor: (studentId: string, classId: string | null) => ({
+        studentId,
+        levelId: classId ? (levelOfClass.get(classId) ?? null) : null,
+        // A child with no guardian on file is nobody's sibling, so ranks first and pays in full.
+        siblingRank: bestRank.get(studentId) ?? 1,
+        awardedRuleIds: awardsByStudent.get(studentId) ?? [],
+      }),
+    };
+  }
+
+  async concessionRules(auth: AuthUser) {
+    const rows = await this.db.concessionRule.findMany({
+      where: { schoolId: auth.schoolId },
+      orderBy: [{ kind: 'asc' }, { name: 'asc' }],
+      include: { _count: { select: { awards: true } } },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      kind: r.kind,
+      basis: r.basis,
+      value: Number(r.value),
+      fromSibling: r.fromSibling,
+      levelId: r.levelId,
+      active: r.active,
+      startsOn: r.startsOn,
+      endsOn: r.endsOn,
+      awardCount: r._count.awards,
+    }));
+  }
+
+  async createConcessionRule(auth: AuthUser, dto: ConcessionRuleDto) {
+    if (dto.basis === 'PERCENT' && (dto.value <= 0 || dto.value > 100)) {
+      throw new BadRequestException('A percentage must be between 0 and 100');
+    }
+    if (dto.kind === 'SIBLING' && dto.fromSibling != null && dto.fromSibling < 2) {
+      throw new BadRequestException(
+        'A sibling discount starts at the second child — the eldest pays in full',
+      );
+    }
+    const clash = await this.db.concessionRule.findFirst({
+      where: { schoolId: auth.schoolId, name: dto.name },
+    });
+    if (clash) {
+      throw new BadRequestException(
+        `There is already a rule called "${dto.name}". Rules stack, so two with the same name would double the discount.`,
+      );
+    }
+    const rule = await this.db.concessionRule.create({
+      data: {
+        schoolId: auth.schoolId,
+        name: dto.name,
+        kind: dto.kind,
+        basis: dto.basis,
+        value: new Prisma.Decimal(dto.value),
+        fromSibling: dto.kind === 'SIBLING' ? (dto.fromSibling ?? 2) : null,
+        levelId: dto.levelId ?? null,
+        startsOn: dto.startsOn ? new Date(dto.startsOn) : null,
+        endsOn: dto.endsOn ? new Date(dto.endsOn) : null,
+      },
+    });
+    await this.db.audit(
+      auth.schoolId,
+      auth.sub,
+      'fees.concession-rule',
+      'ConcessionRule',
+      rule.id,
+      {
+        name: dto.name,
+        kind: dto.kind,
+      },
+    );
+    return rule;
+  }
+
+  async setConcessionRuleActive(auth: AuthUser, id: string, active: boolean) {
+    const rule = await this.db.concessionRule.findFirst({ where: { id, schoolId: auth.schoolId } });
+    if (!rule) throw new NotFoundException('Rule not found');
+    // Deactivated rather than deleted: invoices already discounted under it must stay
+    // explicable, and the ledger entries reference it by name.
+    await this.db.concessionRule.update({ where: { id }, data: { active } });
+    await this.db.audit(
+      auth.schoolId,
+      auth.sub,
+      'fees.concession-rule-active',
+      'ConcessionRule',
+      id,
+      {
+        active,
+      },
+    );
+    return { id, active };
+  }
+
+  /** Award a scholarship to a named child. Sibling rules are never awarded — they are computed. */
+  async awardConcession(auth: AuthUser, dto: AwardDto) {
+    const [rule, student] = await Promise.all([
+      this.db.concessionRule.findFirst({ where: { id: dto.ruleId, schoolId: auth.schoolId } }),
+      this.db.student.findFirst({ where: { id: dto.studentId, schoolId: auth.schoolId } }),
+    ]);
+    if (!rule) throw new NotFoundException('Rule not found');
+    if (!student) throw new NotFoundException('Student not found');
+    if (rule.kind !== 'SCHOLARSHIP') {
+      throw new BadRequestException(
+        'A sibling discount applies automatically to families — it cannot be awarded to a child',
+      );
+    }
+
+    const award = await this.db.concessionAward.upsert({
+      where: { ruleId_studentId: { ruleId: dto.ruleId, studentId: dto.studentId } },
+      create: {
+        schoolId: auth.schoolId,
+        ruleId: dto.ruleId,
+        studentId: dto.studentId,
+        reason: dto.reason,
+        awardedById: auth.sub,
+      },
+      update: { reason: dto.reason, awardedById: auth.sub },
+    });
+    await this.db.audit(
+      auth.schoolId,
+      auth.sub,
+      'fees.concession-award',
+      'Student',
+      dto.studentId,
+      {
+        rule: rule.name,
+        reason: dto.reason,
+      },
+    );
+    return award;
+  }
+
+  /**
+   * The scholarships actually on file for a child.
+   *
+   * Distinct from what a preview shows: a preview reports what *reaches* this child today, so an
+   * award whose rule is inactive or out of its window is correctly absent there. A bursar
+   * reviewing a record needs to see it is still recorded, and why.
+   */
+  async awardsFor(auth: AuthUser, studentId: string) {
+    const rows = await this.db.concessionAward.findMany({
+      where: { schoolId: auth.schoolId, studentId },
+      include: {
+        rule: { select: { name: true, kind: true, basis: true, value: true, active: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map((a) => ({
+      id: a.id,
+      ruleId: a.ruleId,
+      name: a.rule.name,
+      basis: a.rule.basis,
+      value: Number(a.rule.value),
+      /// False when the rule has been switched off — the award stands, but nothing is applied.
+      active: a.rule.active,
+      reason: a.reason,
+      awardedAt: a.createdAt,
+    }));
+  }
+
+  async revokeAward(auth: AuthUser, id: string) {
+    const award = await this.db.concessionAward.findFirst({
+      where: { id, schoolId: auth.schoolId },
+    });
+    if (!award) throw new NotFoundException('Award not found');
+    await this.db.concessionAward.delete({ where: { id } });
+    await this.db.audit(
+      auth.schoolId,
+      auth.sub,
+      'fees.concession-revoke',
+      'Student',
+      award.studentId,
+    );
+    // Past discounts stand: they were correct when the term was invoiced, and the ledger is
+    // append-only. Revoking only stops future terms.
+    return { revoked: true };
+  }
+
+  /**
+   * What a named student would be let off on a bill of `amount`.
+   *
+   * A preview, so a bursar can see the effect of a rule before a whole term is invoiced under it.
+   */
+  async previewConcessions(auth: AuthUser, studentId: string, amount: number) {
+    const student = await this.db.student.findFirst({
+      where: { id: studentId, schoolId: auth.schoolId },
+      select: { id: true, classId: true },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+    const { rules, contextFor } = await this.concessionContext(auth.schoolId);
+    const ctx = contextFor(student.id, student.classId);
+    const { applied, total } = concessionsFor(rules, ctx, amount);
+    return {
+      siblingRank: ctx.siblingRank,
+      applied,
+      total,
+      payable: Math.round((amount - total) * 100) / 100,
+    };
+  }
 }
 
 @Controller('fees')
@@ -1304,6 +1614,63 @@ export class FeesController {
   @Roles('OWNER', 'HEAD')
   topUp(@CurrentUser() user: AuthUser, @Body() dto: TopUpDto) {
     return this.svc.topUpSms(user, dto);
+  }
+
+  @Get('concessions/rules')
+  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequireEntitlement('fees.discounts')
+  concessionRules(@CurrentUser() user: AuthUser) {
+    return this.svc.concessionRules(user);
+  }
+
+  @Post('concessions/rules')
+  @Roles('OWNER', 'HEAD')
+  @RequireEntitlement('fees.discounts')
+  createConcessionRule(@CurrentUser() user: AuthUser, @Body() dto: ConcessionRuleDto) {
+    return this.svc.createConcessionRule(user, dto);
+  }
+
+  @Patch('concessions/rules/:id')
+  @Roles('OWNER', 'HEAD')
+  @RequireEntitlement('fees.discounts')
+  setRuleActive(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { active: boolean },
+  ) {
+    return this.svc.setConcessionRuleActive(user, id, !!body.active);
+  }
+
+  @Post('concessions/awards')
+  @Roles('OWNER', 'HEAD')
+  @RequireEntitlement('fees.discounts')
+  award(@CurrentUser() user: AuthUser, @Body() dto: AwardDto) {
+    return this.svc.awardConcession(user, dto);
+  }
+
+  @Get('concessions/awards')
+  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequireEntitlement('fees.discounts')
+  awardsFor(@CurrentUser() user: AuthUser, @Query('studentId') studentId: string) {
+    return this.svc.awardsFor(user, studentId);
+  }
+
+  @Delete('concessions/awards/:id')
+  @Roles('OWNER', 'HEAD')
+  @RequireEntitlement('fees.discounts')
+  revokeAward(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.revokeAward(user, id);
+  }
+
+  @Get('concessions/preview/:studentId')
+  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequireEntitlement('fees.discounts')
+  previewConcessions(
+    @CurrentUser() user: AuthUser,
+    @Param('studentId') studentId: string,
+    @Query('amount') amount: string,
+  ) {
+    return this.svc.previewConcessions(user, studentId, Number(amount) || 0);
   }
 
   @Post('invoices/generate')

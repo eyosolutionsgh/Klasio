@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import FeeRollover, { type TermOption } from '@/components/FeeRollover';
 import ReminderSettings from '@/components/ReminderSettings';
+import ConcessionRules from '@/components/ConcessionRules';
 
 interface FeeItem {
   id: string;
@@ -310,6 +311,9 @@ export default function FeeStructurePage() {
         </div>
         {billResult && <p className="text-sm mt-3">{billResult}</p>}
       </section>
+
+      {/* After invoicing, because a concession only means anything against a bill. */}
+      <ConcessionRules levels={levels} />
 
       <div className="mt-6">
         <ReminderSettings />

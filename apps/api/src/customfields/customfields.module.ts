@@ -321,25 +321,22 @@ export class CustomFieldsService {
     );
     if (!checked.ok) throw new BadRequestException(checked.message);
 
-    // One transaction so a rejected half never lands: either the whole submission is recorded
-    // or none of it is. A cleared value is deleted rather than stored blank, so "not recorded"
-    // and "recorded as nothing" cannot drift apart.
-    await this.db.$transaction(
-      checked.values.map((v) =>
-        v.value === ''
-          ? this.db.studentFieldValue.deleteMany({ where: { studentId, fieldId: v.fieldId } })
-          : this.db.studentFieldValue.upsert({
-              where: { studentId_fieldId: { studentId, fieldId: v.fieldId } },
-              create: {
-                schoolId: auth.schoolId,
-                studentId,
-                fieldId: v.fieldId,
-                value: v.value,
-              },
-              update: { value: v.value },
-            }),
-      ),
-    );
+    // Sequential, not $transaction: the whole request already runs inside one tenant
+    // transaction (see prisma.service.ts), so these are atomic already — and a nested
+    // $transaction goes through the proxy to the base client, escaping the tenant and failing
+    // RLS. A cleared value is deleted rather than stored blank, so "not recorded" and "recorded
+    // as nothing" cannot drift apart.
+    for (const v of checked.values) {
+      if (v.value === '') {
+        await this.db.studentFieldValue.deleteMany({ where: { studentId, fieldId: v.fieldId } });
+      } else {
+        await this.db.studentFieldValue.upsert({
+          where: { studentId_fieldId: { studentId, fieldId: v.fieldId } },
+          create: { schoolId: auth.schoolId, studentId, fieldId: v.fieldId, value: v.value },
+          update: { value: v.value },
+        });
+      }
+    }
     await this.db.audit(auth.schoolId, auth.sub, 'records.values.set', 'Student', studentId, {
       fields: checked.values.length,
     });

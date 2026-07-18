@@ -333,7 +333,7 @@ export class StudentsService {
     // The first guardian on a student is the primary by default — someone has to be.
     const isPrimary = dto.isPrimary ?? current.length === 0;
 
-    await this.db.$transaction([
+    for (const op of [
       ...(isPrimary
         ? [
             this.db.studentGuardian.updateMany({
@@ -342,16 +342,17 @@ export class StudentsService {
             }),
           ]
         : []),
-      this.db.studentGuardian.create({
-        data: {
-          studentId,
-          guardianId: guardian.id,
-          relationship: dto.relationship ?? 'Guardian',
-          isPrimary,
-          ...link,
-        },
-      }),
-    ]);
+    ])
+      await op;
+    await this.db.studentGuardian.create({
+      data: {
+        studentId,
+        guardianId: guardian.id,
+        relationship: dto.relationship ?? 'Guardian',
+        isPrimary,
+        ...link,
+      },
+    });
     await this.db.audit(auth.schoolId, auth.sub, 'guardian.link', 'Student', studentId, {
       guardianId: guardian.id,
       reused: !!existing,
@@ -388,17 +389,17 @@ export class StudentsService {
     const promoting = dto.isPrimary === true;
     const current = await this.links(studentId);
 
-    await this.db.$transaction([
-      this.db.guardian.update({
-        where: { id: guardianId },
-        data: {
-          firstName: dto.firstName,
-          lastName: dto.lastName,
-          phone: dto.phone,
-          email: dto.email,
-          whatsappOptIn: dto.whatsappOptIn,
-        },
-      }),
+    await this.db.guardian.update({
+      where: { id: guardianId },
+      data: {
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        phone: dto.phone,
+        email: dto.email,
+        whatsappOptIn: dto.whatsappOptIn,
+      },
+    });
+    for (const op of [
       ...(promoting
         ? [
             this.db.studentGuardian.updateMany({
@@ -407,15 +408,16 @@ export class StudentsService {
             }),
           ]
         : []),
-      this.db.studentGuardian.update({
-        where: { studentId_guardianId: { studentId, guardianId } },
-        data: {
-          relationship: dto.relationship,
-          ...(dto.isPrimary === undefined ? {} : { isPrimary: dto.isPrimary }),
-          ...next,
-        },
-      }),
-    ]);
+    ])
+      await op;
+    await this.db.studentGuardian.update({
+      where: { studentId_guardianId: { studentId, guardianId } },
+      data: {
+        relationship: dto.relationship,
+        ...(dto.isPrimary === undefined ? {} : { isPrimary: dto.isPrimary }),
+        ...next,
+      },
+    });
     await this.db.audit(auth.schoolId, auth.sub, 'guardian.update', 'Student', studentId, {
       guardianId,
       ...dto,
@@ -439,10 +441,10 @@ export class StudentsService {
     }
 
     const successor = successorPrimary(current, guardianId);
-    await this.db.$transaction([
-      this.db.studentGuardian.delete({
-        where: { studentId_guardianId: { studentId, guardianId } },
-      }),
+    await this.db.studentGuardian.delete({
+      where: { studentId_guardianId: { studentId, guardianId } },
+    });
+    for (const op of [
       ...(successor
         ? [
             this.db.studentGuardian.update({
@@ -451,7 +453,8 @@ export class StudentsService {
             }),
           ]
         : []),
-    ]);
+    ])
+      await op;
     await this.db.audit(auth.schoolId, auth.sub, 'guardian.unlink', 'Student', studentId, {
       guardianId,
       promoted: successor,

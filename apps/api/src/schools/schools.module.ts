@@ -320,21 +320,19 @@ export class SchoolsService {
     });
     if (!term) throw new NotFoundException('Term not found');
 
-    await this.db.$transaction([
-      this.db.academicYear.updateMany({
-        where: { schoolId: auth.schoolId },
-        data: { isCurrent: false },
-      }),
-      this.db.term.updateMany({
-        where: { academicYear: { schoolId: auth.schoolId } },
-        data: { isCurrent: false },
-      }),
-      this.db.academicYear.update({
-        where: { id: term.academicYearId },
-        data: { isCurrent: true },
-      }),
-      this.db.term.update({ where: { id: termId }, data: { isCurrent: true } }),
-    ]);
+    await this.db.academicYear.updateMany({
+      where: { schoolId: auth.schoolId },
+      data: { isCurrent: false },
+    });
+    await this.db.term.updateMany({
+      where: { academicYear: { schoolId: auth.schoolId } },
+      data: { isCurrent: false },
+    });
+    await this.db.academicYear.update({
+      where: { id: term.academicYearId },
+      data: { isCurrent: true },
+    });
+    await this.db.term.update({ where: { id: termId }, data: { isCurrent: true } });
     await this.db.audit(auth.schoolId, auth.sub, 'school.term.setCurrent', 'Term', termId, {
       term: term.name,
       year: term.academicYear.name,

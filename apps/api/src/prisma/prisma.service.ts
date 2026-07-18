@@ -115,6 +115,25 @@ const PASSTHROUGH = new Set([
 export function tenantAware(base: PrismaService): PrismaService {
   return new Proxy(base, {
     get(target, prop, receiver) {
+      /**
+       * `$transaction` inside a request is a mistake, and it used to be a silent one.
+       *
+       * `$`-prefixed properties pass through to the base client, so a nested `$transaction` ran
+       * on a different connection with no `app.school_id` — every write in it was refused by
+       * RLS. That broke invoice generation, guardian edits and the term switch, and nothing said
+       * so until a write actually failed at runtime.
+       *
+       * It is also unnecessary: `withTenant` already wraps the whole request in one transaction,
+       * so sequential awaits are atomic. Throwing here turns a silent data bug into an obvious
+       * developer error at the first call.
+       */
+      if (prop === '$transaction' && als.getStore()) {
+        throw new Error(
+          'Do not call $transaction inside a request: the whole request already runs in one ' +
+            'tenant transaction, and a nested one escapes it and fails row-level security. ' +
+            'Use sequential awaits instead.',
+        );
+      }
       if (typeof prop === 'string' && !PASSTHROUGH.has(prop) && !prop.startsWith('$')) {
         const store = als.getStore();
         if (store) {
