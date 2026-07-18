@@ -80,6 +80,11 @@ class ComponentDto {
   @IsOptional() @IsNumber() order?: number;
 }
 
+class WeightsDto {
+  @IsNumber() @Min(0) @Max(100) sbaWeight: number;
+  @IsNumber() @Min(0) @Max(100) examWeight: number;
+}
+
 class GradingSchemeDto {
   @IsString() @MinLength(2) name: string;
   @IsIn(['GES_CLASSIC', 'NACCA_BANDS', 'EARLY_YEARS']) kind: GradingKind;
@@ -138,6 +143,40 @@ export class AssessmentService {
   }
 
   // ── Configuration: SBA components & grading schemes ────────────────
+
+  /** The school's own split between continuous work and the exam. GES uses 30/70. */
+  async weights(auth: AuthUser) {
+    const s = await this.db.school.findUniqueOrThrow({
+      where: { id: auth.schoolId },
+      select: { sbaWeight: true, examWeight: true },
+    });
+    return {
+      sbaWeight: s.sbaWeight ?? DEFAULT_SBA_WEIGHT,
+      examWeight: s.examWeight ?? DEFAULT_EXAM_WEIGHT,
+    };
+  }
+
+  async setWeights(auth: AuthUser, dto: WeightsDto) {
+    // A report card is read as a mark out of 100. If the two sides do not add to 100 every
+    // total in the school silently changes scale, so this is refused rather than rounded.
+    if (dto.sbaWeight + dto.examWeight !== 100) {
+      throw new BadRequestException(
+        `The two weights must add up to 100 — ${dto.sbaWeight} + ${dto.examWeight} is ${
+          dto.sbaWeight + dto.examWeight
+        }`,
+      );
+    }
+    const school = await this.db.school.update({
+      where: { id: auth.schoolId },
+      data: { sbaWeight: dto.sbaWeight, examWeight: dto.examWeight },
+      select: { sbaWeight: true, examWeight: true },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'assessment.weights', 'School', auth.schoolId, {
+      sbaWeight: dto.sbaWeight,
+      examWeight: dto.examWeight,
+    });
+    return school;
+  }
 
   async createComponent(auth: AuthUser, dto: ComponentDto) {
     // A teacher may add assessments for a subject they are marking, which is the whole point of
@@ -900,6 +939,17 @@ export class AssessmentService {
 @Controller('assessment')
 export class AssessmentController {
   constructor(private svc: AssessmentService) {}
+
+  @Get('weights')
+  weights(@CurrentUser() user: AuthUser) {
+    return this.svc.weights(user);
+  }
+
+  @Patch('weights')
+  @Roles('OWNER', 'HEAD')
+  setWeights(@CurrentUser() user: AuthUser, @Body() dto: WeightsDto) {
+    return this.svc.setWeights(user, dto);
+  }
 
   @Get('components')
   components(@CurrentUser() user: AuthUser) {

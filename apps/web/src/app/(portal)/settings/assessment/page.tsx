@@ -6,8 +6,14 @@ interface Component {
   id: string;
   name: string;
   maxScore: number;
-  isExam: boolean;
+  category: 'CONTINUOUS' | 'EXAM';
+  subjectId: string | null;
+  levelId: string | null;
   order: number;
+}
+interface Named {
+  id: string;
+  name: string;
 }
 interface Band {
   min: number;
@@ -26,6 +32,10 @@ interface Level {
   name: string;
   gradingSchemeId: string | null;
 }
+interface Weights {
+  sbaWeight: number;
+  examWeight: number;
+}
 
 const field =
   'rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
@@ -34,21 +44,28 @@ export default function AssessmentSettingsPage() {
   const [components, setComponents] = useState<Component[]>([]);
   const [schemes, setSchemes] = useState<Scheme[]>([]);
   const [levels, setLevels] = useState<Level[]>([]);
+  const [subjects, setSubjects] = useState<Named[]>([]);
+  const [weights, setWeights] = useState<Weights>({ sbaWeight: 30, examWeight: 70 });
   const [message, setMessage] = useState<string | null>(null);
 
   const [name, setName] = useState('');
   const [maxScore, setMaxScore] = useState('20');
-  const [isExam, setIsExam] = useState(false);
+  const [category, setCategory] = useState<'CONTINUOUS' | 'EXAM'>('CONTINUOUS');
+  const [subjectId, setSubjectId] = useState('');
+  const [levelId, setLevelId] = useState('');
 
   const load = useCallback(async () => {
-    const [c, s, st] = await Promise.all([
+    const [c, s, st, w] = await Promise.all([
       fetch('/api/proxy/assessment/components').then((r) => r.json()),
       fetch('/api/proxy/assessment/schemes').then((r) => r.json()),
       fetch('/api/proxy/school/structure').then((r) => r.json()),
+      fetch('/api/proxy/assessment/weights').then((r) => r.json()),
     ]);
     setComponents(Array.isArray(c) ? c : []);
     setSchemes(Array.isArray(s) ? s : []);
     setLevels(st.levels ?? []);
+    setSubjects(st.subjects ?? []);
+    if (typeof w?.sbaWeight === 'number') setWeights(w);
   }, []);
 
   useEffect(() => {
@@ -71,103 +88,205 @@ export default function AssessmentSettingsPage() {
     return true;
   }
 
-  const sbaTotal = components.filter((c) => !c.isExam).reduce((a, c) => a + c.maxScore, 0);
+  const scopeLabel = (c: Component) => {
+    const parts = [
+      c.subjectId ? (subjects.find((x) => x.id === c.subjectId)?.name ?? 'one subject') : null,
+      c.levelId ? (levels.find((x) => x.id === c.levelId)?.name ?? 'one level') : null,
+    ].filter(Boolean);
+    return parts.length ? parts.join(' · ') : 'Every subject and level';
+  };
 
   return (
     <div className="space-y-8">
       <div className="rise rise-1">
         <h1 className="font-display text-3xl">Assessment setup</h1>
         <p className="text-sm text-oat mt-1.5">
-          Continuous-assessment components and grading schemes. SBA is scaled to 30 and the exam to
-          70 on terminal reports.
+          The assessments your school runs, how the two sides are weighted, and the grading schemes
+          that turn a total into a grade.
         </p>
         {message && <p className="text-sm text-danger mt-2">{message}</p>}
       </div>
 
       <section className="card p-6 rise rise-2">
-        <h2 className="font-display text-xl">SBA components</h2>
+        <h2 className="font-display text-xl">Weighting</h2>
         <p className="text-xs text-oat mt-1">
-          Continuous assessment totals {sbaTotal} marks and is scaled to 30. Exactly one component
-          may be the end-of-term exam.
+          How much of the final mark comes from continuous work and how much from the exam. GES uses
+          30 and 70. The two must add up to 100.
         </p>
-        <table className="w-full text-sm mt-4">
-          <thead>
-            <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist">
-              <th className="py-2 font-medium">Component</th>
-              <th className="py-2 font-medium text-right">Max score</th>
-              <th className="py-2 font-medium">Type</th>
-              <th className="py-2" />
-            </tr>
-          </thead>
-          <tbody>
-            {components.map((c) => (
-              <tr key={c.id} className="border-b border-mist/50 last:border-0">
-                <td className="py-2.5 font-medium">{c.name}</td>
-                <td className="py-2.5 text-right tabular">{c.maxScore}</td>
-                <td className="py-2.5">
-                  {c.isExam ? (
-                    <span className="text-[10px] uppercase tracking-wider bg-gold-soft text-ink rounded-full px-2 py-0.5">
-                      Exam
-                    </span>
-                  ) : (
-                    <span className="text-oat text-xs">Continuous</span>
-                  )}
-                </td>
-                <td className="py-2.5 text-right">
-                  <button
-                    onClick={() => send(`assessment/components/${c.id}`, undefined, 'DELETE')}
-                    className="text-[12px] text-clay hover:underline"
-                  >
-                    Remove
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
         <form
-          className="flex flex-wrap items-end gap-2 mt-4"
+          className="flex flex-wrap items-end gap-3 mt-4"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            await send('assessment/weights', weights, 'PATCH');
+          }}
+        >
+          <label className="text-[13px]">
+            <span className="block text-oat mb-1">Continuous assessment</span>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              value={weights.sbaWeight}
+              onChange={(e) => {
+                // The pair always sums to 100, so moving one moves the other. Typing both
+                // independently only ever produces a rejected save.
+                const sba = Math.max(0, Math.min(100, Number(e.target.value)));
+                setWeights({ sbaWeight: sba, examWeight: 100 - sba });
+              }}
+              className={`${field} w-24 tabular`}
+            />
+          </label>
+          <label className="text-[13px]">
+            <span className="block text-oat mb-1">Exam</span>
+            <input
+              readOnly
+              value={weights.examWeight}
+              className={`${field} w-24 tabular bg-parchment text-oat`}
+            />
+          </label>
+          <button className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
+            Save weighting
+          </button>
+        </form>
+        <p className="text-[11px] text-oat mt-3">
+          Changing this re-scales every report generated afterwards. Reports already generated keep
+          the weighting they were built with until they are regenerated.
+        </p>
+      </section>
+
+      <section className="card p-6 rise rise-3">
+        <h2 className="font-display text-xl">Assessments</h2>
+        <p className="text-xs text-oat mt-1">
+          Add as many as you run. Each side is scored as a proportion of what has actually been
+          marked, so a part-marked term still reads sensibly — you do not need to add them all up
+          front, and there is no limit on how many exams or tests you keep.
+        </p>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full text-sm min-w-[520px]">
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist">
+                <th className="py-2 font-medium">Assessment</th>
+                <th className="py-2 pr-6 font-medium text-right">Out of</th>
+                <th className="py-2 pr-6 font-medium">Counts as</th>
+                <th className="py-2 font-medium">Applies to</th>
+                <th className="py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {components.map((c) => (
+                <tr key={c.id} className="border-b border-mist/50 last:border-0">
+                  <td className="py-2.5 font-medium">{c.name}</td>
+                  <td className="py-2.5 pr-6 text-right tabular">{c.maxScore}</td>
+                  <td className="py-2.5 pr-6">
+                    {c.category === 'EXAM' ? (
+                      <span className="text-[10px] uppercase tracking-wider bg-gold-soft text-ink rounded-full px-2 py-0.5">
+                        Exam
+                      </span>
+                    ) : (
+                      <span className="text-oat text-xs">Continuous</span>
+                    )}
+                  </td>
+                  <td className="py-2.5 pr-6 text-xs text-oat">{scopeLabel(c)}</td>
+                  <td className="py-2.5 text-right">
+                    <button
+                      onClick={() => send(`assessment/components/${c.id}`, undefined, 'DELETE')}
+                      className="text-[12px] text-clay hover:underline"
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <form
+          className="flex flex-wrap items-end gap-2 mt-4 pt-4 border-t border-mist/60"
           onSubmit={async (e) => {
             e.preventDefault();
             if (
               await send('assessment/components', {
                 name,
                 maxScore: Number(maxScore),
-                isExam,
+                category,
+                // Omitted rather than sent empty — the API reads absent as "applies everywhere".
+                ...(subjectId ? { subjectId } : {}),
+                ...(levelId ? { levelId } : {}),
               })
             ) {
               setName('');
-              setIsExam(false);
+              setCategory('CONTINUOUS');
+              setSubjectId('');
+              setLevelId('');
             }
           }}
         >
-          <input
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Class Test 3"
-            className={`${field} w-48`}
-          />
-          <input
-            required
-            type="number"
-            min="1"
-            max="100"
-            value={maxScore}
-            onChange={(e) => setMaxScore(e.target.value)}
-            className={`${field} w-24 tabular`}
-          />
-          <label className="flex items-center gap-2 text-[13px] pb-2">
-            <input type="checkbox" checked={isExam} onChange={(e) => setIsExam(e.target.checked)} />
-            End-of-term exam
+          <label className="text-[13px]">
+            <span className="block text-oat mb-1">Name</span>
+            <input
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Class Test 3"
+              className={`${field} w-44`}
+            />
           </label>
-          <button className="rounded-lg bg-brand text-paper text-sm font-medium px-4 py-2 hover:bg-brand-deep transition">
-            Add component
+          <label className="text-[13px]">
+            <span className="block text-oat mb-1">Out of</span>
+            <input
+              required
+              type="number"
+              min="1"
+              max="100"
+              value={maxScore}
+              onChange={(e) => setMaxScore(e.target.value)}
+              className={`${field} w-20 tabular`}
+            />
+          </label>
+          <label className="text-[13px]">
+            <span className="block text-oat mb-1">Counts as</span>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value as 'CONTINUOUS' | 'EXAM')}
+              className={field}
+            >
+              <option value="CONTINUOUS">Continuous assessment</option>
+              <option value="EXAM">Exam</option>
+            </select>
+          </label>
+          <label className="text-[13px]">
+            <span className="block text-oat mb-1">Subject</span>
+            <select
+              value={subjectId}
+              onChange={(e) => setSubjectId(e.target.value)}
+              className={field}
+            >
+              <option value="">Every subject</option>
+              {subjects.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-[13px]">
+            <span className="block text-oat mb-1">Level</span>
+            <select value={levelId} onChange={(e) => setLevelId(e.target.value)} className={field}>
+              <option value="">Every level</option>
+              {levels.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
+            Add assessment
           </button>
         </form>
       </section>
 
-      <section className="card p-6 rise rise-3">
+      <section className="card p-6 rise rise-4">
         <h2 className="font-display text-xl">Grading schemes</h2>
         <p className="text-xs text-oat mt-1">
           Bands must cover 0–100 with no gaps or overlaps, so every possible score has exactly one
@@ -249,7 +368,7 @@ export default function AssessmentSettingsPage() {
         </form>
       </section>
 
-      <section className="card p-6 rise rise-4">
+      <section className="card p-6 rise rise-5">
         <h2 className="font-display text-xl">Which scheme each level uses</h2>
         <ul className="mt-4 space-y-2">
           {levels.map((l) => (
