@@ -1,0 +1,52 @@
+# Standalone deployment (Shape 2/3 in docs/03-architecture.md).
+# One command boots the full stack: docker compose up -d
+# The same images serve SaaS and standalone; the package tier comes from the
+# vendor-signed license (entitlement engine), never from a build variant.
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: eyo
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change-me}
+      POSTGRES_DB: eyo_sms
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U eyo']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://eyo:${DB_PASSWORD:-change-me}@db:5432/eyo_sms
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      API_PORT: 4000
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - '4000:4000'
+    # Runs `prisma migrate deploy` before boot — the migration chain must always
+    # apply cleanly on an empty database (docs/06 §6.3).
+    command: sh -c "npx prisma migrate deploy && node dist/main.js"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://api:4000
+    depends_on:
+      - api
+    ports:
+      - '3000:3000'
+
+volumes:
+  dbdata:

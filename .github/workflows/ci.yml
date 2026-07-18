@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: eyo
+          POSTGRES_PASSWORD: eyo_dev
+          POSTGRES_DB: eyo_sms_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U eyo" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://eyo:eyo_dev@localhost:5432/eyo_sms_ci
+      JWT_SECRET: ci-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Migration gate — clean deploy on empty database
+        run: pnpm db:deploy
+      - name: Schema drift check
+        run: pnpm --filter @eyo/api db:drift-check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - name: Seed + E2E visual tests
+        run: |
+          pnpm db:seed
+          npx playwright install --with-deps chromium
+          pnpm --filter @eyo/api exec sh -c 'node dist/main.js &'
+          pnpm --filter @eyo/web exec sh -c 'pnpm start &'
+          sleep 8
+          pnpm test:e2e

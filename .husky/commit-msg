@@ -1,0 +1,6 @@
+# Block AI attribution trails in commit messages (project policy)
+if grep -qiE 'co-authored-by:.*(claude|copilot|chatgpt|gpt|gemini|ai)|generated with|🤖' "$1"; then
+  echo "✖ Commit message contains AI attribution trails — remove them (project policy)." >&2
+  exit 1
+fi
+pnpm commitlint --edit "$1"

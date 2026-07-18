@@ -1,0 +1,32 @@
+{
+  "name": "eyo-sms",
+  "private": true,
+  "version": "0.1.0",
+  "description": "EYO School Management System — AI-powered SMS for African private schools",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @eyo/api --filter @eyo/web dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "test:e2e": "pnpm --filter @eyo/web test:e2e",
+    "db:migrate": "pnpm --filter @eyo/api db:migrate",
+    "db:deploy": "pnpm --filter @eyo/api db:deploy",
+    "db:seed": "pnpm --filter @eyo/api db:seed",
+    "prepare": "husky || true"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.8.1",
+    "@commitlint/config-conventional": "^19.8.1",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.7.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.2",
+    "prettier": "^3.5.3",
+    "typescript-eslint": "^8.64.0"
+  },
+  "packageManager": "pnpm@10.12.1",
+  "engines": {
+    "node": ">=22"
+  }
+}

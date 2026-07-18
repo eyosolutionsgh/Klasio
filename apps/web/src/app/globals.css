@@ -1,0 +1,138 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/fraunces';
+@import '@fontsource-variable/libre-franklin';
+
+@theme {
+  --font-display: 'Fraunces Variable', Georgia, serif;
+  --font-body: 'Libre Franklin Variable', 'Segoe UI', sans-serif;
+
+  --color-ink: #1b2822;
+  --color-paper: #faf6ec;
+  --color-parchment: #f3ecdd;
+  --color-forest: #17513c;
+  --color-forest-deep: #0d3627;
+  --color-forest-mist: #dfe9e0;
+  --color-gold: #c9982f;
+  --color-gold-soft: #f0e3c0;
+  --color-clay: #b4552d;
+  --color-mist: #e6ddc9;
+  --color-oat: #8d8062;
+  --color-leaf: #2e7d4f;
+  --color-danger: #b3372c;
+}
+
+html {
+  font-family: var(--font-body);
+  color: var(--color-ink);
+  background: var(--color-paper);
+}
+
+/* signature kente-inspired stripe */
+.kente-stripe {
+  background: linear-gradient(
+    90deg,
+    var(--color-forest) 0 22%,
+    var(--color-gold) 22% 40%,
+    var(--color-clay) 40% 52%,
+    var(--color-ink) 52% 60%,
+    var(--color-gold) 60% 78%,
+    var(--color-forest) 78% 100%
+  );
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* paper grain for the app background */
+.paper-bg {
+  background-color: var(--color-paper);
+  background-image: radial-gradient(rgba(27, 40, 34, 0.035) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+/* registry card */
+.card {
+  background: #fffdf7;
+  border: 1px solid var(--color-mist);
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(27, 40, 34, 0.05);
+}
+
+.card-accent {
+  position: relative;
+  overflow: hidden;
+}
+.card-accent::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: linear-gradient(180deg, var(--color-forest), var(--color-gold));
+}
+
+/* simple CSS tooltips (docs/07 — tooltips everywhere) */
+.tip {
+  position: relative;
+}
+.tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-size: 12px;
+  line-height: 1.3;
+  padding: 6px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, transform 120ms ease;
+  z-index: 50;
+}
+.tip:hover::after,
+.tip:focus-visible::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* page-load reveal */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise {
+  animation: rise 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.rise-1 { animation-delay: 40ms; }
+.rise-2 { animation-delay: 110ms; }
+.rise-3 { animation-delay: 180ms; }
+.rise-4 { animation-delay: 250ms; }
+
+/* print-faithful report card */
+@media print {
+  body {
+    background: white !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-sheet {
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 !important;
+  }
+}
