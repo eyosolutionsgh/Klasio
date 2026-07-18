@@ -6,13 +6,19 @@ import {
   Injectable,
   Module,
   NotFoundException,
+  Param,
   Post,
   Query,
+  StreamableFile,
 } from '@nestjs/common';
 import { IsEnum, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
 import { PaymentMethod, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, Roles } from '../common/auth';
+import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
+import { receiptPdf } from '../common/pdf';
+import { toCsv, toXlsx, Cell } from '../common/export';
+
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 class RecordPaymentDto {
   @IsString() studentId: string;
@@ -187,6 +193,26 @@ export class FeesService {
       .sort((a, b) => b.balance - a.balance);
   }
 
+  async defaultersExport(auth: AuthUser, termId: string, format: string) {
+    const defaulters = await this.defaulters(auth, termId);
+    const headers = ['Admission No.', 'Name', 'Class', 'Guardian Phone', 'Balance'];
+    const rows: Cell[][] = defaulters.map((d) => [
+      d.admissionNo,
+      d.name,
+      d.className,
+      d.phone ?? '',
+      d.balance,
+    ]);
+    if (format === 'csv') {
+      return { buffer: toCsv(headers, rows), type: 'text/csv', filename: 'defaulters.csv' };
+    }
+    return {
+      buffer: await toXlsx('Defaulters', headers, rows),
+      type: XLSX_MIME,
+      filename: 'defaulters.xlsx',
+    };
+  }
+
   /** Record a manual payment (cash/bank/momo recorded at office). Append-only + receipt. */
   async recordPayment(auth: AuthUser, dto: RecordPaymentDto) {
     const student = await this.db.student.findFirst({
@@ -232,6 +258,56 @@ export class FeesService {
       student: `${student.firstName} ${student.lastName}`,
     };
   }
+
+  /** Branded PDF receipt for a recorded payment, with the running balance as of that payment. */
+  async receiptPdf(auth: AuthUser, reference: string) {
+    const entry = await this.db.ledgerEntry.findFirst({
+      where: { schoolId: auth.schoolId, reference, type: 'PAYMENT' },
+      include: {
+        receipt: true,
+        student: { include: { classRoom: { select: { name: true } } } },
+      },
+    });
+    if (!entry || !entry.receipt) throw new NotFoundException('Receipt not found');
+    const school = await this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } });
+
+    // Running balance up to and including this payment.
+    const priorEntries = await this.db.ledgerEntry.findMany({
+      where: {
+        schoolId: auth.schoolId,
+        studentId: entry.studentId,
+        createdAt: { lte: entry.createdAt },
+      },
+    });
+    const balanceAfter = priorEntries.reduce((acc, e) => {
+      const amt = Number(e.amount);
+      if (e.type === 'INVOICE') return acc + amt;
+      if (e.type === 'REVERSAL') return acc;
+      return acc - amt;
+    }, 0);
+
+    return receiptPdf({
+      school: {
+        name: school.name,
+        motto: school.motto,
+        address: school.address,
+        phone: school.phone,
+      },
+      receiptNumber: entry.receipt.number,
+      reference: entry.reference,
+      issuedAt: entry.receipt.issuedAt,
+      student: {
+        name: `${entry.student.firstName} ${entry.student.lastName}`,
+        admissionNo: entry.student.admissionNo,
+        className: entry.student.classRoom?.name ?? null,
+      },
+      amount: Number(entry.amount),
+      method: entry.method,
+      currency: school.currency,
+      note: entry.note,
+      balanceAfter: Math.round(balanceAfter * 100) / 100,
+    });
+  }
 }
 
 @Controller('fees')
@@ -253,6 +329,20 @@ export class FeesController {
     return this.svc.defaulters(user, termId);
   }
 
+  @Get('defaulters/export')
+  @RequireEntitlement('platform.export')
+  async defaultersExport(
+    @CurrentUser() user: AuthUser,
+    @Query('termId') termId: string,
+    @Query('format') format = 'xlsx',
+  ) {
+    const { buffer, type, filename } = await this.svc.defaultersExport(user, termId, format);
+    return new StreamableFile(buffer, {
+      type,
+      disposition: `attachment; filename="${filename}"`,
+    });
+  }
+
   @Post('invoices/generate')
   @Roles('OWNER', 'HEAD', 'BURSAR')
   generate(@CurrentUser() user: AuthUser, @Body() dto: GenerateInvoicesDto) {
@@ -263,6 +353,15 @@ export class FeesController {
   @Roles('OWNER', 'HEAD', 'BURSAR', 'FRONT_DESK')
   record(@CurrentUser() user: AuthUser, @Body() dto: RecordPaymentDto) {
     return this.svc.recordPayment(user, dto);
+  }
+
+  @Get('receipts/:reference/pdf')
+  async receipt(@CurrentUser() user: AuthUser, @Param('reference') reference: string) {
+    const buf = await this.svc.receiptPdf(user, reference);
+    return new StreamableFile(buf, {
+      type: 'application/pdf',
+      disposition: `attachment; filename="receipt-${reference}.pdf"`,
+    });
   }
 }
 

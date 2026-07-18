@@ -166,7 +166,18 @@ export default function FeesPage() {
             <section className="card overflow-hidden rise rise-3">
               <div className="px-6 pt-5 pb-3 flex items-center justify-between">
                 <h2 className="font-display text-xl">Defaulters</h2>
-                <p className="text-xs text-oat">Sorted by highest balance</p>
+                <span className="flex items-center gap-1 text-[12px]">
+                  <span className="text-oat">Export:</span>
+                  {(['csv', 'xlsx'] as const).map((f) => (
+                    <a
+                      key={f}
+                      href={`/api/proxy/fees/defaulters/export?termId=${termId}&format=${f}`}
+                      className="rounded-md border border-mist px-2 py-0.5 text-forest hover:bg-forest-mist transition uppercase"
+                    >
+                      {f}
+                    </a>
+                  ))}
+                </span>
               </div>
               <table className="w-full text-sm">
                 <thead>
