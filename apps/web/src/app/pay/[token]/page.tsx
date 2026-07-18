@@ -22,7 +22,7 @@ export default async function PayPage({ params }: { params: Promise<{ token: str
 
   if (!res.ok) {
     return (
-      <main className="min-h-screen flex items-center justify-center p-6">
+      <main className="min-h-dvh flex items-center justify-center p-6">
         <div className="card max-w-md w-full p-8 text-center">
           <p className="font-display text-2xl">Link not valid</p>
           <p className="text-sm text-oat mt-2">
@@ -37,7 +37,7 @@ export default async function PayPage({ params }: { params: Promise<{ token: str
   const settled = intent.status === 'SUCCESS';
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
+    <main className="min-h-dvh flex items-center justify-center p-6">
       <div className="card max-w-md w-full p-8 relative overflow-hidden">
         <div className="kente-stripe h-1.5 absolute top-0 left-0 right-0" />
         <p className="font-display text-2xl mt-2">{intent.school.name}</p>

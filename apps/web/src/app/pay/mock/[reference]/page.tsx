@@ -30,7 +30,7 @@ export default function MockCheckoutPage({ params }: { params: Promise<{ referen
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
+    <main className="min-h-dvh flex items-center justify-center p-6">
       <div className="card max-w-md w-full p-8 text-center">
         <p className="text-[11px] uppercase tracking-widest text-oat">Test gateway</p>
         <p className="font-display text-2xl mt-2">Simulate payment</p>

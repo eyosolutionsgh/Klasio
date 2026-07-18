@@ -66,7 +66,7 @@ export default function PortalShell({
     // The school's colour enters the cascade here as --brand; the deep and mist variants are
     // derived from it in globals.css, so one stored value themes every primary surface.
     <div
-      className="brand-scope flex min-h-screen"
+      className="brand-scope flex min-h-dvh"
       style={brandColor ? ({ '--brand': brandColor } as React.CSSProperties) : undefined}
     >
       {open && (

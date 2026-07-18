@@ -29,7 +29,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen grid lg:grid-cols-[1.1fr_1fr]">
+    <main className="min-h-dvh grid lg:grid-cols-[1.1fr_1fr]">
       {/* Brand panel */}
       <section className="hidden lg:flex flex-col justify-between bg-forest-deep text-paper p-12 relative overflow-hidden">
         <div className="kente-stripe h-1.5 absolute top-0 left-0 right-0" />

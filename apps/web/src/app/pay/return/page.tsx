@@ -44,7 +44,7 @@ export default function PayReturnPage() {
   const failed = status?.status === 'FAILED' || status?.status === 'EXPIRED';
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
+    <main className="min-h-dvh flex items-center justify-center p-6">
       <div className="card max-w-md w-full p-8 text-center relative overflow-hidden">
         <div className="kente-stripe h-1.5 absolute top-0 left-0 right-0" />
         {settled ? (

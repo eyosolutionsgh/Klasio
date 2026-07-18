@@ -51,7 +51,7 @@ export default function StudentPage() {
   }
 
   if (!me) {
-    return <main className="min-h-screen flex items-center justify-center text-oat">Loading…</main>;
+    return <main className="min-h-dvh flex items-center justify-center text-oat">Loading…</main>;
   }
 
   const att = me.attendance;
@@ -60,7 +60,7 @@ export default function StudentPage() {
     `${me.school.currency} ${n.toLocaleString('en-GH', { minimumFractionDigits: 2 })}`;
 
   return (
-    <main className="min-h-screen">
+    <main className="min-h-dvh">
       <header className="bg-forest-deep text-paper pt-[env(safe-area-inset-top)]">
         <div className="kente-stripe h-1.5" />
         <div className="max-w-3xl mx-auto px-5 py-5 flex items-start justify-between gap-4">

@@ -39,7 +39,7 @@ export default function StudentLoginPage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
+    <main className="min-h-dvh flex items-center justify-center p-6">
       <div className="card w-full max-w-sm p-8 relative overflow-hidden">
         <div className="kente-stripe h-1.5 absolute top-0 left-0 right-0" />
         <p className="font-display text-2xl mt-2">Student portal</p>

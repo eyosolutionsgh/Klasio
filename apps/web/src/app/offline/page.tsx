@@ -3,7 +3,7 @@ export const metadata = { title: 'Offline — EYO' };
 /** Shown only when a page is requested with no connection and nothing cached for it. */
 export default function OfflinePage() {
   return (
-    <main className="min-h-screen grid place-items-center p-6">
+    <main className="min-h-dvh grid place-items-center p-6">
       <div className="card max-w-md p-8 text-center">
         <p className="font-display text-2xl">You are offline</p>
         <p className="text-sm text-oat mt-2">

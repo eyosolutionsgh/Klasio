@@ -127,7 +127,7 @@ export default function Sidebar({
               '-translate-x-full invisible lg:visible'
         }
         lg:translate-x-0 lg:w-60 lg:shrink-0 lg:shadow-none
-        lg:sticky lg:top-0 lg:h-screen`}
+        lg:sticky lg:top-0 lg:h-dvh`}
     >
       <div className="kente-stripe h-1.5" />
       <div className="px-5 pt-6 pb-5 border-b border-paper/10 flex items-start justify-between gap-2">
