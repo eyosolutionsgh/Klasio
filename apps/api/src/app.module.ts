@@ -15,6 +15,7 @@ import { OnboardingModule } from './onboarding/onboarding.module';
 import { AuditModule } from './audit/audit.module';
 import { UsersModule } from './users/users.module';
 import { GuardianModule } from './guardian/guardian.module';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { GuardianModule } from './guardian/guardian.module';
     AuditModule,
     UsersModule,
     GuardianModule,
+    PaymentsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })
