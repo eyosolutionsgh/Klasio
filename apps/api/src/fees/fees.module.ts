@@ -2,16 +2,27 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Injectable,
   Module,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Query,
   StreamableFile,
 } from '@nestjs/common';
-import { IsEnum, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsPositive,
+  IsString,
+  Min,
+  MinLength,
+} from 'class-validator';
 import { PaymentMethod, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
@@ -30,6 +41,21 @@ class RecordPaymentDto {
 class GenerateInvoicesDto {
   @IsString() termId: string;
   @IsOptional() @IsString() classId?: string;
+}
+
+class FeeItemDto {
+  @IsString() termId: string;
+  @IsString() @MinLength(2) name: string;
+  @IsNumber() @Min(0) amount: number;
+  @IsOptional() @IsString() levelId?: string;
+  @IsOptional() @IsBoolean() optional?: boolean;
+}
+
+class UpdateFeeItemDto {
+  @IsOptional() @IsString() @MinLength(2) name?: string;
+  @IsOptional() @IsNumber() @Min(0) amount?: number;
+  @IsOptional() @IsString() levelId?: string | null;
+  @IsOptional() @IsBoolean() optional?: boolean;
 }
 
 @Injectable()
@@ -87,6 +113,60 @@ export class FeesService {
   async items(auth: AuthUser, termId: string) {
     const items = await this.db.feeItem.findMany({ where: { schoolId: auth.schoolId, termId } });
     return items.map((i) => ({ ...i, amount: Number(i.amount) }));
+  }
+
+  async createFeeItem(auth: AuthUser, dto: FeeItemDto) {
+    if (dto.levelId) {
+      const level = await this.db.level.findFirst({
+        where: { id: dto.levelId, schoolId: auth.schoolId },
+      });
+      if (!level) throw new NotFoundException('Level not found');
+    }
+    const item = await this.db.feeItem.create({
+      data: {
+        schoolId: auth.schoolId,
+        termId: dto.termId,
+        name: dto.name,
+        amount: new Prisma.Decimal(dto.amount),
+        levelId: dto.levelId ?? null,
+        optional: dto.optional ?? false,
+      },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'fees.item.create', 'FeeItem', item.id, {
+      name: item.name,
+      amount: dto.amount,
+    });
+    return { ...item, amount: Number(item.amount) };
+  }
+
+  async updateFeeItem(auth: AuthUser, id: string, dto: UpdateFeeItemDto) {
+    const existing = await this.db.feeItem.findFirst({ where: { id, schoolId: auth.schoolId } });
+    if (!existing) throw new NotFoundException('Fee item not found');
+    const item = await this.db.feeItem.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(dto.amount !== undefined ? { amount: new Prisma.Decimal(dto.amount) } : {}),
+        ...(dto.levelId !== undefined ? { levelId: dto.levelId || null } : {}),
+        ...(dto.optional !== undefined ? { optional: dto.optional } : {}),
+      },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'fees.item.update', 'FeeItem', id, dto as object);
+    return { ...item, amount: Number(item.amount) };
+  }
+
+  /**
+   * Remove a fee item from the structure. Invoices already issued are untouched — each one
+   * carries its own `lines` snapshot, so the ledger and past bills stay exactly as billed.
+   */
+  async deleteFeeItem(auth: AuthUser, id: string) {
+    const existing = await this.db.feeItem.findFirst({ where: { id, schoolId: auth.schoolId } });
+    if (!existing) throw new NotFoundException('Fee item not found');
+    await this.db.feeItem.delete({ where: { id } });
+    await this.db.audit(auth.schoolId, auth.sub, 'fees.item.delete', 'FeeItem', id, {
+      name: existing.name,
+    });
+    return { deleted: true, id };
   }
 
   /** Bulk-generate term invoices for all active students (or one class). Skips students already invoiced. */
@@ -341,6 +421,28 @@ export class FeesController {
       type,
       disposition: `attachment; filename="${filename}"`,
     });
+  }
+
+  @Post('items')
+  @Roles('OWNER', 'HEAD', 'BURSAR')
+  createItem(@CurrentUser() user: AuthUser, @Body() dto: FeeItemDto) {
+    return this.svc.createFeeItem(user, dto);
+  }
+
+  @Patch('items/:id')
+  @Roles('OWNER', 'HEAD', 'BURSAR')
+  updateItem(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateFeeItemDto,
+  ) {
+    return this.svc.updateFeeItem(user, id, dto);
+  }
+
+  @Delete('items/:id')
+  @Roles('OWNER', 'HEAD', 'BURSAR')
+  deleteItem(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.deleteFeeItem(user, id);
   }
 
   @Post('invoices/generate')
