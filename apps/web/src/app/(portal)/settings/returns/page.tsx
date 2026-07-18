@@ -13,9 +13,9 @@ interface Summary {
   };
   term: { id: string; name: string; year: string };
   enrolment: {
-    byLevel: { level: string; category: string; boys: number; girls: number; total: number }[];
-    boys: number;
-    girls: number;
+    byLevel: { level: string; category: string; male: number; female: number; total: number }[];
+    male: number;
+    female: number;
     total: number;
   };
   staffing: { byRole: { role: string; count: number }[]; total: number };
@@ -113,7 +113,7 @@ export default async function ReturnsPage({
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6 rise rise-2">
         {[
-          { label: 'On roll', value: String(e.total), hint: `${e.boys} boys · ${e.girls} girls` },
+          { label: 'On roll', value: String(e.total), hint: `${e.male} male · ${e.female} female` },
           {
             label: 'Staff',
             value: String(summary.staffing.total),
@@ -149,8 +149,8 @@ export default async function ReturnsPage({
               <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
                 <th className="px-5 py-3 font-medium">Level</th>
                 <th className="px-5 py-3 font-medium">Category</th>
-                <th className="px-5 py-3 font-medium text-right">Boys</th>
-                <th className="px-5 py-3 font-medium text-right">Girls</th>
+                <th className="px-5 py-3 font-medium text-right">Male</th>
+                <th className="px-5 py-3 font-medium text-right">Female</th>
                 <th className="px-5 py-3 font-medium text-right">Total</th>
               </tr>
             </thead>
@@ -159,8 +159,8 @@ export default async function ReturnsPage({
                 <tr key={r.level} className="border-b border-mist/60 last:border-0">
                   <td className="px-5 py-3 font-medium">{r.level}</td>
                   <td className="px-5 py-3 text-oat">{humanise(r.category)}</td>
-                  <td className="px-5 py-3 text-right tabular">{r.boys}</td>
-                  <td className="px-5 py-3 text-right tabular">{r.girls}</td>
+                  <td className="px-5 py-3 text-right tabular">{r.male}</td>
+                  <td className="px-5 py-3 text-right tabular">{r.female}</td>
                   <td className="px-5 py-3 text-right tabular font-medium">{r.total}</td>
                 </tr>
               ))}
@@ -177,19 +177,19 @@ export default async function ReturnsPage({
                 <td className="px-5 py-3 font-medium" colSpan={2}>
                   Total on roll
                 </td>
-                <td className="px-5 py-3 text-right tabular">{e.boys}</td>
-                <td className="px-5 py-3 text-right tabular">{e.girls}</td>
+                <td className="px-5 py-3 text-right tabular">{e.male}</td>
+                <td className="px-5 py-3 text-right tabular">{e.female}</td>
                 <td className="px-5 py-3 text-right tabular font-display text-base">{e.total}</td>
               </tr>
             </tfoot>
           </table>
         </div>
       </div>
-      {/* A level total is not boys + girls: a child with no sex recorded still belongs on the
+      {/* A level total is not male + female: a child with no sex recorded still belongs on the
           roll, and dropping them would make this disagree with the register. */}
-      {e.boys + e.girls !== e.total && (
+      {e.male + e.female !== e.total && (
         <p className="text-xs text-oat mt-2">
-          {e.total - e.boys - e.girls} pupil{e.total - e.boys - e.girls === 1 ? '' : 's'} on the
+          {e.total - e.male - e.female} pupil{e.total - e.male - e.female === 1 ? '' : 's'} on the
           roll have no sex recorded, so the columns do not add to the total.
         </p>
       )}

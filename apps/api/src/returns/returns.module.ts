@@ -25,8 +25,8 @@ import { toCsv, toXlsx, type Cell } from '../common/export';
 interface LevelRow {
   level: string;
   category: string;
-  boys: number;
-  girls: number;
+  male: number;
+  female: number;
   total: number;
 }
 
@@ -74,14 +74,14 @@ export class ReturnsService {
 
     const rows: LevelRow[] = levels.map((l) => {
       const inLevel = students.filter((s) => s.classId && classToLevel.get(s.classId) === l.id);
-      const boys = inLevel.filter((s) => s.gender === 'MALE').length;
-      const girls = inLevel.filter((s) => s.gender === 'FEMALE').length;
+      const male = inLevel.filter((s) => s.gender === 'MALE').length;
+      const female = inLevel.filter((s) => s.gender === 'FEMALE').length;
       return {
         level: l.name,
         category: l.category,
-        boys,
-        girls,
-        // Not boys + girls: a record with no sex recorded still belongs on the roll, and
+        male,
+        female,
+        // Not male + female: a record with no sex recorded still belongs on the roll, and
         // dropping it would make the totals disagree with the register.
         total: inLevel.length,
       };
@@ -131,8 +131,8 @@ export class ReturnsService {
       term: { id: term.id, name: term.name, year: term.academicYear.name },
       enrolment: {
         byLevel: rows,
-        boys: rows.reduce((a, r) => a + r.boys, 0),
-        girls: rows.reduce((a, r) => a + r.girls, 0),
+        male: rows.reduce((a, r) => a + r.male, 0),
+        female: rows.reduce((a, r) => a + r.female, 0),
         total: rows.reduce((a, r) => a + r.total, 0),
       },
       staffing: {
@@ -162,17 +162,17 @@ export class ReturnsService {
    */
   async export(auth: AuthUser, format: 'csv' | 'xlsx', termId?: string) {
     const s = await this.summary(auth, termId);
-    const headers = ['Section', 'Item', 'Detail', 'Boys', 'Girls', 'Total'];
+    const headers = ['Section', 'Item', 'Detail', 'Male', 'Female', 'Total'];
     const rows: Cell[][] = [
       ...s.enrolment.byLevel.map((r) => [
         'Enrolment',
         r.level,
         r.category,
-        r.boys,
-        r.girls,
+        r.male,
+        r.female,
         r.total,
       ]),
-      ['Enrolment', 'TOTAL', '', s.enrolment.boys, s.enrolment.girls, s.enrolment.total],
+      ['Enrolment', 'TOTAL', '', s.enrolment.male, s.enrolment.female, s.enrolment.total],
       ...s.staffing.byRole.map((r) => ['Staffing', r.role, '', '', '', r.count]),
       [
         'Attendance',

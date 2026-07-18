@@ -61,6 +61,14 @@ model School {
   /// differ and early years often run 100/0.
   sbaWeight  Int @default(30)
   examWeight Int @default(70)
+  /// How this school numbers its students, e.g. `BA-{YYYY}-{####}`.
+  ///
+  /// Every school already has a house style, printed on report cards, ID cards and the register.
+  /// Imposing ours would mean two numbers for every child. See common/admission-no.ts.
+  admissionNoFormat String @default("{YYYY}-{####}")
+  /// The next number in the school's own run. Held here rather than counted from the students
+  /// table so that withdrawing a child never causes the next enrolment to reuse their number.
+  admissionNoNext   Int    @default(1)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -73,6 +81,7 @@ model School {
   guardians     Guardian[]
 
   subscription  Subscription?
+  staffRoles    StaffRole[]
 }
 
 model User {
@@ -83,7 +92,20 @@ model User {
   email        String   @unique
   phone        String?
   passwordHash String
+  /// Legacy coarse role. Retained because it still identifies the proprietor (OWNER always holds
+  /// every permission) and because guardians and students are principals of a different kind.
+  /// Day-to-day authority now comes from `staffRole`.
   role         Role
+  /// The school-defined role this person holds. Null only for the proprietor and for non-staff
+  /// principals, who do not take their authority from a role row.
+  staffRoleId  String?
+  staffRole    StaffRole? @relation(fields: [staffRoleId], references: [id], onDelete: SetNull)
+  /// Permissions granted or revoked for this one person, on top of their role.
+  ///
+  /// Deliberately narrow: a school with one teacher who also covers the gate should not need a
+  /// whole new role. Revocations win over grants, so taking something away is always decisive.
+  extraPermissions   String[] @default([])
+  revokedPermissions String[] @default([])
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -91,6 +113,33 @@ model User {
   @@index([schoolId])
 
   timetableSlots TimetableSlot[]
+}
+
+/// A named bundle of permissions, owned and editable by the school.
+///
+/// Seeded from the presets in common/permissions.ts, which follow how private schools actually
+/// staff — head, assistant head, head of department, class and subject teacher, exams officer,
+/// bursar, accounts clerk, registrar, front desk, nurse, librarian, IT administrator. A school
+/// may rename, re-scope or delete any of them, or invent its own.
+model StaffRole {
+  id          String   @id @default(cuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  /// Permission codes, validated against the registry on write so a renamed permission cannot be
+  /// resurrected by an old row.
+  permissions String[] @default([])
+  /// Stable key of the preset this came from; null for a school's own invention. Marks
+  /// provenance only — presets are fully editable.
+  presetKey   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users User[]
+
+  @@unique([schoolId, name])
+  @@index([schoolId])
 }
 
 model AuditLog {
@@ -147,6 +196,8 @@ model Level {
   school          School         @relation(fields: [schoolId], references: [id])
   name            String
   category        LevelCategory
+  /// Short code for the admission-number format, e.g. PRI or JHS. Optional.
+  code            String?
   order           Int
   gradingSchemeId String? // which grading scheme this level's reports use (per-level selection)
   gradingScheme   GradingScheme? @relation(fields: [gradingSchemeId], references: [id])

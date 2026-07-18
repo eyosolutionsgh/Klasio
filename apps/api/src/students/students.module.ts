@@ -19,6 +19,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { IsBoolean, IsDateString, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
 import { CustodyFlag, Gender, StudentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { checkTemplate, DEFAULT_TEMPLATE, formatAdmissionNo } from '../common/admission-no';
 import { studentIdCardSheet, type StudentIdCardData } from '../common/pdf';
 import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
 import { enrolmentHeadroom, studentCapFor } from '../common/entitlements';
@@ -233,6 +234,58 @@ export class StudentsService {
     };
   }
 
+  /**
+   * The next admission number, in the school's own format.
+   *
+   * The counter lives on the school rather than being derived from the student count: withdrawing
+   * a child leaves a gap, and counting rows would hand the next enrolment a number somebody
+   * already has. It is incremented whether or not the write below succeeds, which is the right
+   * trade — a gap in the sequence is harmless, a collision is not.
+   *
+   * The retry exists because two clerks enrolling at the same moment can both read the same
+   * counter. The unique index is the real guarantee; this just turns its error into a number
+   * that works.
+   */
+  private async nextAdmissionNo(schoolId: string, levelId: string | null): Promise<string> {
+    const [school, level] = await Promise.all([
+      this.db.school.findUniqueOrThrow({
+        where: { id: schoolId },
+        select: { admissionNoFormat: true },
+      }),
+      levelId
+        ? this.db.level.findFirst({ where: { id: levelId }, select: { code: true } })
+        : Promise.resolve(null),
+    ]);
+
+    const template = checkTemplate(school.admissionNoFormat).ok
+      ? school.admissionNoFormat
+      : // A format that has somehow become invalid must not stop a school enrolling a child.
+        DEFAULT_TEMPLATE;
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { admissionNoNext } = await this.db.school.update({
+        where: { id: schoolId },
+        data: { admissionNoNext: { increment: 1 } },
+        select: { admissionNoNext: true },
+      });
+      const candidate = formatAdmissionNo(template, {
+        // The update returns the value *after* incrementing, so the number just claimed is one
+        // less than what came back.
+        sequence: admissionNoNext - 1,
+        year: new Date().getFullYear(),
+        levelCode: level?.code ?? null,
+      });
+      const clash = await this.db.student.findFirst({
+        where: { schoolId, admissionNo: candidate },
+        select: { id: true },
+      });
+      if (!clash) return candidate;
+    }
+    throw new BadRequestException(
+      'Could not allocate an admission number. Check the format in School Setup.',
+    );
+  }
+
   async create(auth: AuthUser, dto: CreateStudentDto) {
     const cls = await this.db.classRoom.findFirst({
       where: { id: dto.classId, schoolId: auth.schoolId },
@@ -246,11 +299,11 @@ export class StudentsService {
       );
     }
 
-    const count = await this.db.student.count({ where: { schoolId: auth.schoolId } });
+    const admissionNo = await this.nextAdmissionNo(auth.schoolId, cls.levelId);
     const student = await this.db.student.create({
       data: {
         schoolId: auth.schoolId,
-        admissionNo: `BA-${String(count + 1).padStart(4, '0')}`,
+        admissionNo,
         firstName: dto.firstName,
         lastName: dto.lastName,
         otherNames: dto.otherNames,

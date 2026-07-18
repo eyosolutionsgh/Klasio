@@ -20,6 +20,7 @@ import {
   IsEmail,
   IsIn,
   IsInt,
+  Min,
   IsOptional,
   IsString,
   IsUrl,
@@ -29,6 +30,7 @@ import {
 import { LevelCategory, ReportTemplate } from '@prisma/client';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { PrismaService } from '../prisma/prisma.service';
+import { checkTemplate, previewAdmissionNo } from '../common/admission-no';
 import { AuthUser, CurrentUser, Roles } from '../common/auth';
 import { IMAGE_TYPES, MAX_UPLOAD_BYTES, objectKey, storage } from '../common/storage';
 
@@ -44,6 +46,12 @@ interface UploadedFileLike {
 
 class SchoolSettingsDto {
   @IsOptional() @IsIn(['GES', 'MODERN']) reportTemplate?: ReportTemplate;
+  /// The school's own admission-number format. Validated in the service, where the message can
+  /// explain what is wrong rather than just rejecting a pattern.
+  @IsOptional() @IsString() admissionNoFormat?: string;
+  /// Lets a school correct the counter — after importing historic records, say. Never lowered
+  /// silently past numbers already issued; the service refuses that.
+  @IsOptional() @IsInt() @Min(1) admissionNoNext?: number;
 }
 
 /** Everything a school puts on its own letterhead — contact details plus branding. */
@@ -147,9 +155,39 @@ export class SchoolsService {
 
   /** School-level profile settings, currently the terminal-report layout. */
   async updateSettings(auth: AuthUser, dto: SchoolSettingsDto) {
+    if (dto.admissionNoFormat !== undefined) {
+      const check = checkTemplate(dto.admissionNoFormat);
+      if (!check.ok) throw new BadRequestException(check.message);
+    }
+
+    if (dto.admissionNoNext !== undefined) {
+      // Refuse to wind the counter back behind numbers already issued. A school correcting the
+      // sequence after importing historic records is reasonable; silently reissuing a number a
+      // child already carries is not.
+      const highest = await this.db.student.findMany({
+        where: { schoolId: auth.schoolId },
+        select: { admissionNo: true },
+      });
+      const maxIssued = highest.reduce((max, st) => {
+        const digits = st.admissionNo.replace(/\D/g, '');
+        return digits ? Math.max(max, Number(digits)) : max;
+      }, 0);
+      if (dto.admissionNoNext <= maxIssued) {
+        throw new BadRequestException(
+          `That would reissue numbers already in use — the highest so far is ${maxIssued}, so start at ${maxIssued + 1} or above.`,
+        );
+      }
+    }
+
     const school = await this.db.school.update({
       where: { id: auth.schoolId },
-      data: { ...(dto.reportTemplate ? { reportTemplate: dto.reportTemplate } : {}) },
+      data: {
+        ...(dto.reportTemplate ? { reportTemplate: dto.reportTemplate } : {}),
+        ...(dto.admissionNoFormat !== undefined
+          ? { admissionNoFormat: dto.admissionNoFormat.trim() }
+          : {}),
+        ...(dto.admissionNoNext !== undefined ? { admissionNoNext: dto.admissionNoNext } : {}),
+      },
     });
     await this.db.audit(
       auth.schoolId,
@@ -159,7 +197,13 @@ export class SchoolsService {
       auth.schoolId,
       dto as object,
     );
-    return { reportTemplate: school.reportTemplate };
+    return {
+      reportTemplate: school.reportTemplate,
+      admissionNoFormat: school.admissionNoFormat,
+      admissionNoNext: school.admissionNoNext,
+      // A worked example, so the school sees the shape it just chose.
+      example: previewAdmissionNo(school.admissionNoFormat),
+    };
   }
 
   /** The school's own details — shown in settings and on the top bar. */
