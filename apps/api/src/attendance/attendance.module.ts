@@ -3,6 +3,7 @@ import { IsArray, IsDateString, IsEnum, IsString, ValidateNested } from 'class-v
 import { Type } from 'class-transformer';
 import { AttendanceStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { hasEntitlement } from '../common/entitlements';
 import { SmsModule, SmsService } from '../sms/sms.module';
 import { AuthUser, CurrentUser, RequireEntitlement } from '../common/auth';
 
@@ -79,7 +80,12 @@ export class AttendanceService {
       date: dto.date,
       count: saved,
     });
-    const alerts = await this.alertAbsences(auth, dto, day);
+    // Marking the register is Basic; texting guardians about it is Medium. The route itself
+    // cannot be gated — every school must be able to mark attendance — so the check lives
+    // here, on the alert alone.
+    const alerts = hasEntitlement(auth.tier, 'comms.absence-alerts')
+      ? await this.alertAbsences(auth, dto, day)
+      : { alerted: 0 };
     return { saved, ...alerts };
   }
 

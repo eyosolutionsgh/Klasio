@@ -21,6 +21,7 @@ export default function PortalShell({
   role,
   termLabel,
   tier,
+  entitlements,
   children,
 }: {
   school: string;
@@ -31,6 +32,7 @@ export default function PortalShell({
   role: string;
   termLabel: string;
   tier: string;
+  entitlements: string[];
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -77,7 +79,14 @@ export default function PortalShell({
         />
       )}
 
-      <Sidebar school={school} hasLogo={hasLogo} open={open} onClose={close} />
+      <Sidebar
+        school={school}
+        hasLogo={hasLogo}
+        entitlements={entitlements}
+        role={role}
+        open={open}
+        onClose={close}
+      />
 
       <div className="flex-1 min-w-0 overflow-x-clip flex flex-col">
         <header className="no-print flex items-center justify-between gap-3 px-4 lg:px-6 h-16 border-b border-mist bg-paper/80 backdrop-blur sticky top-0 z-30">

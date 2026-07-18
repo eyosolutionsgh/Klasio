@@ -17,6 +17,7 @@ export default async function PortalLayout({ children }: { children: React.React
       role={me.user.role}
       termLabel={termLabel}
       tier={me.school.tier}
+      entitlements={me.entitlements ?? []}
     >
       {children}
     </PortalShell>

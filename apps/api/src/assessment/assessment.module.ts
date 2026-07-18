@@ -35,6 +35,7 @@ import { storage } from '../common/storage';
 import { SmsModule, SmsService } from '../sms/sms.module';
 import { weighSubject } from '../common/weighting';
 import { PrismaService } from '../prisma/prisma.service';
+import { hasEntitlement } from '../common/entitlements';
 import { AuthUser, CurrentUser, Roles } from '../common/auth';
 import { reportCardPdf, ReportCardData, broadsheetPdf, BroadsheetData } from '../common/pdf';
 import { toCsv, toXlsx } from '../common/export';
@@ -684,8 +685,10 @@ export class AssessmentService {
       auth.schoolId,
       `RESULTS-${dto.classId}-${dto.termId}`,
     );
+    // Publishing is Basic; texting every family about it is Medium.
+    const mayPush = hasEntitlement(auth.tier, 'comms.results-push');
     const notified =
-      publish && result.count > 0 && !already ? await this.notifyResults(auth, dto) : 0;
+      mayPush && publish && result.count > 0 && !already ? await this.notifyResults(auth, dto) : 0;
     return { published: publish, count: result.count, notified };
   }
 

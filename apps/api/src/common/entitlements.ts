@@ -27,6 +27,10 @@ export const ENTITLEMENTS = {
     'fees.reconciliation',
     'fees.reminders',
     'safety.pickup',
+    // Automatic, system-raised messages: the same-morning absence text and the results
+    // notification. Distinct from 'comms.sms' (Basic), which is a human choosing to send.
+    'comms.absence-alerts',
+    'comms.results-push',
     'comms.whatsapp.templates',
     'resources.documents',
     'timetable.core',
