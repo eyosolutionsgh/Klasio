@@ -459,6 +459,47 @@ async function main() {
     });
   }
 
+  // Concession rules. Without these the sibling discount and scholarship features are invisible
+  // in the demo — and, as it turned out, untestable, since nothing exercised the code path.
+  const sibling = await db.concessionRule.create({
+    data: {
+      schoolId: sid,
+      name: 'Sibling discount',
+      kind: 'SIBLING',
+      basis: 'PERCENT',
+      value: 25,
+      // The eldest pays in full; every child after them gets a quarter off.
+      fromSibling: 2,
+    },
+  });
+  const bursary = await db.concessionRule.create({
+    data: {
+      schoolId: sid,
+      name: "Head's bursary",
+      kind: 'SCHOLARSHIP',
+      basis: 'PERCENT',
+      value: 50,
+    },
+  });
+  // Award it to the eldest of the largest family, so both the scholarship and the sibling rule
+  // are visible on one screen and their stacking can be seen.
+  const familySizes = new Map<string, string[]>();
+  for (const st of allStudents) {
+    familySizes.set(st.last, [...(familySizes.get(st.last) ?? []), st.id]);
+  }
+  const biggest = [...familySizes.entries()].sort((a, b) => b[1].length - a[1].length)[0];
+  if (biggest && biggest[1].length > 1) {
+    await db.concessionAward.create({
+      data: {
+        schoolId: sid,
+        ruleId: bursary.id,
+        studentId: biggest[1][0],
+        reason: 'Top of the class, 2025/2026',
+      },
+    });
+  }
+  void sibling;
+
   // Invoices + payments for all students (compulsory items = 1390)
   let invSeq = 1;
   let paySeq = 1;
