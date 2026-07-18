@@ -9,3 +9,8 @@ playwright-report/
 test-results/
 **/e2e/screenshots/
 .turbo/
+
+*.tsbuildinfo
+.DS_Store
+_to_delete/
+*.tar.gz
