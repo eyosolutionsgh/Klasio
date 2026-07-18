@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 export interface ComboboxOption {
   value: string;
@@ -43,6 +44,15 @@ export default function Combobox({
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
+  const fieldRef = useRef<HTMLDivElement>(null);
+  /**
+   * The panel is rendered into <body>, so it needs the field's viewport coordinates.
+   *
+   * Rendering in place looked simpler but could not work: filter rows sit inside cards with
+   * `overflow-x-auto`, which clips a child panel no matter its z-index, and any transformed
+   * ancestor traps it in that stacking context. Portalling to the body escapes both.
+   */
+  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
@@ -58,11 +68,34 @@ export default function Combobox({
     );
   }, [options, query, allowClear, clearLabel]);
 
+  const measure = useCallback(() => {
+    const el = fieldRef.current;
+    if (!el) return;
+    const b = el.getBoundingClientRect();
+    setRect({ top: b.bottom + 4, left: b.left, width: b.width });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    measure();
+    // `true` captures scrolls on any ancestor, not just the window, so the panel keeps up with
+    // a scrolling card as well as the page.
+    window.addEventListener('scroll', measure, true);
+    window.addEventListener('resize', measure);
+    return () => {
+      window.removeEventListener('scroll', measure, true);
+      window.removeEventListener('resize', measure);
+    };
+  }, [open, measure]);
+
   // Close when focus or a click leaves the whole control.
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      // The panel lives outside rootRef in the DOM, so it has to be checked separately or
+      // clicking an option would count as clicking away.
+      if (!rootRef.current?.contains(t) && !listRef.current?.contains(t)) setOpen(false);
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
@@ -112,7 +145,7 @@ export default function Combobox({
       <label htmlFor={id} className="block text-[11px] uppercase tracking-wider text-oat mb-1">
         {label}
       </label>
-      <div className="relative">
+      <div ref={fieldRef} className="relative">
         <input
           id={id}
           ref={inputRef}
@@ -147,40 +180,44 @@ export default function Combobox({
         </svg>
       </div>
 
-      {open && (
-        <ul
-          id={`${id}-list`}
-          ref={listRef}
-          role="listbox"
-          aria-label={label}
-          className="absolute z-40 mt-1 max-h-64 w-full overflow-y-auto overflow-x-clip rounded-lg border border-mist bg-white shadow-lg py-1"
-        >
-          {shown.map((o, i) => (
-            <li
-              key={o.value || '__all'}
-              id={`${id}-opt-${i}`}
-              role="option"
-              aria-selected={o.value === value}
-              data-active={i === active}
-              // mousedown, not click: click fires after the input's blur has already closed us.
-              onMouseDown={(e) => {
-                e.preventDefault();
-                commit(o);
-              }}
-              onMouseEnter={() => setActive(i)}
-              className={`cursor-pointer px-3.5 py-2.5 text-sm ${
-                i === active ? 'bg-brand-mist' : ''
-              } ${o.value === value ? 'font-medium text-brand' : 'text-ink'}`}
-            >
-              {o.label}
-              {o.hint && <span className="block text-[11px] text-oat">{o.hint}</span>}
-            </li>
-          ))}
-          {shown.length === 0 && (
-            <li className="px-3.5 py-3 text-sm text-oat">Nothing matches “{query}”.</li>
-          )}
-        </ul>
-      )}
+      {open &&
+        rect &&
+        createPortal(
+          <ul
+            id={`${id}-list`}
+            ref={listRef}
+            role="listbox"
+            aria-label={label}
+            style={{ top: rect.top, left: rect.left, width: rect.width }}
+            className="fixed z-[70] max-h-64 overflow-y-auto overflow-x-clip rounded-lg border border-mist bg-white shadow-lg py-1"
+          >
+            {shown.map((o, i) => (
+              <li
+                key={o.value || '__all'}
+                id={`${id}-opt-${i}`}
+                role="option"
+                aria-selected={o.value === value}
+                data-active={i === active}
+                // mousedown, not click: click fires after the input's blur has already closed us.
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  commit(o);
+                }}
+                onMouseEnter={() => setActive(i)}
+                className={`cursor-pointer px-3.5 py-2.5 text-sm ${
+                  i === active ? 'bg-brand-mist' : ''
+                } ${o.value === value ? 'font-medium text-brand' : 'text-ink'}`}
+              >
+                {o.label}
+                {o.hint && <span className="block text-[11px] text-oat">{o.hint}</span>}
+              </li>
+            ))}
+            {shown.length === 0 && (
+              <li className="px-3.5 py-3 text-sm text-oat">Nothing matches “{query}”.</li>
+            )}
+          </ul>,
+          document.body,
+        )}
     </div>
   );
 }
