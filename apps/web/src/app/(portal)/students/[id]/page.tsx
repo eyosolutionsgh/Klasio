@@ -7,6 +7,7 @@ import StudentExtras from '@/components/StudentExtras';
 import MedicalNotes from '@/components/MedicalNotes';
 import GrantConcession from '@/components/GrantConcession';
 import PickupList from '@/components/PickupList';
+import CumulativeRecord from '@/components/CumulativeRecord';
 
 interface Detail {
   id: string;
@@ -142,72 +143,76 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
           </section>
         </div>
 
-        {/* Ledger */}
-        <section className="card p-6 rise rise-3">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="font-display text-xl">Fee ledger</h2>
-            <GrantConcession studentId={s.id} studentName={s.firstName} />
-          </div>
-          <p className="text-xs text-oat mt-1">
-            Every charge and payment, newest first. Corrections appear as reversals.
-          </p>
-          <table className="w-full text-sm mt-4">
-            <thead>
-              <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist">
-                <th className="py-2 font-medium">Date</th>
-                <th className="py-2 font-medium">Entry</th>
-                <th className="py-2 font-medium text-right">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {s.ledger.map((e) => (
-                <tr key={e.id} className="border-b border-mist/50 last:border-0">
-                  <td className="py-2.5 text-oat tabular whitespace-nowrap">
-                    {fmtDate(e.createdAt)}
-                  </td>
-                  <td className="py-2.5">
-                    <p className="font-medium text-[13px]">
-                      {e.type === 'INVOICE'
-                        ? 'Invoice'
-                        : e.type === 'PAYMENT'
-                          ? `Payment · ${e.method}`
-                          : e.type === 'DISCOUNT'
-                            ? 'Discount'
-                            : e.type === 'WAIVER'
-                              ? 'Waiver'
-                              : e.type}
-                    </p>
-                    <p className="text-[11px] text-oat tabular">
-                      {e.reference}
-                      {e.receiptNumber && ` · ${e.receiptNumber}`}
-                    </p>
-                    {e.type === 'PAYMENT' && e.receiptNumber && (
-                      <a
-                        href={`/api/proxy/fees/receipts/${e.reference}/pdf`}
-                        className="no-print text-[11px] text-brand hover:underline underline-offset-2"
-                      >
-                        Download receipt ↓
-                      </a>
-                    )}
-                  </td>
-                  <td
-                    className={`py-2.5 text-right tabular font-medium ${e.type === 'INVOICE' ? 'text-ink' : 'text-leaf'}`}
-                  >
-                    {e.type === 'INVOICE' ? '' : '−'}
-                    {money(e.amount)}
-                  </td>
+        <div className="space-y-6">
+          <CumulativeRecord studentId={s.id} />
+
+          {/* Ledger */}
+          <section className="card p-6 rise rise-3">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="font-display text-xl">Fee ledger</h2>
+              <GrantConcession studentId={s.id} studentName={s.firstName} />
+            </div>
+            <p className="text-xs text-oat mt-1">
+              Every charge and payment, newest first. Corrections appear as reversals.
+            </p>
+            <table className="w-full text-sm mt-4">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist">
+                  <th className="py-2 font-medium">Date</th>
+                  <th className="py-2 font-medium">Entry</th>
+                  <th className="py-2 font-medium text-right">Amount</th>
                 </tr>
-              ))}
-              {s.ledger.length === 0 && (
-                <tr>
-                  <td colSpan={3} className="py-8 text-center text-oat">
-                    No ledger entries yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </section>
+              </thead>
+              <tbody>
+                {s.ledger.map((e) => (
+                  <tr key={e.id} className="border-b border-mist/50 last:border-0">
+                    <td className="py-2.5 text-oat tabular whitespace-nowrap">
+                      {fmtDate(e.createdAt)}
+                    </td>
+                    <td className="py-2.5">
+                      <p className="font-medium text-[13px]">
+                        {e.type === 'INVOICE'
+                          ? 'Invoice'
+                          : e.type === 'PAYMENT'
+                            ? `Payment · ${e.method}`
+                            : e.type === 'DISCOUNT'
+                              ? 'Discount'
+                              : e.type === 'WAIVER'
+                                ? 'Waiver'
+                                : e.type}
+                      </p>
+                      <p className="text-[11px] text-oat tabular">
+                        {e.reference}
+                        {e.receiptNumber && ` · ${e.receiptNumber}`}
+                      </p>
+                      {e.type === 'PAYMENT' && e.receiptNumber && (
+                        <a
+                          href={`/api/proxy/fees/receipts/${e.reference}/pdf`}
+                          className="no-print text-[11px] text-brand hover:underline underline-offset-2"
+                        >
+                          Download receipt ↓
+                        </a>
+                      )}
+                    </td>
+                    <td
+                      className={`py-2.5 text-right tabular font-medium ${e.type === 'INVOICE' ? 'text-ink' : 'text-leaf'}`}
+                    >
+                      {e.type === 'INVOICE' ? '' : '−'}
+                      {money(e.amount)}
+                    </td>
+                  </tr>
+                ))}
+                {s.ledger.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="py-8 text-center text-oat">
+                      No ledger entries yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </section>
+        </div>
       </div>
     </div>
   );

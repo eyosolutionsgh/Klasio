@@ -33,6 +33,7 @@ import { Band, validateBands } from '../common/grading';
 import { Type } from 'class-transformer';
 import { storage } from '../common/storage';
 import { SmsModule, SmsService } from '../sms/sms.module';
+import { weighSubject } from '../common/weighting';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, Roles } from '../common/auth';
 import { reportCardPdf, ReportCardData, broadsheetPdf, BroadsheetData } from '../common/pdf';
@@ -71,7 +72,11 @@ class UpdateReportDto {
 class ComponentDto {
   @IsString() @MinLength(2) name: string;
   @IsNumber() @Min(1) @Max(100) maxScore: number;
-  @IsOptional() @IsBoolean() isExam?: boolean;
+  @IsOptional() @IsIn(['CONTINUOUS', 'EXAM']) category?: 'CONTINUOUS' | 'EXAM';
+  /** Null/omitted means every subject. */
+  @IsOptional() @IsString() subjectId?: string;
+  /** Null/omitted means every level. */
+  @IsOptional() @IsString() levelId?: string;
   @IsOptional() @IsNumber() order?: number;
 }
 
@@ -88,8 +93,9 @@ class PublishReportsDto {
   @IsOptional() @IsBoolean() published?: boolean;
 }
 
-const SBA_WEIGHT = 30;
-const EXAM_WEIGHT = 70;
+/** Fallbacks when a school has not set its own; the GES convention. */
+const DEFAULT_SBA_WEIGHT = 30;
+const DEFAULT_EXAM_WEIGHT = 70;
 
 @Injectable()
 export class AssessmentService {
@@ -98,44 +104,60 @@ export class AssessmentService {
     private sms: SmsService,
   ) {}
 
-  components(auth: AuthUser) {
+  components(auth: AuthUser, subjectId?: string, levelId?: string) {
     return this.db.assessmentComponent.findMany({
-      where: { schoolId: auth.schoolId },
-      orderBy: { order: 'asc' },
+      where: {
+        schoolId: auth.schoolId,
+        ...(subjectId ? { OR: [{ subjectId }, { subjectId: null }] } : {}),
+        ...(levelId ? { AND: [{ OR: [{ levelId }, { levelId: null }] }] } : {}),
+      },
+      // Continuous work runs through the term and the exam closes it, so exams read last on the
+      // sheet and the report card however late a component was added. Postgres sorts an enum by
+      // its declared order, and AssessmentCategory declares CONTINUOUS before EXAM.
+      orderBy: [{ category: 'asc' }, { order: 'asc' }, { createdAt: 'asc' }],
+    });
+  }
+
+  /**
+   * The components that apply to one subject in one class: the school-wide ones plus anything
+   * narrowed to this subject and/or this level. Marks entry and report generation both resolve
+   * through here so a column can never appear in one and not the other.
+   */
+  async componentsFor(auth: AuthUser, subjectId: string, levelId: string | null) {
+    return this.db.assessmentComponent.findMany({
+      where: {
+        schoolId: auth.schoolId,
+        OR: [{ subjectId: null }, { subjectId }],
+        AND: [{ OR: [{ levelId: null }, ...(levelId ? [{ levelId }] : [])] }],
+      },
+      // Continuous work runs through the term and the exam closes it, so exams read last on the
+      // sheet and the report card however late a component was added. Postgres sorts an enum by
+      // its declared order, and AssessmentCategory declares CONTINUOUS before EXAM.
+      orderBy: [{ category: 'asc' }, { order: 'asc' }, { createdAt: 'asc' }],
     });
   }
 
   // ── Configuration: SBA components & grading schemes ────────────────
 
-  /**
-   * Exactly one component may be the exam: the 30/70 split reads `isExam` to decide which
-   * score carries the exam weight, so a second one would silently change every report.
-   */
-  private async assertSingleExam(auth: AuthUser, isExam: boolean, excludeId?: string) {
-    if (!isExam) return;
-    const existing = await this.db.assessmentComponent.findFirst({
-      where: {
-        schoolId: auth.schoolId,
-        isExam: true,
-        ...(excludeId ? { id: { not: excludeId } } : {}),
-      },
-    });
-    if (existing) {
+  async createComponent(auth: AuthUser, dto: ComponentDto) {
+    // A teacher may add assessments for a subject they are marking, which is the whole point of
+    // this being flexible. Adding one to *every* subject changes every report card in the
+    // school, so that stays with the head.
+    if (auth.role === 'TEACHER' && !dto.subjectId) {
       throw new BadRequestException(
-        `"${existing.name}" is already the exam component — only one is allowed`,
+        'Choose a subject for this assessment — only a head can add one to every subject',
       );
     }
-  }
-
-  async createComponent(auth: AuthUser, dto: ComponentDto) {
-    await this.assertSingleExam(auth, dto.isExam ?? false);
+    // Any number of each category is fine — three tests and two papers is a normal term.
     const count = await this.db.assessmentComponent.count({ where: { schoolId: auth.schoolId } });
     const component = await this.db.assessmentComponent.create({
       data: {
         schoolId: auth.schoolId,
         name: dto.name,
         maxScore: dto.maxScore,
-        isExam: dto.isExam ?? false,
+        category: dto.category ?? 'CONTINUOUS',
+        subjectId: dto.subjectId ?? null,
+        levelId: dto.levelId ?? null,
         order: dto.order ?? count + 1,
       },
     });
@@ -155,13 +177,14 @@ export class AssessmentService {
       where: { id, schoolId: auth.schoolId },
     });
     if (!existing) throw new NotFoundException('Component not found');
-    if (dto.isExam !== undefined) await this.assertSingleExam(auth, dto.isExam, id);
     const component = await this.db.assessmentComponent.update({
       where: { id },
       data: {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
         ...(dto.maxScore !== undefined ? { maxScore: dto.maxScore } : {}),
-        ...(dto.isExam !== undefined ? { isExam: dto.isExam } : {}),
+        ...(dto.category !== undefined ? { category: dto.category } : {}),
+        ...(dto.subjectId !== undefined ? { subjectId: dto.subjectId || null } : {}),
+        ...(dto.levelId !== undefined ? { levelId: dto.levelId || null } : {}),
         ...(dto.order !== undefined ? { order: dto.order } : {}),
       },
     });
@@ -267,13 +290,19 @@ export class AssessmentService {
   }
 
   async scoreMatrix(auth: AuthUser, classId: string, subjectId: string, termId: string) {
+    const classRoom = await this.db.classRoom.findFirst({
+      where: { id: classId, schoolId: auth.schoolId },
+      select: { levelId: true },
+    });
     const [students, components, scores] = await Promise.all([
       this.db.student.findMany({
         where: { schoolId: auth.schoolId, classId, status: 'ACTIVE' },
         orderBy: { lastName: 'asc' },
         select: { id: true, admissionNo: true, firstName: true, lastName: true },
       }),
-      this.components(auth),
+      // Only the columns that apply here — school-wide ones plus anything scoped to this
+      // subject or level. Report generation resolves the same way.
+      this.componentsFor(auth, subjectId, classRoom?.levelId ?? null),
       this.db.score.findMany({
         where: { schoolId: auth.schoolId, subjectId, termId, student: { classId } },
       }),
@@ -373,6 +402,10 @@ export class AssessmentService {
     if (!term) throw new NotFoundException('Term not found');
     if (!classRoom) throw new NotFoundException('Class not found');
 
+    const school = await this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } });
+    const sbaWeight = school.sbaWeight ?? DEFAULT_SBA_WEIGHT;
+    const examWeight = school.examWeight ?? DEFAULT_EXAM_WEIGHT;
+
     const scheme =
       classRoom.level.gradingScheme ??
       (await this.db.gradingScheme.findFirst({
@@ -384,9 +417,11 @@ export class AssessmentService {
     const gradeFor = (total: number) =>
       bands.find((b) => total >= b.min && total <= b.max) ?? bands[bands.length - 1];
 
-    const sbaComponents = components.filter((c) => !c.isExam);
-    const examComponent = components.find((c) => c.isExam);
-    const sbaMax = sbaComponents.reduce((a, c) => a + c.maxScore, 0);
+    // Components can be scoped to a subject, so the split is worked out per subject rather than
+    // once for the class. Any number of each category is allowed; each half is the sum of its
+    // components scaled to the school's weight.
+    const bySubject = (subjectId: string) =>
+      components.filter((c) => c.subjectId === null || c.subjectId === subjectId);
     const scoreKey = new Map(
       scores.map((s) => [`${s.studentId}:${s.subjectId}:${s.componentId}`, s.rawScore]),
     );
@@ -403,37 +438,31 @@ export class AssessmentService {
     for (const st of students) {
       const lines: SubjectLine[] = [];
       for (const sub of subjects) {
-        let sbaRaw = 0;
-        let hasAny = false;
-        for (const c of sbaComponents) {
-          const v = scoreKey.get(`${st.id}:${sub.id}:${c.id}`);
-          if (v != null) {
-            sbaRaw += v;
-            hasAny = true;
-          }
-        }
-        const examRaw = examComponent
-          ? scoreKey.get(`${st.id}:${sub.id}:${examComponent.id}`)
-          : undefined;
-        if (!hasAny && examRaw == null) continue;
-        // Early-years: total is a straight percentage of the observation components (no 30/70 split).
-        const sba30 = earlyYears
-          ? sbaMax > 0
-            ? (sbaRaw / sbaMax) * 100
-            : 0
-          : sbaMax > 0
-            ? (sbaRaw / sbaMax) * SBA_WEIGHT
-            : 0;
-        const exam70 =
-          earlyYears || !examComponent || examRaw == null
-            ? 0
-            : (examRaw / examComponent.maxScore) * EXAM_WEIGHT;
+        const applicable = bySubject(sub.id);
+        const sbaComponents = applicable.filter((c) => c.category === 'CONTINUOUS');
+        const examComponents = applicable.filter((c) => c.category === 'EXAM');
+
+        // Only assessments that carry a mark are collected. An unmarked one must not arrive as
+        // a zero — mid-term most of the work does not exist yet, and a zero would report a
+        // child as failing when they have simply not sat the paper.
+        const marked = (of: typeof applicable) =>
+          of.flatMap((c) => {
+            const v = scoreKey.get(`${st.id}:${sub.id}:${c.id}`);
+            return v == null ? [] : [{ raw: v, max: c.maxScore }];
+          });
+
+        const weighed = weighSubject(marked(sbaComponents), marked(examComponents), {
+          sbaWeight,
+          examWeight,
+          earlyYears,
+        });
+        if (!weighed) continue; // nothing marked in this subject — leave it off the report
         lines.push({
           subjectId: sub.id,
           subject: sub.name,
-          sba30: Math.round(sba30 * 10) / 10,
-          exam70: Math.round(exam70 * 10) / 10,
-          total: Math.round((earlyYears ? sba30 : sba30 + exam70) * 10) / 10,
+          sba30: weighed.sba,
+          exam70: weighed.exam,
+          total: weighed.total,
         });
       }
       perStudent.set(st.id, lines);
@@ -652,6 +681,90 @@ export class AssessmentService {
     return res.sent;
   }
 
+  /**
+   * A student's whole academic record, earliest term first — the cumulative record card a
+   * Ghanaian school keeps from the day a child arrives to the day they leave.
+   *
+   * Built from the persisted TermReports rather than recomputed, so it shows what was actually
+   * issued at the time: a child who moved class or whose scheme changed still reads truthfully.
+   */
+  async cumulative(auth: AuthUser, studentId: string) {
+    const student = await this.db.student.findFirst({
+      where: { id: studentId, schoolId: auth.schoolId },
+      include: { classRoom: { select: { name: true } } },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+
+    const reports = await this.db.termReport.findMany({
+      where: { schoolId: auth.schoolId, studentId },
+    });
+    const [terms, classes] = await Promise.all([
+      this.db.term.findMany({
+        where: { id: { in: reports.map((r) => r.termId) } },
+        include: { academicYear: { select: { name: true, startDate: true } } },
+      }),
+      this.db.classRoom.findMany({ where: { id: { in: reports.map((r) => r.classId) } } }),
+    ]);
+    const termById = new Map(terms.map((t) => [t.id, t]));
+    const classById = new Map(classes.map((c) => [c.id, c]));
+
+    const rows = reports
+      .map((r) => {
+        const term = termById.get(r.termId);
+        const lines = (r.lines ?? []) as unknown as { subject: string; total: number }[];
+        const subjects = Array.isArray(lines) ? lines.length : 0;
+        const overall = Number(r.overallTotal);
+        return {
+          termId: r.termId,
+          term: term?.name ?? '',
+          year: term?.academicYear.name ?? '',
+          startDate: term?.startDate ?? new Date(0),
+          className: classById.get(r.classId)?.name ?? '—',
+          subjects,
+          overallTotal: Math.round(overall * 10) / 10,
+          // Average across subjects is the comparable figure: a term with nine subjects and one
+          // with six are not comparable on the raw total.
+          average: subjects ? Math.round((overall / subjects) * 10) / 10 : 0,
+          classPosition: r.classPosition,
+          classSize: r.classSize,
+          attendancePresent: r.attendancePresent,
+          attendanceTotal: r.attendanceTotal,
+          published: !!r.publishedAt,
+        };
+      })
+      .sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+
+    const withAverage = rows.filter((r) => r.subjects > 0);
+    const cumulativeAverage = withAverage.length
+      ? Math.round((withAverage.reduce((sum, r) => sum + r.average, 0) / withAverage.length) * 10) /
+        10
+      : 0;
+    // Compare the most recent term with the one before it, which is the question a parent asks.
+    const trend =
+      withAverage.length >= 2
+        ? Math.round(
+            (withAverage[withAverage.length - 1].average -
+              withAverage[withAverage.length - 2].average) *
+              10,
+          ) / 10
+        : null;
+
+    return {
+      student: {
+        id: student.id,
+        name: `${student.firstName} ${student.lastName}`,
+        admissionNo: student.admissionNo,
+        className: student.classRoom?.name ?? null,
+        enrolledAt: student.enrolledAt,
+      },
+      terms: rows.map(({ startDate: _s, ...rest }) => rest),
+      cumulativeAverage,
+      trend,
+      termsRecorded: rows.length,
+      classesAttended: [...new Set(rows.map((r) => r.className))],
+    };
+  }
+
   async reportCard(auth: AuthUser, studentId: string, termId: string) {
     const report = await this.db.termReport.findFirst({
       where: { schoolId: auth.schoolId, studentId, termId },
@@ -794,7 +907,7 @@ export class AssessmentController {
   }
 
   @Post('components')
-  @Roles('OWNER', 'HEAD')
+  @Roles('OWNER', 'HEAD', 'TEACHER')
   createComponent(@CurrentUser() user: AuthUser, @Body() dto: ComponentDto) {
     return this.svc.createComponent(user, dto);
   }
@@ -862,6 +975,11 @@ export class AssessmentController {
   @Roles('OWNER', 'HEAD', 'TEACHER')
   generate(@CurrentUser() user: AuthUser, @Body() dto: GenerateReportsDto) {
     return this.svc.generateReports(user, dto);
+  }
+
+  @Get('cumulative/:studentId')
+  cumulative(@CurrentUser() user: AuthUser, @Param('studentId') studentId: string) {
+    return this.svc.cumulative(user, studentId);
   }
 
   @Get('reports')

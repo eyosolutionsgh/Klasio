@@ -309,9 +309,27 @@ async function main() {
       data: { schoolId: sid, name: 'Project Work', maxScore: 20, order: 3 },
     }),
     db.assessmentComponent.create({
-      data: { schoolId: sid, name: 'End of Term Exam', maxScore: 100, isExam: true, order: 4 },
+      data: { schoolId: sid, name: 'End of Term Exam', maxScore: 100, category: 'EXAM', order: 4 },
     }),
   ]);
+
+  // A component scoped to one subject, to show that components need not be school-wide:
+  // Integrated Science in JHS carries a practical that no other subject has.
+  const science = subjects.find((s) => s.name.includes('Science'));
+  const jhs2Level = levels.find((l) => l.name === 'JHS 2');
+  if (science && jhs2Level) {
+    await db.assessmentComponent.create({
+      data: {
+        schoolId: sid,
+        name: 'Practical',
+        maxScore: 20,
+        category: 'CONTINUOUS',
+        subjectId: science.id,
+        levelId: jhs2Level.id,
+        order: 5,
+      },
+    });
+  }
 
   // Students: 12 in JHS 2 (rich data), 8 each in Basic 4 & Basic 5, 5 in KG 1
   const focus = [
@@ -393,18 +411,24 @@ async function main() {
   const scored = allStudents.filter((s) => s.classId !== classes[0].id);
   for (const st of scored) {
     const ability = 0.35 + rng() * 0.6;
-    for (const sub of subjects) {
-      for (const comp of components) {
-        const frac = Math.min(1, Math.max(0.15, ability + (rng() - 0.5) * 0.3));
-        scoreRows.push({
-          schoolId: sid,
-          studentId: st.id,
-          subjectId: sub.id,
-          termId: t3.id,
-          componentId: comp.id,
-          rawScore: Math.round(frac * comp.maxScore),
-          enteredById: teacher.id,
-        });
+    // All three terms, with a gentle drift per child, so the cumulative record has a shape to
+    // show rather than a single point.
+    const drift = (rng() - 0.4) * 0.12;
+    for (const [i, t] of [t1, t2, t3].entries()) {
+      const termAbility = Math.min(0.98, Math.max(0.2, ability + drift * i));
+      for (const sub of subjects) {
+        for (const comp of components) {
+          const frac = Math.min(1, Math.max(0.15, termAbility + (rng() - 0.5) * 0.3));
+          scoreRows.push({
+            schoolId: sid,
+            studentId: st.id,
+            subjectId: sub.id,
+            termId: t.id,
+            componentId: comp.id,
+            rawScore: Math.round(frac * comp.maxScore),
+            enteredById: teacher.id,
+          });
+        }
       }
     }
   }

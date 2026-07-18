@@ -57,6 +57,10 @@ model School {
   smsSenderId String? // registered SMS sender ID (e.g. "BRIGHTON")
   smsCredits  Int      @default(0) // pay-as-you-go SMS units the school has bought
   reportTemplate ReportTemplate @default(GES)
+  /// How the two halves of a subject mark are weighted. GES convention is 30/70, but schools
+  /// differ and early years often run 100/0.
+  sbaWeight  Int @default(30)
+  examWeight Int @default(70)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -143,6 +147,7 @@ model Level {
   gradingSchemeId String? // which grading scheme this level's reports use (per-level selection)
   gradingScheme   GradingScheme? @relation(fields: [gradingSchemeId], references: [id])
   classes         ClassRoom[]
+  components      AssessmentComponent[]
 
   @@unique([schoolId, name])
 }
@@ -167,6 +172,8 @@ model Subject {
   name     String
   code     String
   isCore   Boolean @default(false)
+
+  components AssessmentComponent[]
 
   @@unique([schoolId, code])
 }
@@ -379,17 +386,38 @@ model GradingScheme {
   @@unique([schoolId, name])
 }
 
+/// Continuous assessment counts toward the SBA portion; exams toward the exam portion. A
+/// subject may have any number of each — three class tests and two papers is as valid as one
+/// of each.
+enum AssessmentCategory {
+  CONTINUOUS
+  EXAM
+}
+
+/// One markable item: a class test, an assignment, a project, an end-of-term paper.
+///
+/// Scope narrows from the school down: a component with no subject and no level applies
+/// everywhere, one with a subject applies to that subject in every class, one with both applies
+/// only there. That is what lets JHS 2 Science have a practical that no other subject has,
+/// without forcing every class to carry the same four columns.
 model AssessmentComponent {
-  id       String  @id @default(cuid())
-  schoolId String
-  name     String
-  maxScore Int
-  isExam   Boolean @default(false)
-  order    Int     @default(0)
+  id        String             @id @default(cuid())
+  schoolId  String
+  name      String
+  maxScore  Int
+  category  AssessmentCategory @default(CONTINUOUS)
+  /// Null means every subject.
+  subjectId String?
+  subject   Subject?           @relation(fields: [subjectId], references: [id])
+  /// Null means every level.
+  levelId   String?
+  level     Level?             @relation(fields: [levelId], references: [id])
+  order     Int                @default(0)
+  createdAt DateTime           @default(now())
 
   scores Score[]
 
-  @@unique([schoolId, name])
+  @@index([schoolId, subjectId, levelId])
 }
 
 model Score {

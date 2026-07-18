@@ -9,7 +9,9 @@ interface Component {
   id: string;
   name: string;
   maxScore: number;
-  isExam: boolean;
+  category: 'CONTINUOUS' | 'EXAM';
+  subjectId: string | null;
+  levelId: string | null;
 }
 interface Row {
   studentId: string;
@@ -39,6 +41,8 @@ export default function MarksPage() {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
   const [queued, setQueued] = useState(false);
+  const [addingComponent, setAddingComponent] = useState(false);
+  const [componentError, setComponentError] = useState('');
 
   useEffect(() => {
     Promise.all([
@@ -196,7 +200,105 @@ export default function MarksPage() {
         </p>
       )}
 
-      <div className="card mt-5 overflow-x-auto rise rise-3">
+      <div className="mt-5 rise rise-3">
+        {addingComponent ? (
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const f = new FormData(e.currentTarget);
+              const res = await fetch('/api/proxy/assessment/components', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  name: String(f.get('name') ?? '').trim(),
+                  maxScore: Number(f.get('maxScore')),
+                  category: String(f.get('category')),
+                  // Scoped to what the teacher is actually marking, unless they widen it.
+                  subjectId: f.get('scope') === 'SUBJECT' ? subjectId : undefined,
+                }),
+              });
+              if (res.ok) {
+                setAddingComponent(false);
+                setComponentError('');
+                load();
+              } else {
+                const d = await res.json().catch(() => ({}));
+                setComponentError(
+                  Array.isArray(d.message)
+                    ? d.message.join('. ')
+                    : (d.message ?? 'Could not add that.'),
+                );
+              }
+            }}
+            className="card p-4 flex flex-wrap items-end gap-3"
+          >
+            <label className="text-[13px]">
+              <span className="block text-oat mb-1">Assessment name</span>
+              <input
+                name="name"
+                required
+                minLength={2}
+                placeholder="Assignment 3"
+                className="min-h-11 rounded-lg border border-mist bg-white px-3 py-2 text-sm w-44 outline-none focus:border-brand"
+              />
+            </label>
+            <label className="text-[13px]">
+              <span className="block text-oat mb-1">Out of</span>
+              <input
+                name="maxScore"
+                type="number"
+                min="1"
+                defaultValue="20"
+                required
+                className="min-h-11 rounded-lg border border-mist bg-white px-3 py-2 text-sm w-24 tabular outline-none focus:border-brand"
+              />
+            </label>
+            <label className="text-[13px]">
+              <span className="block text-oat mb-1">Counts as</span>
+              <select
+                name="category"
+                defaultValue="CONTINUOUS"
+                className="min-h-11 rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand"
+              >
+                <option value="CONTINUOUS">Continuous assessment</option>
+                <option value="EXAM">Exam</option>
+              </select>
+            </label>
+            <label className="text-[13px]">
+              <span className="block text-oat mb-1">Applies to</span>
+              <select
+                name="scope"
+                defaultValue="SUBJECT"
+                className="min-h-11 rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand"
+              >
+                <option value="SUBJECT">This subject only</option>
+                <option value="ALL">Every subject</option>
+              </select>
+            </label>
+            <button className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
+              Add column
+            </button>
+            <button
+              type="button"
+              onClick={() => setAddingComponent(false)}
+              className="min-h-11 px-2 text-[13px] text-oat"
+            >
+              Cancel
+            </button>
+            {componentError && <p className="w-full text-sm text-danger">{componentError}</p>}
+          </form>
+        ) : (
+          <button
+            onClick={() => setAddingComponent(true)}
+            disabled={!subjectId}
+            className="text-[13px] font-medium text-brand hover:underline underline-offset-2 disabled:opacity-50"
+          >
+            + Add an assessment
+          </button>
+        )}
+      </div>
+
+      <div className="card mt-3 overflow-x-auto rise rise-3">
         <table className="w-full text-sm min-w-[640px]">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
@@ -210,6 +312,8 @@ export default function MarksPage() {
                   {c.name}
                   <span className="block normal-case tracking-normal text-oat/70">
                     /{c.maxScore}
+                    {c.category === 'EXAM' ? ' · exam' : ''}
+                    {c.subjectId ? ' · this subject' : ''}
                   </span>
                 </th>
               ))}
