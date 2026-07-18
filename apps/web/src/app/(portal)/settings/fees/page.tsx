@@ -13,6 +13,11 @@ interface Level {
   id: string;
   name: string;
 }
+interface ClassRoom {
+  id: string;
+  name: string;
+  studentCount: number;
+}
 
 const money = (n: number) =>
   `GHS ${n.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -21,7 +26,11 @@ export default function FeeStructurePage() {
   const [termId, setTermId] = useState('');
   const [termName, setTermName] = useState('');
   const [levels, setLevels] = useState<Level[]>([]);
+  const [classes, setClasses] = useState<ClassRoom[]>([]);
   const [items, setItems] = useState<FeeItem[]>([]);
+  const [billClassId, setBillClassId] = useState('');
+  const [billing, setBilling] = useState(false);
+  const [billResult, setBillResult] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
   const [levelId, setLevelId] = useState('');
@@ -39,8 +48,29 @@ export default function FeeStructurePage() {
         setTermName(`${me.currentTerm.academicYear?.name ?? ''} · ${me.currentTerm.name}`);
       }
       setLevels(s.levels ?? []);
+      setClasses(s.classes ?? []);
     });
   }, []);
+
+  async function generateInvoices() {
+    setBilling(true);
+    setBillResult(null);
+    const res = await fetch('/api/proxy/fees/invoices/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ termId, classId: billClassId || undefined }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setBilling(false);
+    setBillResult(
+      res.ok
+        ? `Billed ${body.created} student${body.created === 1 ? '' : 's'} ${money(body.total)} each.` +
+            (body.skipped
+              ? ` ${body.skipped} already had a bill for this term and were skipped.`
+              : '')
+        : (body.message ?? 'Could not generate invoices.'),
+    );
+  }
 
   const load = useCallback(async () => {
     if (!termId) return;
@@ -217,6 +247,41 @@ export default function FeeStructurePage() {
         </div>
         {message && <p className="text-sm text-danger mt-3">{message}</p>}
       </form>
+
+      <section className="card p-6 mt-6 rise rise-3 max-w-2xl">
+        <h2 className="font-display text-xl">Generate term invoices</h2>
+        <p className="text-sm text-oat mt-1.5">
+          Bills every active student the compulsory items above for {termName || 'the current term'}
+          . Students who already have a bill for this term are skipped, so it is safe to run again
+          after enrolling someone new.
+        </p>
+        <div className="flex flex-wrap items-end gap-3 mt-4">
+          <label className="text-[13px]">
+            <span className="block text-oat mb-1">Who to bill</span>
+            <select
+              value={billClassId}
+              onChange={(e) => setBillClassId(e.target.value)}
+              className={`${field} w-56`}
+            >
+              <option value="">Every active student</option>
+              {classes.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.studentCount})
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            onClick={generateInvoices}
+            disabled={billing || !termId || compulsory === 0}
+            data-tip={compulsory === 0 ? 'Add at least one compulsory fee item first' : undefined}
+            className="tip rounded-lg bg-forest text-paper text-sm font-medium px-5 py-2 hover:bg-forest-deep transition disabled:opacity-50"
+          >
+            {billing ? 'Generating…' : `Bill ${money(compulsory)} per student`}
+          </button>
+        </div>
+        {billResult && <p className="text-sm mt-3">{billResult}</p>}
+      </section>
     </div>
   );
 }

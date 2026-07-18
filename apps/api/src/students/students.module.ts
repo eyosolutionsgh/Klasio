@@ -16,11 +16,13 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { IsDateString, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
-import { Gender, StudentStatus } from '@prisma/client';
+import { IsBoolean, IsDateString, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
+import { CustodyFlag, Gender, StudentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
 import { enrolmentHeadroom, studentCapFor } from '../common/entitlements';
+import { demoteOthers, reconcileLink, successorPrimary } from '../common/guardianship';
+import { normalizeMsisdn } from '../common/phone';
 import { toCsv, toXlsx, Cell } from '../common/export';
 import {
   DOCUMENT_TYPES,
@@ -58,6 +60,30 @@ class UpdateStudentDto {
   @IsOptional() @IsString() lastName?: string;
   @IsOptional() @IsString() classId?: string;
   @IsOptional() @IsString() medicalNotes?: string;
+}
+
+class AddGuardianDto {
+  @IsString() @MinLength(2) firstName: string;
+  @IsString() @MinLength(2) lastName: string;
+  @IsString() phone: string;
+  @IsOptional() @IsString() email?: string;
+  @IsOptional() @IsString() relationship?: string;
+  @IsOptional() @IsBoolean() isPrimary?: boolean;
+  @IsOptional() @IsBoolean() canPickup?: boolean;
+  @IsOptional() @IsEnum(CustodyFlag) custodyFlag?: CustodyFlag;
+  @IsOptional() @IsBoolean() whatsappOptIn?: boolean;
+}
+
+class UpdateGuardianDto {
+  @IsOptional() @IsString() @MinLength(2) firstName?: string;
+  @IsOptional() @IsString() @MinLength(2) lastName?: string;
+  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() email?: string;
+  @IsOptional() @IsString() relationship?: string;
+  @IsOptional() @IsBoolean() isPrimary?: boolean;
+  @IsOptional() @IsBoolean() canPickup?: boolean;
+  @IsOptional() @IsEnum(CustodyFlag) custodyFlag?: CustodyFlag;
+  @IsOptional() @IsBoolean() whatsappOptIn?: boolean;
 }
 
 class PromoteDto {
@@ -246,6 +272,184 @@ export class StudentsService {
     }
     await this.db.audit(auth.schoolId, auth.sub, 'student.create', 'Student', student.id);
     return student;
+  }
+
+  /** Loads a student inside the caller's school, or 404s. */
+  private async ownStudent(auth: AuthUser, id: string) {
+    const student = await this.db.student.findFirst({ where: { id, schoolId: auth.schoolId } });
+    if (!student) throw new NotFoundException('Student not found');
+    return student;
+  }
+
+  private async links(studentId: string) {
+    return this.db.studentGuardian.findMany({ where: { studentId } });
+  }
+
+  /**
+   * Attach a guardian to a student.
+   *
+   * Guardians are matched on phone number within the school and reused: siblings must share one
+   * Guardian row, otherwise the parent ends up with two portal identities and each shows only
+   * half their children.
+   */
+  async addGuardian(auth: AuthUser, studentId: string, dto: AddGuardianDto) {
+    await this.ownStudent(auth, studentId);
+    const msisdn = normalizeMsisdn(dto.phone);
+    if (!msisdn) throw new BadRequestException('That does not look like a phone number');
+
+    const existing = await this.db.guardian.findFirst({
+      where: { schoolId: auth.schoolId, phone: { contains: msisdn.slice(-9) } },
+    });
+    const guardian =
+      existing ??
+      (await this.db.guardian.create({
+        data: {
+          schoolId: auth.schoolId,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          phone: dto.phone,
+          email: dto.email,
+          whatsappOptIn: dto.whatsappOptIn ?? false,
+        },
+      }));
+
+    const already = await this.db.studentGuardian.findUnique({
+      where: { studentId_guardianId: { studentId, guardianId: guardian.id } },
+    });
+    if (already) throw new BadRequestException('That guardian is already linked to this student');
+
+    const link = reconcileLink({
+      canPickup: dto.canPickup ?? true,
+      custodyFlag: dto.custodyFlag ?? 'NONE',
+    });
+    const current = await this.links(studentId);
+    // The first guardian on a student is the primary by default — someone has to be.
+    const isPrimary = dto.isPrimary ?? current.length === 0;
+
+    await this.db.$transaction([
+      ...(isPrimary
+        ? [
+            this.db.studentGuardian.updateMany({
+              where: { studentId, guardianId: { in: demoteOthers(current, guardian.id) } },
+              data: { isPrimary: false },
+            }),
+          ]
+        : []),
+      this.db.studentGuardian.create({
+        data: {
+          studentId,
+          guardianId: guardian.id,
+          relationship: dto.relationship ?? 'Guardian',
+          isPrimary,
+          ...link,
+        },
+      }),
+    ]);
+    await this.db.audit(auth.schoolId, auth.sub, 'guardian.link', 'Student', studentId, {
+      guardianId: guardian.id,
+      reused: !!existing,
+    });
+    return { id: guardian.id, reused: !!existing };
+  }
+
+  /**
+   * Update the guardian's own details and/or their link to this student. Contact details are
+   * shared across siblings by design — correcting a phone number fixes it everywhere.
+   */
+  async updateGuardian(
+    auth: AuthUser,
+    studentId: string,
+    guardianId: string,
+    dto: UpdateGuardianDto,
+  ) {
+    await this.ownStudent(auth, studentId);
+    const link = await this.db.studentGuardian.findUnique({
+      where: { studentId_guardianId: { studentId, guardianId } },
+      include: { guardian: true },
+    });
+    if (!link || link.guardian.schoolId !== auth.schoolId) {
+      throw new NotFoundException('That guardian is not linked to this student');
+    }
+    if (dto.phone !== undefined && !normalizeMsisdn(dto.phone)) {
+      throw new BadRequestException('That does not look like a phone number');
+    }
+
+    const next = reconcileLink({
+      canPickup: dto.canPickup ?? link.canPickup,
+      custodyFlag: dto.custodyFlag ?? link.custodyFlag,
+    });
+    const promoting = dto.isPrimary === true;
+    const current = await this.links(studentId);
+
+    await this.db.$transaction([
+      this.db.guardian.update({
+        where: { id: guardianId },
+        data: {
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          phone: dto.phone,
+          email: dto.email,
+          whatsappOptIn: dto.whatsappOptIn,
+        },
+      }),
+      ...(promoting
+        ? [
+            this.db.studentGuardian.updateMany({
+              where: { studentId, guardianId: { in: demoteOthers(current, guardianId) } },
+              data: { isPrimary: false },
+            }),
+          ]
+        : []),
+      this.db.studentGuardian.update({
+        where: { studentId_guardianId: { studentId, guardianId } },
+        data: {
+          relationship: dto.relationship,
+          ...(dto.isPrimary === undefined ? {} : { isPrimary: dto.isPrimary }),
+          ...next,
+        },
+      }),
+    ]);
+    await this.db.audit(auth.schoolId, auth.sub, 'guardian.update', 'Student', studentId, {
+      guardianId,
+      ...dto,
+    });
+    return { ok: true };
+  }
+
+  /**
+   * Unlink a guardian from this student. The Guardian row survives — they may still have other
+   * children here, and their portal history should not vanish.
+   */
+  async removeGuardian(auth: AuthUser, studentId: string, guardianId: string) {
+    await this.ownStudent(auth, studentId);
+    const current = await this.db.studentGuardian.findMany({
+      where: { studentId },
+      include: { guardian: { select: { schoolId: true } } },
+    });
+    const link = current.find((l) => l.guardianId === guardianId);
+    if (!link || link.guardian.schoolId !== auth.schoolId) {
+      throw new NotFoundException('That guardian is not linked to this student');
+    }
+
+    const successor = successorPrimary(current, guardianId);
+    await this.db.$transaction([
+      this.db.studentGuardian.delete({
+        where: { studentId_guardianId: { studentId, guardianId } },
+      }),
+      ...(successor
+        ? [
+            this.db.studentGuardian.update({
+              where: { studentId_guardianId: { studentId, guardianId: successor } },
+              data: { isPrimary: true },
+            }),
+          ]
+        : []),
+    ]);
+    await this.db.audit(auth.schoolId, auth.sub, 'guardian.unlink', 'Student', studentId, {
+      guardianId,
+      promoted: successor,
+    });
+    return { ok: true, promoted: successor };
   }
 
   async update(auth: AuthUser, id: string, dto: UpdateStudentDto) {
@@ -564,6 +768,33 @@ export class StudentsController {
     @UploadedFile() file: UploadedFileLike,
   ) {
     return this.svc.uploadDocument(user, id, kind, file);
+  }
+
+  @Post(':id/guardians')
+  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  addGuardian(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: AddGuardianDto) {
+    return this.svc.addGuardian(user, id, dto);
+  }
+
+  @Patch(':id/guardians/:guardianId')
+  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  updateGuardian(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('guardianId') guardianId: string,
+    @Body() dto: UpdateGuardianDto,
+  ) {
+    return this.svc.updateGuardian(user, id, guardianId, dto);
+  }
+
+  @Delete(':id/guardians/:guardianId')
+  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  removeGuardian(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('guardianId') guardianId: string,
+  ) {
+    return this.svc.removeGuardian(user, id, guardianId);
   }
 
   @Post(':id/transfer')

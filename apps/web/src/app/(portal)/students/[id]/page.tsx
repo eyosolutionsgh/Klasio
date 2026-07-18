@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { api, money } from '@/lib/api';
 import StudentLifecycle from '@/components/StudentLifecycle';
 import StudentFiles from '@/components/StudentFiles';
+import StudentGuardians from '@/components/StudentGuardians';
 
 interface Detail {
   id: string;
@@ -103,48 +104,7 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
 
       <div className="grid lg:grid-cols-[1fr_1.3fr] gap-6 mt-8">
         <div className="space-y-6">
-          {/* Guardians */}
-          <section className="card p-6 rise rise-2">
-            <h2 className="font-display text-xl">Guardians</h2>
-            <ul className="mt-4 space-y-4">
-              {s.guardians.map((g) => (
-                <li key={g.id} className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium">
-                      {g.name}
-                      {g.isPrimary && (
-                        <span className="ml-2 text-[10px] uppercase tracking-wider bg-gold-soft text-ink rounded-full px-2 py-0.5">
-                          Primary
-                        </span>
-                      )}
-                    </p>
-                    <p className="text-xs text-oat mt-0.5">
-                      {g.relationship} · <span className="tabular">{g.phone}</span>
-                      {g.whatsappOptIn && ' · WhatsApp ✓'}
-                    </p>
-                  </div>
-                  <span
-                    data-tip={
-                      g.canPickup ? 'Authorized to pick this child up' : 'NOT authorized for pickup'
-                    }
-                    className={`tip text-[10px] uppercase tracking-wider rounded-full px-2 py-1 ${
-                      g.custodyFlag !== 'NONE'
-                        ? 'bg-danger/10 text-danger'
-                        : g.canPickup
-                          ? 'bg-forest-mist text-forest'
-                          : 'bg-parchment text-oat'
-                    }`}
-                  >
-                    {g.custodyFlag !== 'NONE'
-                      ? 'Custody flag'
-                      : g.canPickup
-                        ? 'Pickup ✓'
-                        : 'No pickup'}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </section>
+          <StudentGuardians studentId={s.id} guardians={s.guardians} />
 
           <StudentFiles studentId={s.id} hasPhoto={!!s.photoUrl} />
 
