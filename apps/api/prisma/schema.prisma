@@ -87,6 +87,8 @@ model User {
   updatedAt    DateTime @updatedAt
 
   @@index([schoolId])
+
+  timetableSlots TimetableSlot[]
 }
 
 model AuditLog {
@@ -150,6 +152,12 @@ model Level {
   components      AssessmentComponent[]
 
   @@unique([schoolId, name])
+
+  applicants           Applicant[]
+  customFields         CustomFieldDef[]
+  documentRequirements DocumentRequirement[]
+  calendarEvents       CalendarEvent[]
+  learningResources    LearningResource[]
 }
 
 model ClassRoom {
@@ -163,6 +171,9 @@ model ClassRoom {
   students      Student[]
 
   @@unique([schoolId, name])
+
+  learningResources LearningResource[]
+  timetableSlots    TimetableSlot[]
 }
 
 model Subject {
@@ -176,6 +187,9 @@ model Subject {
   components AssessmentComponent[]
 
   @@unique([schoolId, code])
+
+  learningResources LearningResource[]
+  timetableSlots    TimetableSlot[]
 }
 
 // ── Students & guardians ─────────────────────────────────────────────
@@ -232,6 +246,9 @@ model Student {
 
   @@unique([schoolId, admissionNo])
   @@index([schoolId, classId])
+
+  installments      Installment[]
+  fieldValues       StudentFieldValue[]
 }
 
 /// Files attached to a student (birth certificate, immunisation card, previous report…).
@@ -307,6 +324,8 @@ model Guardian {
   dismissalRequests DismissalRequest[]
 
   @@index([schoolId, phone])
+
+  whatsappConversations WhatsAppConversation[]
 }
 
 /// One-time sign-in codes for the guardian portal. Only a hash of the code is stored, so a
@@ -510,6 +529,8 @@ model Invoice {
   @@unique([schoolId, number])
   @@unique([studentId, termId])
   @@index([schoolId, termId])
+
+  installments Installment[]
 }
 
 enum LedgerType {
@@ -818,4 +839,355 @@ model ScheduledJob {
   updatedAt  DateTime  @updatedAt
 
   @@unique([schoolId, kind])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 2 — money, safety and reach
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One scheduled part-payment of an invoice.
+///
+/// The ledger stays the single source of what is owed; an installment is a *promise* about when
+/// a slice of it falls due, never a second record of the money. Nothing here is summed to build
+/// a balance — that always comes from LedgerEntry.
+model Installment {
+  id        String   @id @default(cuid())
+  schoolId  String
+  studentId String
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  invoiceId String?
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id])
+  termId    String?
+  sequence  Int
+  amount    Decimal  @db.Decimal(12, 2)
+  dueDate   DateTime
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@unique([invoiceId, sequence])
+  @@index([schoolId, dueDate])
+  @@index([schoolId, studentId])
+}
+
+enum SettlementStatus {
+  UNMATCHED
+  MATCHED
+  /// Matched but the amounts differ beyond tolerance — a human must look.
+  DISPUTED
+  IGNORED
+}
+
+/// A settlement file from a gateway: what they say they actually paid the school.
+model SettlementBatch {
+  id           String   @id @default(cuid())
+  schoolId     String
+  provider     GatewayProvider
+  filename     String
+  /// Gross the school expected, net the gateway actually remitted after charges.
+  grossTotal   Decimal  @db.Decimal(12, 2)
+  netTotal     Decimal  @db.Decimal(12, 2)
+  rowCount     Int
+  matchedCount Int      @default(0)
+  uploadedById String?
+  createdAt    DateTime @default(now())
+
+  rows SettlementRow[]
+
+  @@index([schoolId, createdAt])
+}
+
+/// One line of a settlement file, matched against a PaymentIntent by reference.
+model SettlementRow {
+  id         String           @id @default(cuid())
+  schoolId   String
+  batchId    String
+  batch      SettlementBatch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  reference  String
+  gross      Decimal          @db.Decimal(12, 2)
+  /// What the gateway actually remitted; gross minus their charge.
+  net        Decimal          @db.Decimal(12, 2)
+  paidAt     DateTime?
+  status     SettlementStatus @default(UNMATCHED)
+  intentId   String?
+  /// Why this row is disputed or was ignored — always a human sentence, never a code.
+  note       String?
+  resolvedAt DateTime?
+  createdAt  DateTime         @default(now())
+
+  @@index([schoolId, status])
+  @@index([schoolId, reference])
+}
+
+enum ApplicantStage {
+  ENQUIRY
+  APPLIED
+  ASSESSED
+  OFFERED
+  ACCEPTED
+  ENROLLED
+  DECLINED
+}
+
+/// A child applying to the school, before they are a Student.
+///
+/// Deliberately a separate table: an applicant has no class, no ledger and no attendance, and
+/// letting them into Student early would corrupt enrolment counts and the fee cap.
+model Applicant {
+  id           String         @id @default(cuid())
+  schoolId     String
+  firstName    String
+  lastName     String
+  dateOfBirth  DateTime?
+  gender       Gender?
+  levelId      String?
+  level        Level?         @relation(fields: [levelId], references: [id])
+  guardianName String
+  guardianPhone String
+  guardianEmail String?
+  previousSchool String?
+  notes        String?
+  stage        ApplicantStage @default(APPLIED)
+  /// Set when the applicant becomes a Student, so the pipeline keeps an honest history.
+  studentId    String?
+  reference    String
+  decidedAt    DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@unique([schoolId, reference])
+  @@index([schoolId, stage])
+}
+
+enum CustomFieldKind {
+  TEXT
+  NUMBER
+  DATE
+  BOOLEAN
+  CHOICE
+}
+
+/// A school-defined extra field on a student record, optionally only for one level.
+model CustomFieldDef {
+  id        String          @id @default(cuid())
+  schoolId  String
+  label     String
+  kind      CustomFieldKind @default(TEXT)
+  /// CHOICE options; ignored for every other kind.
+  options   Json?
+  levelId   String?
+  level     Level?          @relation(fields: [levelId], references: [id], onDelete: Cascade)
+  required  Boolean         @default(false)
+  order     Int             @default(0)
+  createdAt DateTime        @default(now())
+
+  values StudentFieldValue[]
+
+  @@index([schoolId, levelId])
+}
+
+model StudentFieldValue {
+  id        String         @id @default(cuid())
+  schoolId  String
+  studentId String
+  student   Student        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  fieldId   String
+  field     CustomFieldDef @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  value     String
+  updatedAt DateTime       @updatedAt
+
+  @@unique([studentId, fieldId])
+  @@index([schoolId])
+}
+
+/// A document every child at a level is expected to have on file.
+model DocumentRequirement {
+  id        String   @id @default(cuid())
+  schoolId  String
+  label     String
+  /// Matches StudentDocument.kind, which is how completion is worked out.
+  kind      String
+  levelId   String?
+  level     Level?   @relation(fields: [levelId], references: [id], onDelete: Cascade)
+  required  Boolean  @default(true)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([schoolId, levelId])
+}
+
+enum RemarkKind {
+  TEACHER
+  HEAD
+  CONDUCT
+  INTEREST
+}
+
+/// A reusable report-card comment, so a class teacher writing 40 reports is not starting cold.
+model RemarkBank {
+  id        String     @id @default(cuid())
+  schoolId  String
+  kind      RemarkKind
+  text      String
+  /// Roughly which band this suits, so the editor can offer sensible ones first. Null = any.
+  minScore  Int?
+  maxScore  Int?
+  uses      Int        @default(0)
+  createdAt DateTime   @default(now())
+
+  @@index([schoolId, kind])
+}
+
+enum EventAudience {
+  ALL
+  STAFF
+  GUARDIANS
+  STUDENTS
+}
+
+model CalendarEvent {
+  id          String        @id @default(cuid())
+  schoolId    String
+  title       String
+  details     String?
+  startsAt    DateTime
+  endsAt      DateTime?
+  allDay      Boolean       @default(true)
+  location    String?
+  audience    EventAudience @default(ALL)
+  levelId     String?
+  level       Level?        @relation(fields: [levelId], references: [id], onDelete: SetNull)
+  createdById String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([schoolId, startsAt])
+}
+
+/// A file a teacher shares with a class: notes, homework, past questions.
+model LearningResource {
+  id          String   @id @default(cuid())
+  schoolId    String
+  title       String
+  description String?
+  /// Storage key. Bytes are served through the API, never a public URL.
+  key         String
+  filename    String
+  mimeType    String
+  sizeBytes   Int
+  subjectId   String?
+  subject     Subject? @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  levelId     String?
+  level       Level?   @relation(fields: [levelId], references: [id], onDelete: SetNull)
+  classId     String?
+  classRoom   ClassRoom? @relation(fields: [classId], references: [id], onDelete: SetNull)
+  /// Guardians and students only see it once the teacher publishes.
+  published   Boolean  @default(false)
+  uploadedById String?
+  downloads   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([schoolId, levelId])
+  @@index([schoolId, classId])
+
+  downloadLog ResourceDownload[]
+}
+
+/// Who opened a resource — the catalog asks for download tracking.
+model ResourceDownload {
+  id         String   @id @default(cuid())
+  schoolId   String
+  resourceId String
+  resource   LearningResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  /// Exactly one of these is set, depending on which portal did the download.
+  userId     String?
+  guardianId String?
+  studentId  String?
+  createdAt  DateTime @default(now())
+
+  @@index([schoolId, resourceId])
+}
+
+/// A named slot in the school day — "Period 1", "Break". Shared by every class.
+model TimetablePeriod {
+  id        String   @id @default(cuid())
+  schoolId  String
+  name      String
+  /// Minutes from midnight, so comparisons and clash detection are plain integer maths.
+  startsMin Int
+  endsMin   Int
+  order     Int      @default(0)
+  isBreak   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  slots TimetableSlot[]
+
+  @@index([schoolId, order])
+}
+
+/// One class, one period, one weekday: what is being taught and by whom.
+model TimetableSlot {
+  id        String          @id @default(cuid())
+  schoolId  String
+  classId   String
+  classRoom ClassRoom       @relation(fields: [classId], references: [id], onDelete: Cascade)
+  periodId  String
+  period    TimetablePeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  /// 1 = Monday … 5 = Friday. Ghanaian schools rarely timetable weekends.
+  weekday   Int
+  subjectId String?
+  subject   Subject?        @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  teacherId String?
+  teacher   User?           @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  room      String?
+  createdAt DateTime        @default(now())
+
+  /// A class cannot be in two places in one period. Teacher clashes are checked in code,
+  /// because they span classes and a unique index cannot express "unless the teacher is null".
+  @@unique([classId, periodId, weekday])
+  @@index([schoolId, teacherId, weekday])
+}
+
+enum WhatsAppDirection {
+  INBOUND
+  OUTBOUND
+}
+
+/// A WhatsApp thread with one phone number.
+///
+/// The school never opens one. `windowExpiresAt` is set only by an inbound message and is the
+/// gate on every reply: outside it we cannot answer without a paid template, and this product
+/// has decided not to send those. See WhatsAppMessage.
+model WhatsAppConversation {
+  id              String    @id @default(cuid())
+  schoolId        String
+  phone           String
+  guardianId      String?
+  guardian        Guardian? @relation(fields: [guardianId], references: [id], onDelete: SetNull)
+  /// 24 hours after the guardian's last inbound message. Null or past = we must stay silent.
+  windowExpiresAt DateTime?
+  lastInboundAt   DateTime?
+  lastOutboundAt  DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  messages WhatsAppMessage[]
+
+  @@unique([schoolId, phone])
+  @@index([schoolId, windowExpiresAt])
+}
+
+model WhatsAppMessage {
+  id             String               @id @default(cuid())
+  schoolId       String
+  conversationId String
+  conversation   WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  direction      WhatsAppDirection
+  body           String
+  /// Provider's own id, used to make webhook redelivery idempotent.
+  externalId     String?
+  sentById       String?
+  createdAt      DateTime             @default(now())
+
+  @@unique([schoolId, externalId])
+  @@index([schoolId, conversationId, createdAt])
 }
