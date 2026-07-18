@@ -259,6 +259,9 @@ export default async function ReportCardPage({
           termId={termId}
           role={me.user.role}
           published={!!card.publishedAt}
+          // The average, not the raw total: the bank's bands are written against a mark out of
+          // 100, and a nine-subject total is not comparable with a six-subject one.
+          score={card.lines.length ? card.overallTotal / card.lines.length : undefined}
           initial={{
             conduct: card.conduct,
             interest: card.interest,

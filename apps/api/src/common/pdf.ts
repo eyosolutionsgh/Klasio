@@ -545,6 +545,167 @@ export function broadsheetPdf(data: BroadsheetData): Promise<Buffer> {
   return toBuffer(doc);
 }
 
+// ── Admission letter ─────────────────────────────────────────────────
+
+export interface AdmissionLetterData {
+  school: DocSchool;
+  /** The applicant's own reference (APP-2026-0007), quoted back to the parent. */
+  reference: string;
+  applicant: { name: string; levelName: string | null };
+  guardian: { name: string };
+  /**
+   * OFFERED still reads as an offer that may lapse; ACCEPTED and ENROLLED read as a
+   * confirmation. Same letter, different promise — so the wording follows the pipeline.
+   */
+  stage: 'OFFERED' | 'ACCEPTED' | 'ENROLLED';
+  issuedAt: string | Date;
+  /** When the child is expected to report, when the school has set a next-term date. */
+  resumptionDate?: string | Date | null;
+  /** Admission number — only exists once the applicant has become a student. */
+  admissionNo?: string | null;
+  /** Who signs it, e.g. the head teacher. */
+  signatory: string;
+}
+
+/**
+ * The letter a parent is handed (or emailed) once a place is offered.
+ *
+ * A single page on purpose: it gets printed, signed and carried to the school gate, and the
+ * reference is the only thing the office needs to find the application again.
+ */
+export function admissionLetterPdf(data: AdmissionLetterData): Promise<Buffer> {
+  const doc = new PDFDocument({ size: 'A4', margin: 50 });
+  const left = doc.page.margins.left;
+  const width = doc.page.width - left - doc.page.margins.right;
+  const BRAND = brandOf(data.school);
+  const confirmed = data.stage !== 'OFFERED';
+
+  // Masthead — crest centred over the school's own details, as school letterhead is set.
+  if (drawCrest(doc, data.school, left + width / 2 - 24, doc.y, 48)) doc.y += 56;
+  doc
+    .fillColor(BRAND)
+    .font('Helvetica-Bold')
+    .fontSize(20)
+    .text(data.school.name, left, doc.y, { width, align: 'center' });
+  doc.fillColor(OAT).font('Helvetica-Oblique').fontSize(9);
+  if (data.school.motto) doc.text(data.school.motto, { align: 'center' });
+  doc.font('Helvetica').text([data.school.address, data.school.phone].filter(Boolean).join(' · '), {
+    align: 'center',
+  });
+  doc
+    .moveTo(left, doc.y + 6)
+    .lineTo(left + width, doc.y + 6)
+    .strokeColor(BRAND)
+    .lineWidth(1.5)
+    .stroke();
+  doc.moveDown(1.4);
+
+  // Reference and date sit on one line, the way a letter is filed.
+  const refY = doc.y;
+  doc.fillColor(OAT).font('Helvetica').fontSize(9).text(`Our Ref: ${data.reference}`, left, refY);
+  doc.text(fmtDate(data.issuedAt), left, refY, { width, align: 'right' });
+  doc.moveDown(1.2);
+
+  doc
+    .fillColor(INK)
+    .font('Helvetica-Bold')
+    .fontSize(13)
+    .text(confirmed ? 'CONFIRMATION OF ADMISSION' : 'OFFER OF ADMISSION', left, doc.y, {
+      width,
+      align: 'center',
+    });
+  doc.moveDown(1.2);
+
+  doc.fillColor(INK).font('Helvetica').fontSize(10.5);
+  doc.text(`Dear ${data.guardian.name},`, left, doc.y, { width });
+  doc.moveDown(0.8);
+
+  const place = data.applicant.levelName ? ` into ${data.applicant.levelName}` : '';
+  doc.text(
+    confirmed
+      ? `We are pleased to confirm that ${data.applicant.name} has been admitted to ` +
+          `${data.school.name}${place}. The admission is now complete and the record is on file.`
+      : `We are pleased to offer ${data.applicant.name} a place at ${data.school.name}${place}. ` +
+          `The offer is made on the strength of the application and any assessment carried out, ` +
+          `and is held open until the date given below.`,
+    { width, align: 'justify' },
+  );
+  doc.moveDown(0.9);
+
+  // Facts block — everything the office and the parent both need to quote.
+  const facts: Array<[string, string]> = [
+    ['Applicant', data.applicant.name],
+    ['Application reference', data.reference],
+    ['Class / Level', data.applicant.levelName ?? '—'],
+  ];
+  if (data.admissionNo) facts.push(['Admission number', data.admissionNo]);
+  facts.push([
+    confirmed ? 'Reporting date' : 'Offer to be confirmed by',
+    fmtDate(data.resumptionDate),
+  ]);
+
+  const boxTop = doc.y;
+  const boxH = facts.length * 17 + 16;
+  doc.rect(left, boxTop, width, boxH).fill('#f5f5f4');
+  facts.forEach(([k, v], i) => {
+    const y = boxTop + 9 + i * 17;
+    doc
+      .fillColor(OAT)
+      .font('Helvetica')
+      .fontSize(9.5)
+      .text(`${k}: `, left + 12, y, {
+        continued: true,
+      });
+    doc.fillColor(INK).font('Helvetica-Bold').text(v);
+  });
+  doc.y = boxTop + boxH;
+  doc.x = left;
+  doc.moveDown(1);
+
+  doc.fillColor(INK).font('Helvetica').fontSize(10.5);
+  doc.text(
+    confirmed
+      ? 'Please keep this letter safe. Bring it with you on the first day, together with the ' +
+          "child's birth certificate and any records from a previous school."
+      : 'To take up the place, please report to the school office with this letter, the ' +
+          "child's birth certificate and any records from a previous school. Quote the " +
+          'reference above in any correspondence.',
+    left,
+    doc.y,
+    { width, align: 'justify' },
+  );
+  doc.moveDown(1.4);
+  doc.text('Yours faithfully,', left, doc.y, { width });
+
+  // Signature rule, left where a pen can reach it.
+  doc.moveDown(2.6);
+  const sigY = doc.y;
+  doc
+    .moveTo(left, sigY)
+    .lineTo(left + 200, sigY)
+    .strokeColor(MIST)
+    .lineWidth(0.8)
+    .stroke();
+  doc
+    .fillColor(INK)
+    .font('Helvetica-Bold')
+    .fontSize(10)
+    .text(data.signatory, left, sigY + 5);
+  doc
+    .fillColor(OAT)
+    .font('Helvetica')
+    .fontSize(8.5)
+    .text('for ' + data.school.name, left, doc.y);
+
+  doc
+    .fillColor(OAT)
+    .font('Helvetica')
+    .fontSize(8)
+    .text('Generated by EYO School Management', left, doc.page.height - 60, { width });
+
+  return toBuffer(doc);
+}
+
 // ── Pickup card ──────────────────────────────────────────────────────
 
 export interface PickupCardData {
@@ -628,4 +789,87 @@ export async function pickupCardPdf(data: PickupCardData): Promise<Buffer> {
     doc.fillColor(INK).fontSize(7.5).text(data.school.phone, left, 208, { width });
   }
   return toBuffer(doc);
+}
+
+export interface StudentIdCardData {
+  school: DocSchool;
+  name: string;
+  admissionNo: string;
+  className: string | null;
+  /** JPEG or PNG bytes. pdfkit cannot read WebP, so callers must convert or omit. */
+  photo?: Buffer;
+  /** Encodes the admission number; the gate scanner resolves it like any other pickup code. */
+  qrValue: string;
+  /** Printed small on the back edge so a found card can be returned. */
+  contact?: string | null;
+}
+
+/**
+ * A student ID card, credit-card sized.
+ *
+ * The QR carries the admission number rather than a secret. An ID card is worn all day, left in
+ * bags and dropped in playgrounds — treating it as a credential would mean a lost card could
+ * collect a child. Verification at the gate still goes through the guardian's own QR or PIN;
+ * this one identifies, it does not authorise. That distinction is the whole design.
+ */
+export async function studentIdCardPdf(data: StudentIdCardData): Promise<Buffer> {
+  const qrcode = await import('qrcode');
+  const qr = await qrcode.toBuffer(data.qrValue, { type: 'png', width: 240, margin: 1 });
+
+  // CR80 at 72dpi — the size every card printer and lanyard holder expects.
+  const doc = new PDFDocument({ size: [243, 153], margin: 12 });
+  const BRAND = brandOf(data.school);
+  const chunks: Buffer[] = [];
+  doc.on('data', (c: Buffer) => chunks.push(c));
+  const done = new Promise<Buffer>((resolve) =>
+    doc.on('end', () => resolve(Buffer.concat(chunks))),
+  );
+
+  doc.rect(0, 0, doc.page.width, 26).fill(BRAND);
+  doc
+    .fillColor('#ffffff')
+    .fontSize(9)
+    .font('Helvetica-Bold')
+    .text(data.school.name.toUpperCase().slice(0, 34), 12, 9, { width: 219 });
+
+  const top = 36;
+  if (data.photo) {
+    try {
+      doc.image(data.photo, 12, top, { fit: [56, 68], align: 'center' });
+    } catch {
+      // A corrupt or unsupported image must not cost the school its whole print run.
+    }
+  } else {
+    doc.rect(12, top, 56, 68).fillAndStroke('#f3f0e8', '#ded8c9');
+  }
+
+  const textX = 78;
+  doc
+    .fillColor('#1b2822')
+    .font('Helvetica-Bold')
+    .fontSize(11)
+    .text(data.name, textX, top + 2, { width: 100 });
+  doc
+    .font('Helvetica')
+    .fontSize(8)
+    .fillColor('#6b6455')
+    .text(data.className ?? '—', textX, top + 20, { width: 100 })
+    .text(data.admissionNo, textX, top + 32, { width: 100 });
+
+  doc.image(qr, 181, top + 2, { fit: [50, 50] });
+
+  doc
+    .fontSize(5.5)
+    .fillColor('#6b6455')
+    .text(
+      data.contact
+        ? `If found, please return to ${data.school.name} · ${data.contact}`
+        : `If found, please return to ${data.school.name}`,
+      12,
+      doc.page.height - 20,
+      { width: 219, align: 'center' },
+    );
+
+  doc.end();
+  return done;
 }

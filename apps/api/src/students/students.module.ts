@@ -19,6 +19,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { IsBoolean, IsDateString, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
 import { CustodyFlag, Gender, StudentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { studentIdCardPdf } from '../common/pdf';
 import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
 import { enrolmentHeadroom, studentCapFor } from '../common/entitlements';
 import { demoteOthers, reconcileLink, successorPrimary } from '../common/guardianship';
@@ -641,6 +642,75 @@ export class StudentsService {
     return storage().get(student.photoUrl);
   }
 
+  /**
+   * Printable ID cards for a whole class, or one child.
+   *
+   * The QR carries the admission number, not a secret. A card worn all day and dropped in a
+   * playground must not be able to collect a child — the gate still verifies the *guardian*.
+   * This identifies a pupil; it does not authorise anything.
+   */
+  async idCards(auth: AuthUser, opts: { classId?: string; studentId?: string }) {
+    const students = await this.db.student.findMany({
+      where: {
+        schoolId: auth.schoolId,
+        status: 'ACTIVE',
+        ...(opts.studentId ? { id: opts.studentId } : {}),
+        ...(opts.classId ? { classId: opts.classId } : {}),
+      },
+      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+      include: { classRoom: { select: { name: true } } },
+    });
+    if (students.length === 0) throw new NotFoundException('No active students match that');
+
+    const school = await this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } });
+    const crest = school.logoUrl
+      ? await storage()
+          .get(school.logoUrl)
+          .catch(() => undefined)
+      : undefined;
+
+    const cards: Buffer[] = [];
+    for (const st of students) {
+      // A missing or unreadable photo prints a blank frame rather than failing the batch —
+      // a school printing 40 cards should not lose all of them to one bad upload.
+      const photo = st.photoUrl
+        ? await storage()
+            .get(st.photoUrl)
+            .catch(() => undefined)
+        : undefined;
+      cards.push(
+        await studentIdCardPdf({
+          school: {
+            name: school.name,
+            motto: school.motto,
+            address: school.address,
+            phone: school.phone,
+            brandColor: school.brandColor,
+            logo: crest,
+          },
+          name: `${st.firstName} ${st.lastName}`,
+          admissionNo: st.admissionNo,
+          className: st.classRoom?.name ?? null,
+          photo,
+          qrValue: st.admissionNo,
+          contact: school.phone,
+        }),
+      );
+    }
+
+    await this.db.audit(
+      auth.schoolId,
+      auth.sub,
+      'sis.idcards',
+      'Student',
+      opts.studentId ?? opts.classId,
+      {
+        count: cards.length,
+      },
+    );
+    return { cards, count: students.length };
+  }
+
   async exportStudents(
     auth: AuthUser,
     format: string,
@@ -751,6 +821,23 @@ export class StudentsController {
     @UploadedFile() file: UploadedFileLike,
   ) {
     return this.svc.uploadPhoto(user, id, file);
+  }
+
+  @Get('id-cards/print')
+  @Roles('OWNER', 'HEAD', 'FRONT_DESK')
+  @RequireEntitlement('sis.idcards')
+  async idCards(
+    @CurrentUser() user: AuthUser,
+    @Query('classId') classId?: string,
+    @Query('studentId') studentId?: string,
+  ) {
+    const { cards } = await this.svc.idCards(user, { classId, studentId });
+    // One PDF per card keeps the layout exact for card printers; batches are merged client-side
+    // only when a school wants a sheet, so nothing here has to guess at their stock.
+    return new StreamableFile(cards[0], {
+      type: 'application/pdf',
+      disposition: 'inline; filename="id-card.pdf"',
+    });
   }
 
   @Get(':id/photo')

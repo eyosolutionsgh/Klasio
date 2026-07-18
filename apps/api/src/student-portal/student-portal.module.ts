@@ -10,6 +10,7 @@ import {
   Delete,
   Param,
   Body,
+  StreamableFile,
   UnauthorizedException,
   UseGuards,
   createParamDecorator,
@@ -20,6 +21,8 @@ import * as bcrypt from 'bcryptjs';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, Public, Roles } from '../common/auth';
+import { CalendarModule, CalendarService } from '../calendar/calendar.module';
+import { ResourcesModule, ResourcesService, ResourceScope } from '../resources/resources.module';
 
 const SESSION_DAYS = 30;
 const BCRYPT_ROUNDS = 10;
@@ -67,7 +70,11 @@ export const CurrentStudent = createParamDecorator(
 
 @Injectable()
 export class StudentPortalService {
-  constructor(private db: PrismaService) {}
+  constructor(
+    private db: PrismaService,
+    private calendar: CalendarService,
+    private resources: ResourcesService,
+  ) {}
 
   /** Staff issue a PIN; it is shown once and stored hashed, like the pickup card PIN. */
   async issuePin(auth: AuthUser, studentId: string) {
@@ -194,6 +201,38 @@ export class StudentPortalService {
       publishedAt: n.publishedAt,
     }));
   }
+
+  /** The pupil's own class and its level — the whole of what they may be shown. */
+  private async scope(auth: StudentUser): Promise<ResourceScope> {
+    const student = await this.db.student.findUniqueOrThrow({
+      where: { id: auth.sub },
+      select: { classId: true, classRoom: { select: { levelId: true } } },
+    });
+    return {
+      classIds: student.classId ? [student.classId] : [],
+      levelIds: student.classRoom ? [student.classRoom.levelId] : [],
+    };
+  }
+
+  /** Whole-school and student-facing events only — staff and guardian items stay hidden. */
+  async calendarEvents(auth: StudentUser) {
+    const { levelIds } = await this.scope(auth);
+    return this.calendar.feed(auth.schoolId, 'STUDENTS', levelIds);
+  }
+
+  async learningResources(auth: StudentUser) {
+    return this.resources.feed(auth.schoolId, await this.scope(auth));
+  }
+
+  /** Re-checks the scope on the way out, so a guessed id fetches nothing. */
+  async resourceFile(auth: StudentUser, id: string) {
+    return this.resources.download(
+      auth.schoolId,
+      id,
+      { studentId: auth.sub },
+      await this.scope(auth),
+    );
+  }
 }
 
 @Controller('student')
@@ -218,6 +257,28 @@ export class StudentPortalController {
   notices(@CurrentStudent() s: StudentUser) {
     return this.svc.notices(s);
   }
+
+  @UseGuards(StudentGuard)
+  @Get('calendar')
+  calendar(@CurrentStudent() s: StudentUser) {
+    return this.svc.calendarEvents(s);
+  }
+
+  @UseGuards(StudentGuard)
+  @Get('resources')
+  resources(@CurrentStudent() s: StudentUser) {
+    return this.svc.learningResources(s);
+  }
+
+  @UseGuards(StudentGuard)
+  @Get('resources/:id/file')
+  async resourceFile(@CurrentStudent() s: StudentUser, @Param('id') id: string) {
+    const { buffer, resource } = await this.svc.resourceFile(s, id);
+    return new StreamableFile(buffer, {
+      type: resource.mimeType,
+      disposition: `attachment; filename="${resource.filename.replace(/"/g, '')}"`,
+    });
+  }
 }
 
 /** Staff-side: issuing and revoking a student's portal PIN. */
@@ -239,6 +300,7 @@ export class StudentPinController {
 }
 
 @Module({
+  imports: [CalendarModule, ResourcesModule],
   controllers: [StudentPortalController, StudentPinController],
   providers: [StudentPortalService, StudentGuard],
   exports: [StudentPortalService],

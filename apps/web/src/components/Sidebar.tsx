@@ -37,6 +37,14 @@ const NAV: NavItem[] = [
     tip: 'Student records and guardians',
   },
   {
+    href: '/admissions',
+    label: 'Admissions',
+    icon: 'M15 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4zM6 8V5H4v3H1v2h3v3h2v-3h3V8H6z',
+    tip: 'Applications from first enquiry to enrolment',
+    needs: 'sis.admissions',
+    roles: ADMIN,
+  },
+  {
     href: '/attendance',
     label: 'Attendance',
     icon: 'M9 16.2l-3.5-3.5L4 14.2 9 19.2 20 8.2l-1.5-1.4L9 16.2z',
@@ -47,6 +55,13 @@ const NAV: NavItem[] = [
     label: 'Marks Entry',
     icon: 'M3 17.2V21h3.8L17.8 9.9l-3.7-3.7L3 17.2zM20.7 7c.4-.4.4-1 0-1.4l-2.3-2.3c-.4-.4-1-.4-1.4 0l-1.8 1.8 3.7 3.7L20.7 7z',
     tip: 'Enter SBA and exam scores',
+  },
+  {
+    href: '/timetable',
+    label: 'Timetable',
+    icon: 'M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z',
+    tip: 'The weekly grid for a class or a teacher',
+    needs: 'timetable.core',
   },
   {
     href: '/reports',
@@ -75,6 +90,19 @@ const NAV: NavItem[] = [
     tip: 'Notices for staff and guardians',
   },
   {
+    href: '/calendar',
+    label: 'Calendar',
+    icon: 'M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2zm0 16H5V10h14v10zm-7-7h5v5h-5v-5z',
+    tip: 'Term dates, examinations and school events',
+  },
+  {
+    href: '/resources',
+    label: 'Resources',
+    icon: 'M4 6H2v14a2 2 0 002 2h14v-2H4V6zm16-4H8a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V4a2 2 0 00-2-2zm-2 9H10V9h8v2zm-3 4h-5v-2h5v2zm3-8H10V5h8v2z',
+    tip: 'Notes and past questions shared with a class',
+    needs: 'resources.documents',
+  },
+  {
     href: '/messaging',
     label: 'Messaging',
     icon: 'M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 9h-2V9h2v2zm0-4h-2V5h2v2z',
@@ -93,6 +121,13 @@ const NAV: NavItem[] = [
     label: 'Profile & Branding',
     icon: 'M12 3l2.4 5 5.6.8-4 3.9 1 5.5-5-2.6-5 2.6 1-5.5-4-3.9 5.6-.8L12 3z',
     tip: 'Your crest, colour and contact details',
+    roles: ADMIN,
+  },
+  {
+    href: '/settings/records',
+    label: 'Records Setup',
+    icon: 'M19 3h-4.2A3 3 0 0012 1a3 3 0 00-2.8 2H5a2 2 0 00-2 2v16a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm-7 0a1 1 0 110 2 1 1 0 010-2zm-2 15l-3-3 1.4-1.4L10 15.2l5.6-5.6L17 11l-7 7z',
+    tip: 'Extra student fields, required documents and the remark bank',
     roles: ADMIN,
   },
   {

@@ -19,6 +19,15 @@ import { GuardianModule } from './guardian/guardian.module';
 import { PaymentsModule } from './payments/payments.module';
 import { PickupModule } from './pickup/pickup.module';
 import { StudentPortalModule } from './student-portal/student-portal.module';
+import { ReconciliationModule } from './reconciliation/reconciliation.module';
+import { WhatsAppModule } from './whatsapp/whatsapp.module';
+import { AdmissionsModule } from './admissions/admissions.module';
+import { CalendarModule } from './calendar/calendar.module';
+import { ResourcesModule } from './resources/resources.module';
+import { TimetableModule } from './timetable/timetable.module';
+import { CustomFieldsModule } from './customfields/customfields.module';
+import { RemarksModule } from './remarks/remarks.module';
+import { ReturnsModule } from './returns/returns.module';
 
 @Module({
   imports: [
@@ -39,6 +48,15 @@ import { StudentPortalModule } from './student-portal/student-portal.module';
     PaymentsModule,
     PickupModule,
     StudentPortalModule,
+    ReconciliationModule,
+    WhatsAppModule,
+    AdmissionsModule,
+    CalendarModule,
+    ResourcesModule,
+    TimetableModule,
+    CustomFieldsModule,
+    RemarksModule,
+    ReturnsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: AuthGuard },

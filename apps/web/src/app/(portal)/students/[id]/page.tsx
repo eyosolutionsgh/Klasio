@@ -5,6 +5,8 @@ import StudentFiles from '@/components/StudentFiles';
 import StudentGuardians from '@/components/StudentGuardians';
 import StudentExtras from '@/components/StudentExtras';
 import MedicalNotes from '@/components/MedicalNotes';
+import StudentCustomFields from '@/components/StudentCustomFields';
+import StudentChecklist from '@/components/StudentChecklist';
 import GrantConcession from '@/components/GrantConcession';
 import PickupList from '@/components/PickupList';
 import CumulativeRecord from '@/components/CumulativeRecord';
@@ -114,6 +116,10 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
           <StudentGuardians studentId={s.id} guardians={s.guardians} />
 
           <StudentFiles studentId={s.id} hasPhoto={!!s.photoUrl} />
+
+          <StudentChecklist studentId={s.id} />
+
+          <StudentCustomFields studentId={s.id} />
 
           <PickupList studentId={s.id} />
 

@@ -3,6 +3,93 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+type RemarkKind = 'TEACHER' | 'HEAD' | 'CONDUCT' | 'INTEREST';
+
+interface BankEntry {
+  id: string;
+  text: string;
+  minScore: number | null;
+  maxScore: number | null;
+  uses: number;
+  matchesBand: boolean;
+}
+
+/**
+ * The school's banked phrasing for one field, offered rather than imposed.
+ *
+ * Loaded on demand: a teacher writing their own comment should not pay for a fetch they never
+ * look at, and the bank only helps at the moment someone is stuck. Picking one replaces the
+ * field — the text stays editable afterwards, so it is a starting point, not a stamp.
+ */
+function RemarkPicker({
+  kind,
+  score,
+  onPick,
+}: {
+  kind: RemarkKind;
+  score?: number;
+  onPick: (text: string) => void;
+}) {
+  const [entries, setEntries] = useState<BankEntry[] | null>(null);
+  const [open, setOpen] = useState(false);
+
+  async function toggle() {
+    if (open) return setOpen(false);
+    setOpen(true);
+    if (entries) return;
+    const query = new URLSearchParams({ kind });
+    // The score is what makes the offer worth reading: banded comments come back first.
+    if (typeof score === 'number') query.set('score', String(Math.round(score)));
+    const res = await fetch(`/api/proxy/remarks?${query}`);
+    setEntries(res.ok ? await res.json() : []);
+  }
+
+  function pick(entry: BankEntry) {
+    onPick(entry.text);
+    setOpen(false);
+    // Counting the use is what lets the school's own house style float to the top over a term.
+    // Failing to count it must never cost the teacher their comment, so it is not awaited.
+    fetch(`/api/proxy/remarks/${entry.id}/use`, { method: 'POST' }).catch(() => undefined);
+  }
+
+  return (
+    <span className="block mt-1">
+      <button
+        type="button"
+        onClick={toggle}
+        className="text-[11.5px] text-brand hover:underline underline-offset-2"
+      >
+        {open ? 'Hide bank' : 'Choose from bank'}
+      </button>
+      {open && (
+        <span className="block mt-1.5 space-y-1">
+          {entries === null && <span className="block text-[11px] text-oat">Loading…</span>}
+          {entries?.length === 0 && (
+            <span className="block text-[11px] text-oat">
+              Nothing banked for this yet — add some under Records setup.
+            </span>
+          )}
+          {entries?.map((e) => (
+            <button
+              key={e.id}
+              type="button"
+              onClick={() => pick(e)}
+              className="block w-full text-left text-[12.5px] rounded-lg border border-mist px-2.5 py-1.5 hover:border-brand hover:bg-parchment/60 transition"
+            >
+              {e.text}
+              {e.matchesBand && (
+                <span className="text-[10px] text-oat ml-2 tabular">
+                  {e.minScore ?? 0}–{e.maxScore ?? 100}
+                </span>
+              )}
+            </button>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
+
 /**
  * Inline editing of the human parts of a terminal report. The head teacher's remark is only
  * offered to HEAD/OWNER — the API enforces the same rule, this just avoids showing a field
@@ -13,12 +100,15 @@ export default function ReportRemarks({
   termId,
   role,
   published,
+  score,
   initial,
 }: {
   studentId: string;
   termId: string;
   role: string;
   published: boolean;
+  /** This child's average out of 100, used to offer band-appropriate remarks first. */
+  score?: number;
   initial: {
     conduct: string | null;
     interest: string | null;
@@ -71,37 +161,53 @@ export default function ReportRemarks({
       <h3 className="font-display text-lg">Remarks</h3>
       <p className="text-xs text-oat mt-1">These appear on the printed report card and the PDF.</p>
       <div className="grid sm:grid-cols-2 gap-3 mt-4">
-        <label className="text-[13px]">
-          <span className="block text-oat mb-1">Conduct</span>
-          <input value={conduct} onChange={(e) => setConduct(e.target.value)} className={field} />
-        </label>
-        <label className="text-[13px]">
-          <span className="block text-oat mb-1">Interest</span>
-          <input value={interest} onChange={(e) => setInterest(e.target.value)} className={field} />
-        </label>
+        <div className="text-[13px]">
+          <label className="block">
+            <span className="block text-oat mb-1">Conduct</span>
+            <input value={conduct} onChange={(e) => setConduct(e.target.value)} className={field} />
+          </label>
+          <RemarkPicker kind="CONDUCT" score={score} onPick={setConduct} />
+        </div>
+        <div className="text-[13px]">
+          <label className="block">
+            <span className="block text-oat mb-1">Interest</span>
+            <input
+              value={interest}
+              onChange={(e) => setInterest(e.target.value)}
+              className={field}
+            />
+          </label>
+          <RemarkPicker kind="INTEREST" score={score} onPick={setInterest} />
+        </div>
       </div>
-      <label className="block text-[13px] mt-3">
-        <span className="block text-oat mb-1">Class teacher&apos;s remark</span>
-        <textarea
-          rows={2}
-          value={teacherRemark}
-          onChange={(e) => setTeacherRemark(e.target.value)}
-          className={field}
-        />
-      </label>
-      <label className="block text-[13px] mt-3">
-        <span className="block text-oat mb-1">
-          Head teacher&apos;s remark
-          {!isHead && <span className="ml-2 text-[11px]">(head teacher only)</span>}
-        </span>
-        <textarea
-          rows={2}
-          value={headRemark}
-          disabled={!isHead}
-          onChange={(e) => setHeadRemark(e.target.value)}
-          className={`${field} disabled:bg-parchment/60 disabled:text-oat`}
-        />
-      </label>
+      <div className="text-[13px] mt-3">
+        <label className="block">
+          <span className="block text-oat mb-1">Class teacher&apos;s remark</span>
+          <textarea
+            rows={2}
+            value={teacherRemark}
+            onChange={(e) => setTeacherRemark(e.target.value)}
+            className={field}
+          />
+        </label>
+        <RemarkPicker kind="TEACHER" score={score} onPick={setTeacherRemark} />
+      </div>
+      <div className="text-[13px] mt-3">
+        <label className="block">
+          <span className="block text-oat mb-1">
+            Head teacher&apos;s remark
+            {!isHead && <span className="ml-2 text-[11px]">(head teacher only)</span>}
+          </span>
+          <textarea
+            rows={2}
+            value={headRemark}
+            disabled={!isHead}
+            onChange={(e) => setHeadRemark(e.target.value)}
+            className={`${field} disabled:bg-parchment/60 disabled:text-oat`}
+          />
+        </label>
+        {isHead && <RemarkPicker kind="HEAD" score={score} onPick={setHeadRemark} />}
+      </div>
       <div className="flex items-center gap-3 mt-4">
         <button
           onClick={save}

@@ -22,6 +22,8 @@ import { createHash, randomInt, timingSafeEqual } from 'crypto';
 import { PrismaService, withTenant } from '../prisma/prisma.service';
 import { FeesModule, FeesService } from '../fees/fees.module';
 import { PaymentsModule, PaymentsService } from '../payments/payments.module';
+import { CalendarModule, CalendarService } from '../calendar/calendar.module';
+import { ResourcesModule, ResourcesService, ResourceScope } from '../resources/resources.module';
 import { Public } from '../common/auth';
 import { maskMsisdn, normalizeMsisdn } from '../common/phone';
 import { reportCardPdf, ReportCardData } from '../common/pdf';
@@ -94,6 +96,8 @@ export class GuardianService {
     private db: PrismaService,
     private fees: FeesService,
     private payments: PaymentsService,
+    private calendar: CalendarService,
+    private resources: ResourcesService,
   ) {}
 
   /**
@@ -488,6 +492,47 @@ export class GuardianService {
       publishedAt: n.publishedAt,
     }));
   }
+
+  /**
+   * The classes and levels the caller's own wards sit in. Custody-blocked links are left out
+   * here for the same reason as everywhere else: that guardian is not part of the child's
+   * school life, so the child's class shelf is not theirs to read either.
+   */
+  private async scope(auth: GuardianUser): Promise<ResourceScope> {
+    const links = await this.db.studentGuardian.findMany({
+      where: {
+        guardianId: auth.sub,
+        custodyFlag: { not: 'BLOCKED' },
+        student: { schoolId: auth.schoolId },
+      },
+      select: { student: { select: { classId: true, classRoom: { select: { levelId: true } } } } },
+    });
+    const classIds = links.map((l) => l.student.classId).filter((id): id is string => !!id);
+    const levelIds = links
+      .map((l) => l.student.classRoom?.levelId)
+      .filter((id): id is string => !!id);
+    return { classIds, levelIds };
+  }
+
+  /** Whole-school and guardian-facing events only — never anything written for staff. */
+  async calendarEvents(auth: GuardianUser) {
+    const { levelIds } = await this.scope(auth);
+    return this.calendar.feed(auth.schoolId, 'GUARDIANS', levelIds);
+  }
+
+  async learningResources(auth: GuardianUser) {
+    return this.resources.feed(auth.schoolId, await this.scope(auth));
+  }
+
+  /** Re-checks the scope on the way out, so a guessed id fetches nothing. */
+  async resourceFile(auth: GuardianUser, id: string) {
+    return this.resources.download(
+      auth.schoolId,
+      id,
+      { guardianId: auth.sub },
+      await this.scope(auth),
+    );
+  }
 }
 
 @Controller('guardian')
@@ -592,10 +637,29 @@ export class GuardianPortalController {
   notices(@CurrentGuardian() g: GuardianUser) {
     return this.svc.announcements(g);
   }
+
+  @Get('calendar')
+  calendar(@CurrentGuardian() g: GuardianUser) {
+    return this.svc.calendarEvents(g);
+  }
+
+  @Get('resources')
+  resources(@CurrentGuardian() g: GuardianUser) {
+    return this.svc.learningResources(g);
+  }
+
+  @Get('resources/:id/file')
+  async resourceFile(@CurrentGuardian() g: GuardianUser, @Param('id') id: string) {
+    const { buffer, resource } = await this.svc.resourceFile(g, id);
+    return new StreamableFile(buffer, {
+      type: resource.mimeType,
+      disposition: `attachment; filename="${resource.filename.replace(/"/g, '')}"`,
+    });
+  }
 }
 
 @Module({
-  imports: [FeesModule, PaymentsModule],
+  imports: [FeesModule, PaymentsModule, CalendarModule, ResourcesModule],
   controllers: [GuardianAuthController, GuardianPortalController],
   providers: [GuardianService, GuardianGuard],
 })

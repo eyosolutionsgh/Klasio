@@ -19,16 +19,19 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import {
+  IsArray,
   IsBoolean,
   IsDateString,
   IsEnum,
   IsIn,
+  IsInt,
   IsNumber,
   IsOptional,
   IsPositive,
   IsString,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -110,6 +113,33 @@ class UpdateFeeItemDto {
   @IsOptional() @IsNumber() @Min(0) amount?: number;
   @IsOptional() @IsString() levelId?: string | null;
   @IsOptional() @IsBoolean() optional?: boolean;
+}
+
+/** One slice of a payment plan. Validated in the service against the bill it splits. */
+class InstallmentPartDto {
+  @IsNumber() @IsPositive() amount: number;
+  @IsDateString() dueDate: string;
+  @IsOptional() @IsString() note?: string;
+}
+
+class InstallmentPlanDto {
+  @IsString() studentId: string;
+  @IsOptional() @IsString() invoiceId?: string;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InstallmentPartDto)
+  parts: InstallmentPartDto[];
+}
+
+class RolloverDto {
+  @IsString() fromTermId: string;
+  @IsString() toTermId: string;
+}
+
+class TopUpDto {
+  @IsInt() @Min(1) credits: number;
+  /** How the school paid for them — ties the credits to a real transfer. */
+  @IsString() @MinLength(3) reference: string;
 }
 
 @Injectable()
@@ -941,6 +971,207 @@ export class FeesService {
       balanceAfter: Math.round(balanceAfter * 100) / 100,
     });
   }
+
+  // ── Installments ───────────────────────────────────────────────────
+
+  /**
+   * Agree a payment plan for a bill.
+   *
+   * An installment is a promise about *when*, never a second record of the money. Nothing here
+   * writes to the ledger, and no balance is ever derived by summing installments — the ledger
+   * remains the only source of what is owed. Getting that wrong double-counts a term.
+   */
+  async setInstallmentPlan(auth: AuthUser, dto: InstallmentPlanDto) {
+    const student = await this.db.student.findFirst({
+      where: { id: dto.studentId, schoolId: auth.schoolId },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+    if (dto.parts.length === 0) throw new BadRequestException('Add at least one instalment');
+    if (dto.parts.some((p) => !(p.amount > 0))) {
+      throw new BadRequestException('Every instalment must be more than zero');
+    }
+
+    const total = dto.parts.reduce((a, p) => a + p.amount, 0);
+    // A plan has to add up to the bill it splits, or it is not a plan for that bill.
+    if (dto.invoiceId) {
+      const invoice = await this.db.invoice.findFirst({
+        where: { id: dto.invoiceId, schoolId: auth.schoolId, studentId: dto.studentId },
+      });
+      if (!invoice) throw new NotFoundException('Invoice not found for this student');
+      if (Math.abs(Math.round((total - Number(invoice.total)) * 100)) > 1) {
+        throw new BadRequestException(
+          `The instalments add up to ${total.toFixed(2)} but the bill is ${Number(invoice.total).toFixed(2)}`,
+        );
+      }
+    }
+
+    const term = await this.db.term.findFirst({
+      where: { isCurrent: true, academicYear: { schoolId: auth.schoolId, isCurrent: true } },
+    });
+
+    // Replace rather than append: a student has one live plan per invoice, and leaving the old
+    // rows behind would silently double the schedule.
+    await this.db.installment.deleteMany({
+      where: {
+        schoolId: auth.schoolId,
+        studentId: dto.studentId,
+        ...(dto.invoiceId ? { invoiceId: dto.invoiceId } : { invoiceId: null }),
+      },
+    });
+    await this.db.installment.createMany({
+      data: dto.parts.map((part, i) => ({
+        schoolId: auth.schoolId,
+        studentId: dto.studentId,
+        invoiceId: dto.invoiceId ?? null,
+        termId: term?.id ?? null,
+        sequence: i + 1,
+        amount: new Prisma.Decimal(part.amount),
+        dueDate: new Date(part.dueDate),
+        note: part.note ?? null,
+      })),
+    });
+
+    await this.db.audit(
+      auth.schoolId,
+      auth.sub,
+      'fees.installment-plan',
+      'Student',
+      dto.studentId,
+      {
+        parts: dto.parts.length,
+        total,
+      },
+    );
+    return this.installments(auth, dto.studentId);
+  }
+
+  /**
+   * A student's schedule, each instalment marked against what has actually been paid.
+   *
+   * Credit is applied oldest-first. That is a presentation choice, not a second ledger: the
+   * money is untouched, we are only saying which promise it covers.
+   */
+  async installments(auth: AuthUser, studentId: string) {
+    const rows = await this.db.installment.findMany({
+      where: { schoolId: auth.schoolId, studentId },
+      orderBy: [{ dueDate: 'asc' }, { sequence: 'asc' }],
+    });
+    if (rows.length === 0) return { parts: [], paidTotal: 0, scheduledTotal: 0, overdue: 0 };
+
+    const entries = await this.db.ledgerEntry.findMany({
+      where: {
+        schoolId: auth.schoolId,
+        studentId,
+        type: { in: ['PAYMENT', 'DISCOUNT', 'WAIVER'] },
+      },
+    });
+    let credit = entries.reduce((a, e) => a + Number(e.amount), 0);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    let overdue = 0;
+
+    const parts = rows.map((r) => {
+      const amount = Number(r.amount);
+      const covered = Math.min(credit, amount);
+      credit -= covered;
+      const settled = Math.round((amount - covered) * 100) <= 0;
+      const isOverdue = !settled && r.dueDate < today;
+      if (isOverdue) overdue += 1;
+      return {
+        id: r.id,
+        sequence: r.sequence,
+        amount,
+        paid: Math.round(covered * 100) / 100,
+        outstanding: Math.round((amount - covered) * 100) / 100,
+        dueDate: r.dueDate,
+        note: r.note,
+        status: settled ? 'PAID' : isOverdue ? 'OVERDUE' : 'DUE',
+      };
+    });
+
+    return {
+      parts,
+      scheduledTotal: Math.round(rows.reduce((a, r) => a + Number(r.amount), 0) * 100) / 100,
+      paidTotal: Math.round(parts.reduce((a, p) => a + p.paid, 0) * 100) / 100,
+      overdue,
+    };
+  }
+
+  // ── Fee structure rollover ─────────────────────────────────────────
+
+  /**
+   * Copy a term's fee items into the next term.
+   *
+   * Without this a school retypes its whole fee structure three times a year, and invoice
+   * generation simply refuses until they do. Items already in the target term are left alone and
+   * reported as skipped — re-running must never duplicate a fee.
+   */
+  async rolloverFeeItems(auth: AuthUser, dto: RolloverDto) {
+    const [from, to] = await Promise.all([
+      this.db.term.findFirst({
+        where: { id: dto.fromTermId, academicYear: { schoolId: auth.schoolId } },
+      }),
+      this.db.term.findFirst({
+        where: { id: dto.toTermId, academicYear: { schoolId: auth.schoolId } },
+      }),
+    ]);
+    if (!from || !to) throw new NotFoundException('Term not found');
+    if (from.id === to.id) throw new BadRequestException('Choose two different terms');
+
+    const [source, existing] = await Promise.all([
+      this.db.feeItem.findMany({ where: { schoolId: auth.schoolId, termId: from.id } }),
+      this.db.feeItem.findMany({ where: { schoolId: auth.schoolId, termId: to.id } }),
+    ]);
+    if (source.length === 0) throw new BadRequestException(`${from.name} has no fee items to copy`);
+
+    const seen = new Set(existing.map((e) => `${e.name}::${e.levelId ?? ''}`));
+    const fresh = source.filter((i) => !seen.has(`${i.name}::${i.levelId ?? ''}`));
+
+    if (fresh.length > 0) {
+      await this.db.feeItem.createMany({
+        data: fresh.map((i) => ({
+          schoolId: auth.schoolId,
+          termId: to.id,
+          levelId: i.levelId,
+          name: i.name,
+          amount: i.amount,
+          optional: i.optional,
+        })),
+      });
+    }
+
+    await this.db.audit(auth.schoolId, auth.sub, 'fees.rollover', 'Term', to.id, {
+      from: from.name,
+      to: to.name,
+      copied: fresh.length,
+      skipped: source.length - fresh.length,
+    });
+    return { copied: fresh.length, skipped: source.length - fresh.length, toTerm: to.name };
+  }
+
+  // ── SMS credits ────────────────────────────────────────────────────
+
+  /**
+   * Record SMS credits the school has bought.
+   *
+   * Credits were only ever decremented, so a school ran dry with no way back. This records a
+   * purchase settled outside the system (bank transfer or MoMo to the vendor) and the reference
+   * ties it to that payment — deliberately not a card checkout, since we are not selling credits
+   * through the gateway parents pay school fees with.
+   */
+  async topUpSms(auth: AuthUser, dto: TopUpDto) {
+    const school = await this.db.school.update({
+      where: { id: auth.schoolId },
+      data: { smsCredits: { increment: dto.credits } },
+      select: { smsCredits: true },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'sms.topup', 'School', auth.schoolId, {
+      credits: dto.credits,
+      reference: dto.reference,
+    });
+    return { credits: school.smsCredits, added: dto.credits };
+  }
 }
 
 @Controller('fees')
@@ -1055,6 +1286,32 @@ export class FeesController {
   @Roles('OWNER', 'HEAD')
   concession(@CurrentUser() user: AuthUser, @Body() dto: ConcessionDto) {
     return this.svc.grantConcession(user, dto);
+  }
+
+  @Get('installments/:studentId')
+  @Roles('OWNER', 'HEAD', 'BURSAR', 'FRONT_DESK')
+  @RequireEntitlement('fees.installments')
+  installments(@CurrentUser() user: AuthUser, @Param('studentId') studentId: string) {
+    return this.svc.installments(user, studentId);
+  }
+
+  @Post('installments')
+  @Roles('OWNER', 'HEAD', 'BURSAR')
+  @RequireEntitlement('fees.installments')
+  setInstallments(@CurrentUser() user: AuthUser, @Body() dto: InstallmentPlanDto) {
+    return this.svc.setInstallmentPlan(user, dto);
+  }
+
+  @Post('items/rollover')
+  @Roles('OWNER', 'HEAD', 'BURSAR')
+  rollover(@CurrentUser() user: AuthUser, @Body() dto: RolloverDto) {
+    return this.svc.rolloverFeeItems(user, dto);
+  }
+
+  @Post('sms/topup')
+  @Roles('OWNER', 'HEAD')
+  topUp(@CurrentUser() user: AuthUser, @Body() dto: TopUpDto) {
+    return this.svc.topUpSms(user, dto);
   }
 
   @Post('invoices/generate')

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { reportCardPdf, receiptPdf, broadsheetPdf, ReportCardData } from './pdf';
+import {
+  admissionLetterPdf,
+  reportCardPdf,
+  receiptPdf,
+  broadsheetPdf,
+  ReportCardData,
+} from './pdf';
 
 const baseCard: ReportCardData = {
   schemeKind: 'GES_CLASSIC',
@@ -66,6 +72,36 @@ describe('PDF builders', () => {
       currency: 'GHS',
       note: null,
       balanceAfter: 250,
+    });
+    expect(isPdf(buf)).toBe(true);
+  });
+
+  it('renders an admission letter as an offer', async () => {
+    const buf = await admissionLetterPdf({
+      school: { name: 'Brighton', motto: 'Knowledge', address: 'Accra', phone: '024' },
+      reference: 'APP-2026-0007',
+      applicant: { name: 'Kofi Boateng', levelName: 'Class 1' },
+      guardian: { name: 'Akosua Boateng' },
+      stage: 'OFFERED',
+      issuedAt: new Date('2026-07-01'),
+      resumptionDate: '2026-09-14',
+      signatory: 'Mrs. Adjei',
+    });
+    expect(isPdf(buf)).toBe(true);
+    expect(buf.length).toBeGreaterThan(500);
+  });
+
+  it('renders an admission letter for an enrolled child, with the admission number', async () => {
+    const buf = await admissionLetterPdf({
+      school: { name: 'Brighton', motto: null, address: null, phone: null, logo: null },
+      reference: 'APP-2026-0008',
+      applicant: { name: 'Ama Mensah', levelName: null },
+      guardian: { name: 'Yaw Mensah' },
+      stage: 'ENROLLED',
+      issuedAt: '2026-07-02',
+      resumptionDate: null,
+      admissionNo: 'BA-0042',
+      signatory: 'Mrs. Adjei',
     });
     expect(isPdf(buf)).toBe(true);
   });
