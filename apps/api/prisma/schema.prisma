@@ -207,6 +207,7 @@ model Student {
   ledger       LedgerEntry[]
   documents      StudentDocument[]
   bankDeposits   BankDeposit[]
+  paymentIntents PaymentIntent[]
 
   @@unique([schoolId, admissionNo])
   @@index([schoolId, classId])
@@ -443,6 +444,8 @@ model Invoice {
   total     Decimal  @db.Decimal(12, 2)
   createdAt DateTime @default(now())
 
+  paymentIntents PaymentIntent[]
+
   @@unique([schoolId, number])
   @@unique([studentId, termId])
   @@index([schoolId, termId])
@@ -496,6 +499,97 @@ model Receipt {
   issuedAt      DateTime    @default(now())
 
   @@unique([schoolId, number])
+}
+
+// ── Online payments (Medium: fees.online) ────────────────────────────
+
+enum GatewayProvider {
+  HUBTEL
+  PAYSTACK
+  MOCK
+}
+
+enum GatewayMode {
+  TEST
+  LIVE
+}
+
+enum PaymentChannel {
+  MOMO
+  CARD
+  USSD
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  EXPIRED
+}
+
+/// Per-school merchant credentials. `secretEnc` is AES-256-GCM ciphertext (common/crypto.ts);
+/// plaintext secrets are never stored or returned by the API.
+model GatewayAccount {
+  id             String          @id @default(cuid())
+  schoolId       String
+  provider       GatewayProvider
+  mode           GatewayMode     @default(TEST)
+  publicKey      String?
+  secretEnc      String
+  merchantNumber String? // Hubtel merchant account number
+  subaccountCode String? // Paystack subaccount, if split settlement is used
+  active         Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@unique([schoolId, provider])
+}
+
+/// One attempt to collect money. Only a SUCCESS ever writes to the ledger, and it does so
+/// with `reference` — LedgerEntry.reference is unique, which makes application idempotent.
+model PaymentIntent {
+  id          String          @id @default(cuid())
+  schoolId    String
+  studentId   String
+  student     Student         @relation(fields: [studentId], references: [id])
+  invoiceId   String?
+  invoice     Invoice?        @relation(fields: [invoiceId], references: [id])
+  termId      String?
+  amount      Decimal         @db.Decimal(12, 2)
+  currency    String          @default("GHS")
+  reference   String          @unique
+  provider    GatewayProvider
+  channel     PaymentChannel
+  status      PaymentStatus   @default(PENDING)
+  providerRef String?
+  checkoutUrl String?
+  /// Opaque token for the public (unauthenticated) pay link shared with guardians.
+  payToken    String?         @unique
+  payerPhone  String?
+  failureCode String?
+  createdById String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([schoolId, status])
+  @@index([schoolId, createdAt])
+}
+
+/// Raw gateway callbacks. `providerEventId` is unique so a replayed webhook is a no-op.
+model WebhookEvent {
+  id              String          @id @default(cuid())
+  provider        GatewayProvider
+  providerEventId String
+  schoolId        String?
+  reference       String?
+  verified        Boolean         @default(false)
+  payload         Json
+  error           String?
+  receivedAt      DateTime        @default(now())
+  processedAt     DateTime?
+
+  @@unique([provider, providerEventId])
+  @@index([reference])
 }
 
 // ── Communication ────────────────────────────────────────────────────
