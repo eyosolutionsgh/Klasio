@@ -40,6 +40,8 @@ model School {
   currency  String   @default("GHS")
   tier      Tier     @default(BASIC)
   logoUrl   String?
+  smsSenderId String? // registered SMS sender ID (e.g. "BRIGHTON")
+  smsCredits  Int      @default(0) // pay-as-you-go SMS units the school has bought
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -117,13 +119,15 @@ enum LevelCategory {
 }
 
 model Level {
-  id       String        @id @default(cuid())
-  schoolId String
-  school   School        @relation(fields: [schoolId], references: [id])
-  name     String
-  category LevelCategory
-  order    Int
-  classes  ClassRoom[]
+  id              String         @id @default(cuid())
+  schoolId        String
+  school          School         @relation(fields: [schoolId], references: [id])
+  name            String
+  category        LevelCategory
+  order           Int
+  gradingSchemeId String? // which grading scheme this level's reports use (per-level selection)
+  gradingScheme   GradingScheme? @relation(fields: [gradingSchemeId], references: [id])
+  classes         ClassRoom[]
 
   @@unique([schoolId, name])
 }
@@ -181,6 +185,8 @@ model Student {
   classRoom    ClassRoom?    @relation(fields: [classId], references: [id])
   status       StudentStatus @default(ACTIVE)
   enrolledAt   DateTime      @default(now())
+  exitDate     DateTime? // set on transfer / withdrawal / graduation
+  exitReason   String?
   medicalNotes String?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
@@ -270,8 +276,9 @@ model GradingScheme {
   schoolId String
   name     String
   kind     GradingKind
-  /// bands: [{ min, max, grade, remark }]
+  /// bands: [{ min, max, grade, remark }] — for NaCCA/early-years, `grade` carries the proficiency label
   bands    Json
+  levels   Level[]
 
   @@unique([schoolId, name])
 }
@@ -424,4 +431,29 @@ model Announcement {
   publishedAt DateTime  @default(now())
 
   @@index([schoolId, publishedAt])
+}
+
+enum SmsStatus {
+  QUEUED
+  SENT
+  FAILED
+}
+
+/// Outbound bulk-SMS log. One row per recipient; `cost` debits School.smsCredits.
+model SmsMessage {
+  id          String    @id @default(cuid())
+  schoolId    String
+  to          String
+  body        String
+  status      SmsStatus @default(QUEUED)
+  provider    String    @default("mock")
+  providerRef String?
+  cost        Int       @default(1)
+  batchId     String?
+  error       String?
+  createdById String
+  createdAt   DateTime  @default(now())
+
+  @@index([schoolId, createdAt])
+  @@index([schoolId, batchId])
 }

@@ -16,6 +16,23 @@ const GES_BANDS = [
   { min: 0, max: 39, grade: '9', remark: 'Fail' },
 ];
 
+// NaCCA proficiency (Standards-Based Curriculum): total → proficiency label.
+const NACCA_BANDS = [
+  { min: 80, max: 100, grade: 'AE', remark: 'Advanced — exceeding expectation' },
+  { min: 68, max: 79, grade: 'P', remark: 'Proficient — meeting expectation' },
+  { min: 54, max: 67, grade: 'AP', remark: 'Approaching expectation' },
+  { min: 40, max: 53, grade: 'D', remark: 'Developing' },
+  { min: 0, max: 39, grade: 'B', remark: 'Beginning' },
+];
+
+// Early-years observation scale (creche/nursery/KG): no exam weighting, no positions.
+const EARLY_YEARS_BANDS = [
+  { min: 75, max: 100, grade: 'Exceeding', remark: 'Consistently demonstrates the skill' },
+  { min: 50, max: 74, grade: 'Meeting', remark: 'Demonstrates the skill' },
+  { min: 25, max: 49, grade: 'Approaching', remark: 'Developing the skill' },
+  { min: 0, max: 24, grade: 'Beginning', remark: 'Beginning to explore the skill' },
+];
+
 const FIRST_M = [
   'Kofi',
   'Kwame',
@@ -82,7 +99,6 @@ async function main() {
     await db.termReport.deleteMany({ where: { schoolId: sid } });
     await db.score.deleteMany({ where: { schoolId: sid } });
     await db.assessmentComponent.deleteMany({ where: { schoolId: sid } });
-    await db.gradingScheme.deleteMany({ where: { schoolId: sid } });
     await db.attendanceRecord.deleteMany({ where: { schoolId: sid } });
     await db.announcement.deleteMany({ where: { schoolId: sid } });
     await db.studentGuardian.deleteMany({ where: { student: { schoolId: sid } } });
@@ -91,6 +107,8 @@ async function main() {
     await db.subject.deleteMany({ where: { schoolId: sid } });
     await db.classRoom.deleteMany({ where: { schoolId: sid } });
     await db.level.deleteMany({ where: { schoolId: sid } });
+    await db.gradingScheme.deleteMany({ where: { schoolId: sid } });
+    await db.smsMessage.deleteMany({ where: { schoolId: sid } });
     await db.term.deleteMany({ where: { academicYear: { schoolId: sid } } });
     await db.academicYear.deleteMany({ where: { schoolId: sid } });
     await db.auditLog.deleteMany({ where: { schoolId: sid } });
@@ -108,6 +126,8 @@ async function main() {
       email: 'info@brightonacademy.edu.gh',
       region: 'Greater Accra',
       tier: 'MEDIUM',
+      smsSenderId: 'BRIGHTON',
+      smsCredits: 500,
     },
   });
   const sid = school.id;
@@ -207,9 +227,33 @@ async function main() {
     ['JHS 2', 'JHS', 10],
     ['JHS 3', 'JHS', 11],
   ];
+  // Grading schemes, then per-level selection: pre-school → early-years, everyone else → GES.
+  const gesScheme = await db.gradingScheme.create({
+    data: { schoolId: sid, name: 'GES Classic (1–9)', kind: 'GES_CLASSIC', bands: GES_BANDS },
+  });
+  await db.gradingScheme.create({
+    data: { schoolId: sid, name: 'NaCCA Proficiency', kind: 'NACCA_BANDS', bands: NACCA_BANDS },
+  });
+  const earlyScheme = await db.gradingScheme.create({
+    data: {
+      schoolId: sid,
+      name: 'Early Years Observation',
+      kind: 'EARLY_YEARS',
+      bands: EARLY_YEARS_BANDS,
+    },
+  });
+
   const levels = await Promise.all(
     levelDefs.map(([name, category, order]) =>
-      db.level.create({ data: { schoolId: sid, name, category, order } }),
+      db.level.create({
+        data: {
+          schoolId: sid,
+          name,
+          category,
+          order,
+          gradingSchemeId: category === 'PRE_SCHOOL' ? earlyScheme.id : gesScheme.id,
+        },
+      }),
     ),
   );
   const classes = await Promise.all(
@@ -235,10 +279,6 @@ async function main() {
       db.subject.create({ data: { schoolId: sid, name, code, isCore } }),
     ),
   );
-
-  await db.gradingScheme.create({
-    data: { schoolId: sid, name: 'GES Classic (1–9)', kind: 'GES_CLASSIC', bands: GES_BANDS },
-  });
 
   const components = await Promise.all([
     db.assessmentComponent.create({
