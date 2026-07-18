@@ -20,6 +20,7 @@ import { IsString, MinLength } from 'class-validator';
 import * as jwt from 'jsonwebtoken';
 import { createHash, randomInt, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { FeesModule, FeesService } from '../fees/fees.module';
 import { Public } from '../common/auth';
 import { maskMsisdn, normalizeMsisdn } from '../common/phone';
 import { reportCardPdf, ReportCardData } from '../common/pdf';
@@ -88,7 +89,10 @@ function safeEq(a: string, b: string): boolean {
 
 @Injectable()
 export class GuardianService {
-  constructor(private db: PrismaService) {}
+  constructor(
+    private db: PrismaService,
+    private fees: FeesService,
+  ) {}
 
   /**
    * Issue a sign-in code. Always reports success, whether or not the number is registered —
@@ -202,6 +206,16 @@ export class GuardianService {
     });
     if (!link) throw new ForbiddenException('That is not your ward');
     return link.student;
+  }
+
+  /**
+   * A receipt for one of the caller's own wards. `ward()` proves the child is theirs and not
+   * custody-blocked; the studentId is then passed down so the payment must also belong to that
+   * child — a guardian cannot fetch a receipt by guessing another family's reference.
+   */
+  async wardReceiptPdf(auth: GuardianUser, studentId: string, reference: string) {
+    const student = await this.ward(auth, studentId);
+    return this.fees.receiptPdf(auth.schoolId, reference, student.id);
   }
 
   async me(auth: GuardianUser) {
@@ -423,6 +437,19 @@ export class GuardianPortalController {
     return this.svc.reportCard(g, studentId, termId);
   }
 
+  @Get('wards/:studentId/receipts/:reference/pdf')
+  async receiptPdf(
+    @CurrentGuardian() g: GuardianUser,
+    @Param('studentId') studentId: string,
+    @Param('reference') reference: string,
+  ) {
+    const buf = await this.svc.wardReceiptPdf(g, studentId, reference);
+    return new StreamableFile(buf, {
+      type: 'application/pdf',
+      disposition: `attachment; filename="receipt-${reference}.pdf"`,
+    });
+  }
+
   @Get('wards/:studentId/reports/:termId/pdf')
   async reportPdf(
     @CurrentGuardian() g: GuardianUser,
@@ -443,6 +470,7 @@ export class GuardianPortalController {
 }
 
 @Module({
+  imports: [FeesModule],
   controllers: [GuardianAuthController, GuardianPortalController],
   providers: [GuardianService, GuardianGuard],
 })

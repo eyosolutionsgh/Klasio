@@ -200,6 +200,53 @@ export default function AssessmentSettingsPage() {
             </div>
           ))}
         </div>
+
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const f = new FormData(e.currentTarget);
+            // "0-44:F, 45-49:E" — far quicker to type than a row-builder, and the server
+            // still refuses anything that does not cover 0-100 exactly once.
+            const bands = String(f.get('bands') ?? '')
+              .split(',')
+              .map((chunk) => chunk.trim())
+              .filter(Boolean)
+              .map((chunk) => {
+                const [range, grade] = chunk.split(':').map((x) => x.trim());
+                const [min, max] = (range ?? '').split('-').map((x) => Number(x.trim()));
+                return { min, max, grade: grade ?? '' };
+              });
+            const ok = await send('assessment/schemes', {
+              name: String(f.get('name') ?? '').trim(),
+              kind: String(f.get('kind') ?? 'GES_CLASSIC'),
+              bands,
+            });
+            if (ok) (e.target as HTMLFormElement).reset();
+          }}
+          className="mt-5 pt-5 border-t border-mist/60 space-y-3"
+        >
+          <h3 className="font-medium text-sm">Add a scheme</h3>
+          <div className="flex flex-wrap gap-2">
+            <input name="name" required minLength={2} placeholder="Scheme name" className={field} />
+            <select name="kind" defaultValue="GES_CLASSIC" className={field}>
+              <option value="GES_CLASSIC">GES classic</option>
+              <option value="NACCA_BANDS">NaCCA proficiency bands</option>
+              <option value="EARLY_YEARS">Early-years observation</option>
+            </select>
+          </div>
+          <label className="block text-[13px]">
+            <span className="block text-oat mb-1">Bands — min-max:grade, comma separated</span>
+            <input
+              name="bands"
+              required
+              placeholder="0-44:F, 45-49:E, 50-54:D, 55-64:C, 65-74:B, 75-100:A"
+              className={`${field} w-full`}
+            />
+          </label>
+          <button className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
+            Add scheme
+          </button>
+        </form>
       </section>
 
       <section className="card p-6 rise rise-4">

@@ -125,7 +125,8 @@ export default function FeeStructurePage() {
         <h1 className="font-display text-3xl">Fee structure</h1>
         <p className="text-sm text-oat mt-1.5">
           What each student is billed for {termName || 'the current term'}. Compulsory items make up
-          the term invoice; optional items (transport, feeding) are billed per student.
+          the term invoice; optional items (transport, feeding) are billed only to the students who
+          take them, set on each student's page.
         </p>
       </div>
 

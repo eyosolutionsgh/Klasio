@@ -212,6 +212,7 @@ model Student {
   documents      StudentDocument[]
   bankDeposits   BankDeposit[]
   paymentIntents PaymentIntent[]
+  feeItems       StudentFeeItem[]
 
   @@unique([schoolId, admissionNo])
   @@index([schoolId, classId])
@@ -431,9 +432,26 @@ model FeeItem {
   levelId  String?
   name     String
   amount   Decimal @db.Decimal(12, 2)
+  /// Optional items (transport, feeding) are billed only to the students subscribed to them.
   optional Boolean @default(false)
 
+  subscriptions StudentFeeItem[]
+
   @@index([schoolId, termId])
+}
+
+/// Which students have taken up an optional fee item this term. Compulsory items need no such
+/// row — everyone gets them.
+model StudentFeeItem {
+  studentId String
+  student   Student  @relation(fields: [studentId], references: [id])
+  feeItemId String
+  feeItem   FeeItem  @relation(fields: [feeItemId], references: [id], onDelete: Cascade)
+  schoolId  String
+  createdAt DateTime @default(now())
+
+  @@id([studentId, feeItemId])
+  @@index([schoolId])
 }
 
 model Invoice {

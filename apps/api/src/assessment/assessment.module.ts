@@ -31,6 +31,7 @@ import {
 import type { GradingKind } from '@prisma/client';
 import { Band, validateBands } from '../common/grading';
 import { Type } from 'class-transformer';
+import { storage } from '../common/storage';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, Roles } from '../common/auth';
 import { reportCardPdf, ReportCardData, broadsheetPdf, BroadsheetData } from '../common/pdf';
@@ -637,6 +638,13 @@ export class AssessmentService {
         motto: school.motto,
         address: school.address,
         phone: school.phone,
+        brandColor: school.brandColor,
+        // A crest that cannot be read must not stop a report card being issued.
+        logo: school.logoUrl
+          ? await storage()
+              .get(school.logoUrl)
+              .catch(() => null)
+          : null,
       },
       student: {
         name: `${report.student.firstName} ${report.student.lastName}`,

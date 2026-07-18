@@ -243,6 +243,14 @@ export default function FamilyPage() {
                         {fmtDate(e.createdAt)}
                         {e.receiptNumber && ` · receipt ${e.receiptNumber}`}
                       </p>
+                      {e.receiptNumber && (
+                        <a
+                          href={`/api/family/guardian/wards/${wardId}/receipts/${e.reference}/pdf`}
+                          className="inline-flex items-center min-h-11 text-[12px] font-medium text-forest underline underline-offset-2"
+                        >
+                          Download receipt ↓
+                        </a>
+                      )}
                     </div>
                     <p
                       className={`tabular font-medium shrink-0 ${e.type === 'INVOICE' ? 'text-ink' : 'text-leaf'}`}

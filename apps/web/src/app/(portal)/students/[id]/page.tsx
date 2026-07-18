@@ -3,6 +3,8 @@ import { api, money } from '@/lib/api';
 import StudentLifecycle from '@/components/StudentLifecycle';
 import StudentFiles from '@/components/StudentFiles';
 import StudentGuardians from '@/components/StudentGuardians';
+import StudentExtras from '@/components/StudentExtras';
+import MedicalNotes from '@/components/MedicalNotes';
 
 interface Detail {
   id: string;
@@ -16,6 +18,7 @@ interface Detail {
   exitDate: string | null;
   exitReason: string | null;
   photoUrl?: string | null;
+  medicalNotes: string | null;
   className: string | null;
   guardians: {
     id: string;
@@ -108,6 +111,10 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
           <StudentGuardians studentId={s.id} guardians={s.guardians} />
 
           <StudentFiles studentId={s.id} hasPhoto={!!s.photoUrl} />
+
+          <StudentExtras studentId={s.id} />
+
+          <MedicalNotes studentId={s.id} notes={s.medicalNotes} />
 
           {/* Attendance summary */}
           <section className="card p-6 rise rise-3">

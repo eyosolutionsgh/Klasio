@@ -50,6 +50,13 @@ class RecordPaymentDto {
   @IsNumber() @IsPositive() amount: number;
   @IsEnum(PaymentMethod) method: PaymentMethod;
   @IsOptional() @IsString() note?: string;
+  /** Term the money settles. Defaults to the current term; set it to clear an older arrear. */
+  @IsOptional() @IsString() termId?: string;
+}
+
+class StudentFeeItemDto {
+  @IsString() feeItemId: string;
+  @IsBoolean() subscribed: boolean;
 }
 
 class GenerateInvoicesDto {
@@ -86,8 +93,34 @@ class UpdateFeeItemDto {
 export class FeesService {
   constructor(private db: PrismaService) {}
 
+  /**
+   * Ledger filter for "everything owed as of this term" — that term and every earlier one, plus
+   * entries with no term (opening balances carried in at onboarding).
+   *
+   * What a family owes is cumulative: a payment made this term against last term's arrears has
+   * to net against last term's invoice. Scoping a balance to a single term reports money as
+   * outstanding that has already been collected.
+   */
+  private async asOfTerm(auth: AuthUser, termId: string) {
+    const target = await this.db.term.findFirst({
+      where: { id: termId, academicYear: { schoolId: auth.schoolId } },
+    });
+    if (!target) throw new NotFoundException('Term not found');
+    const terms = await this.db.term.findMany({
+      where: {
+        academicYear: { schoolId: auth.schoolId },
+        startDate: { lte: target.startDate },
+      },
+      select: { id: true },
+    });
+    return {
+      schoolId: auth.schoolId,
+      OR: [{ termId: { in: terms.map((t) => t.id) } }, { termId: null }],
+    };
+  }
+
   async overview(auth: AuthUser, termId: string) {
-    const [invoiced, collected, byMethod, recent, defaulterCount] = await Promise.all([
+    const [invoiced, collected, byMethod, recent, defaulters] = await Promise.all([
       this.db.ledgerEntry.aggregate({
         where: { schoolId: auth.schoolId, termId, type: 'INVOICE' },
         _sum: { amount: true },
@@ -112,13 +145,17 @@ export class FeesService {
           receipt: { select: { number: true } },
         },
       }),
-      this.defaulters(auth, termId).then((d) => d.length),
+      this.defaulters(auth, termId),
     ]);
+    const defaulterCount = defaulters.length;
     const money = (n: number) => Math.round(n * 100) / 100;
+    // Invoiced and collected are this term's cash flow. Outstanding is not: it is what families
+    // still owe in total, so it sums the cumulative balances rather than this term's difference.
+    const outstanding = defaulters.reduce((sum, d) => sum + d.balance, 0);
     return {
       invoiced: money(Number(invoiced._sum.amount ?? 0)),
       collected: money(Number(collected._sum.amount ?? 0)),
-      outstanding: money(Number(invoiced._sum.amount ?? 0) - Number(collected._sum.amount ?? 0)),
+      outstanding: money(outstanding),
       byMethod: byMethod.map((m) => ({ method: m.method, amount: Number(m._sum.amount ?? 0) })),
       recentPayments: recent.map((p) => ({
         id: p.id,
@@ -195,10 +232,13 @@ export class FeesService {
 
   /** Bulk-generate term invoices for all active students (or one class). Skips students already invoiced. */
   async generateInvoices(auth: AuthUser, dto: GenerateInvoicesDto) {
-    const items = await this.db.feeItem.findMany({
-      where: { schoolId: auth.schoolId, termId: dto.termId, optional: false },
+    const allItems = await this.db.feeItem.findMany({
+      where: { schoolId: auth.schoolId, termId: dto.termId },
     });
-    if (items.length === 0) throw new BadRequestException('No fee items configured for this term');
+    const compulsory = allItems.filter((i) => !i.optional);
+    if (compulsory.length === 0) {
+      throw new BadRequestException('No fee items configured for this term');
+    }
     const students = await this.db.student.findMany({
       where: {
         schoolId: auth.schoolId,
@@ -211,13 +251,32 @@ export class FeesService {
       select: { studentId: true },
     });
     const invoiced = new Set(existing.map((e) => e.studentId));
-    const lines = items.map((i) => ({ name: i.name, amount: Number(i.amount) }));
-    const total = lines.reduce((a, l) => a + l.amount, 0);
+
+    // Optional items (transport, feeding) only reach the students who take them, so each
+    // invoice is the compulsory list plus that student's own subscriptions.
+    const optionalById = new Map(allItems.filter((i) => i.optional).map((i) => [i.id, i]));
+    const subs = await this.db.studentFeeItem.findMany({
+      where: { schoolId: auth.schoolId, feeItem: { termId: dto.termId, optional: true } },
+      select: { studentId: true, feeItemId: true },
+    });
+    const extrasFor = new Map<string, { name: string; amount: number }[]>();
+    for (const s of subs) {
+      const item = optionalById.get(s.feeItemId);
+      if (!item) continue;
+      const list = extrasFor.get(s.studentId) ?? [];
+      list.push({ name: item.name, amount: Number(item.amount) });
+      extrasFor.set(s.studentId, list);
+    }
+
+    const baseLines = compulsory.map((i) => ({ name: i.name, amount: Number(i.amount) }));
+    const baseTotal = baseLines.reduce((a, l) => a + l.amount, 0);
     const count = await this.db.invoice.count({ where: { schoolId: auth.schoolId } });
 
     let created = 0;
     for (const st of students) {
       if (invoiced.has(st.id)) continue;
+      const lines = [...baseLines, ...(extrasFor.get(st.id) ?? [])];
+      const total = lines.reduce((a, l) => a + l.amount, 0);
       const number = `INV-2026-${String(count + created + 1).padStart(4, '0')}`;
       await this.db.$transaction([
         this.db.invoice.create({
@@ -248,12 +307,70 @@ export class FeesService {
     await this.db.audit(auth.schoolId, auth.sub, 'invoices.generate', 'Term', dto.termId, {
       created,
     });
-    return { created, skipped: students.length - created, total };
+    return { created, skipped: students.length - created, total: baseTotal };
   }
 
+  /**
+   * A student's optional extras for a term, with a flag for the ones they take. Invoices already
+   * issued are unaffected — they carry their own `lines`, so changing a subscription only
+   * changes what the *next* invoice bills.
+   */
+  async studentFeeItems(auth: AuthUser, studentId: string, termId: string) {
+    const student = await this.db.student.findFirst({
+      where: { id: studentId, schoolId: auth.schoolId },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+    const [items, subs, invoice] = await Promise.all([
+      this.db.feeItem.findMany({
+        where: { schoolId: auth.schoolId, termId, optional: true },
+        orderBy: { name: 'asc' },
+      }),
+      this.db.studentFeeItem.findMany({ where: { studentId }, select: { feeItemId: true } }),
+      this.db.invoice.findFirst({ where: { schoolId: auth.schoolId, studentId, termId } }),
+    ]);
+    const taken = new Set(subs.map((s) => s.feeItemId));
+    return {
+      alreadyInvoiced: !!invoice,
+      items: items.map((i) => ({
+        id: i.id,
+        name: i.name,
+        amount: Number(i.amount),
+        subscribed: taken.has(i.id),
+      })),
+    };
+  }
+
+  async setStudentFeeItem(auth: AuthUser, studentId: string, dto: StudentFeeItemDto) {
+    const [student, item] = await Promise.all([
+      this.db.student.findFirst({ where: { id: studentId, schoolId: auth.schoolId } }),
+      this.db.feeItem.findFirst({ where: { id: dto.feeItemId, schoolId: auth.schoolId } }),
+    ]);
+    if (!student) throw new NotFoundException('Student not found');
+    if (!item) throw new NotFoundException('Fee item not found');
+    if (!item.optional) {
+      throw new BadRequestException('Compulsory items are billed to everyone already');
+    }
+
+    if (dto.subscribed) {
+      await this.db.studentFeeItem.upsert({
+        where: { studentId_feeItemId: { studentId, feeItemId: dto.feeItemId } },
+        create: { studentId, feeItemId: dto.feeItemId, schoolId: auth.schoolId },
+        update: {},
+      });
+    } else {
+      await this.db.studentFeeItem.deleteMany({ where: { studentId, feeItemId: dto.feeItemId } });
+    }
+    await this.db.audit(auth.schoolId, auth.sub, 'fees.studentItem.set', 'Student', studentId, {
+      feeItemId: dto.feeItemId,
+      subscribed: dto.subscribed,
+    });
+    return { ok: true };
+  }
+
+  /** Who owes money as of this term, counting arrears carried in from earlier terms. */
   async defaulters(auth: AuthUser, termId: string) {
     const entries = await this.db.ledgerEntry.findMany({
-      where: { schoolId: auth.schoolId, termId },
+      where: await this.asOfTerm(auth, termId),
       include: {
         student: {
           select: {
@@ -323,9 +440,16 @@ export class FeesService {
       where: { id: dto.studentId, schoolId: auth.schoolId },
     });
     if (!student) throw new NotFoundException('Student not found');
-    const term = await this.db.term.findFirst({
-      where: { isCurrent: true, academicYear: { schoolId: auth.schoolId, isCurrent: true } },
-    });
+    // A payment normally settles the current term, but a bursar clearing last term's arrears can
+    // say so — the entry then nets against that term rather than inflating this one's collection.
+    const term = dto.termId
+      ? await this.db.term.findFirst({
+          where: { id: dto.termId, academicYear: { schoolId: auth.schoolId } },
+        })
+      : await this.db.term.findFirst({
+          where: { isCurrent: true, academicYear: { schoolId: auth.schoolId, isCurrent: true } },
+        });
+    if (dto.termId && !term) throw new NotFoundException('Term not found');
     const paySeq =
       (await this.db.ledgerEntry.count({ where: { schoolId: auth.schoolId, type: 'PAYMENT' } })) +
       1;
@@ -538,21 +662,31 @@ export class FeesService {
   }
 
   /** Branded PDF receipt for a recorded payment, with the running balance as of that payment. */
-  async receiptPdf(auth: AuthUser, reference: string) {
+  /**
+   * Build a receipt PDF. Takes a schoolId rather than an AuthUser so the guardian portal can
+   * serve a parent their own receipt, passing `restrictToStudentId` to prove the payment
+   * belongs to a ward they are allowed to see.
+   */
+  async receiptPdf(schoolId: string, reference: string, restrictToStudentId?: string) {
     const entry = await this.db.ledgerEntry.findFirst({
-      where: { schoolId: auth.schoolId, reference, type: 'PAYMENT' },
+      where: {
+        schoolId,
+        reference,
+        type: 'PAYMENT',
+        ...(restrictToStudentId ? { studentId: restrictToStudentId } : {}),
+      },
       include: {
         receipt: true,
         student: { include: { classRoom: { select: { name: true } } } },
       },
     });
     if (!entry || !entry.receipt) throw new NotFoundException('Receipt not found');
-    const school = await this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } });
+    const school = await this.db.school.findUniqueOrThrow({ where: { id: schoolId } });
 
     // Running balance up to and including this payment.
     const priorEntries = await this.db.ledgerEntry.findMany({
       where: {
-        schoolId: auth.schoolId,
+        schoolId,
         studentId: entry.studentId,
         createdAt: { lte: entry.createdAt },
       },
@@ -577,6 +711,12 @@ export class FeesService {
         motto: school.motto,
         address: school.address,
         phone: school.phone,
+        brandColor: school.brandColor,
+        logo: school.logoUrl
+          ? await storage()
+              .get(school.logoUrl)
+              .catch(() => null)
+          : null,
       },
       studentPhoto,
       receiptNumber: entry.receipt.number,
@@ -651,6 +791,25 @@ export class FeesController {
     return this.svc.deleteFeeItem(user, id);
   }
 
+  @Get('students/:studentId/items')
+  studentItems(
+    @CurrentUser() user: AuthUser,
+    @Param('studentId') studentId: string,
+    @Query('termId') termId: string,
+  ) {
+    return this.svc.studentFeeItems(user, studentId, termId);
+  }
+
+  @Post('students/:studentId/items')
+  @Roles('OWNER', 'HEAD', 'BURSAR')
+  setStudentItem(
+    @CurrentUser() user: AuthUser,
+    @Param('studentId') studentId: string,
+    @Body() dto: StudentFeeItemDto,
+  ) {
+    return this.svc.setStudentFeeItem(user, studentId, dto);
+  }
+
   @Post('invoices/generate')
   @Roles('OWNER', 'HEAD', 'BURSAR')
   generate(@CurrentUser() user: AuthUser, @Body() dto: GenerateInvoicesDto) {
@@ -706,7 +865,7 @@ export class FeesController {
 
   @Get('receipts/:reference/pdf')
   async receipt(@CurrentUser() user: AuthUser, @Param('reference') reference: string) {
-    const buf = await this.svc.receiptPdf(user, reference);
+    const buf = await this.svc.receiptPdf(user.schoolId, reference);
     return new StreamableFile(buf, {
       type: 'application/pdf',
       disposition: `attachment; filename="receipt-${reference}.pdf"`,
@@ -714,5 +873,5 @@ export class FeesController {
   }
 }
 
-@Module({ controllers: [FeesController], providers: [FeesService] })
+@Module({ controllers: [FeesController], providers: [FeesService], exports: [FeesService] })
 export class FeesModule {}

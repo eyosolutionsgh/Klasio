@@ -3,6 +3,7 @@ import { api, getMe } from '@/lib/api';
 import PromoteClass from '@/components/PromoteClass';
 import DownloadButton from '@/components/DownloadButton';
 import StudentFilters from '@/components/StudentFilters';
+import AddStudent from '@/components/AddStudent';
 
 interface StudentRow {
   id: string;
@@ -64,6 +65,7 @@ export default async function StudentsPage({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <AddStudent classes={structure.classes} atCap={enrolment.atCap} />
           <Link
             href="/students/onboarding"
             className="tip rounded-lg border border-mist text-brand text-sm font-medium px-4 py-2 hover:bg-brand-mist transition"

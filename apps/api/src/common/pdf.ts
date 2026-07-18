@@ -10,7 +10,39 @@ type Doc = PDFKit.PDFDocument;
 const INK = '#1c1917';
 const OAT = '#78716c';
 const MIST = '#d6d3d1';
+/** Fallback when a school has not chosen a colour. */
 const FOREST = '#166534';
+
+/** The school's own details as they appear on a printed document. */
+export interface DocSchool {
+  name: string;
+  motto: string | null;
+  address: string | null;
+  phone: string | null;
+  /** Validated 6-digit hex, or null to use the house colour. */
+  brandColor?: string | null;
+  /** Crest bytes, when one is on file. */
+  logo?: Buffer | null;
+}
+
+const brandOf = (s: DocSchool) => s.brandColor || FOREST;
+
+/**
+ * Draw the school crest, or quietly skip it.
+ *
+ * pdfkit decodes JPEG and PNG only, while the upload endpoint also accepts WebP — so an
+ * undrawable crest must never take the whole document down with it. A report card without a
+ * logo is a cosmetic loss; a report card that fails to render is a broken term.
+ */
+function drawCrest(doc: Doc, school: DocSchool, x: number, y: number, size: number): boolean {
+  if (!school.logo) return false;
+  try {
+    doc.image(school.logo, x, y, { fit: [size, size] });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function toBuffer(doc: Doc): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -122,7 +154,7 @@ export interface ReportCardData {
   schemeKind: 'GES_CLASSIC' | 'NACCA_BANDS' | 'EARLY_YEARS';
   /** Layout choice (docs/02 §2.3). GES is the statutory-looking default. */
   template?: 'GES' | 'MODERN';
-  school: { name: string; motto: string | null; address: string | null; phone: string | null };
+  school: DocSchool;
   student: { name: string; admissionNo: string; className: string | null };
   term: { name?: string; year?: string; nextTermBegins: string | null };
   lines: Array<{
@@ -152,25 +184,32 @@ export function reportCardPdf(card: ReportCardData): Promise<Buffer> {
 
   const modern = card.template === 'MODERN';
 
+  const BRAND = brandOf(card.school);
+
   if (modern) {
-    // Modern: a solid masthead with the school reversed out of forest green.
+    // Modern: a solid masthead with the school reversed out of its own colour.
     const bandH = 74;
-    doc.rect(0, 0, doc.page.width, bandH).fill(FOREST);
+    doc.rect(0, 0, doc.page.width, bandH).fill(BRAND);
+    const crest = drawCrest(doc, card.school, left, 13, 48);
+    const textX = crest ? left + 60 : left;
+    const textW = width - (crest ? 60 : 0);
     doc
       .fillColor('#ffffff')
       .font('Helvetica-Bold')
       .fontSize(19)
-      .text(card.school.name, left, 18, { width, align: 'left' });
+      .text(card.school.name, textX, 18, { width: textW, align: 'left' });
     doc
-      .fillColor('#dcfce7')
+      .fillColor('#ffffff')
+      .opacity(0.85)
       .font('Helvetica')
       .fontSize(9)
       .text(
         [card.school.motto, card.school.address, card.school.phone].filter(Boolean).join('  ·  '),
-        left,
+        textX,
         44,
-        { width },
+        { width: textW },
       );
+    doc.opacity(1);
     doc.y = bandH + 16;
     doc
       .fillColor(INK)
@@ -182,11 +221,12 @@ export function reportCardPdf(card: ReportCardData): Promise<Buffer> {
     doc.moveDown(0.8);
   } else {
     // GES: centred masthead over a rule, as the statutory form is laid out.
+    if (drawCrest(doc, card.school, left + width / 2 - 22, doc.y, 44)) doc.y += 50;
     doc
-      .fillColor(FOREST)
+      .fillColor(BRAND)
       .font('Helvetica-Bold')
       .fontSize(20)
-      .text(card.school.name, { align: 'center' });
+      .text(card.school.name, left, doc.y, { width, align: 'center' });
     doc.fillColor(OAT).font('Helvetica-Oblique').fontSize(9);
     if (card.school.motto) doc.text(card.school.motto, { align: 'center' });
     doc
@@ -327,7 +367,7 @@ export function reportCardPdf(card: ReportCardData): Promise<Buffer> {
 }
 
 export interface ReceiptData {
-  school: { name: string; motto: string | null; address: string | null; phone: string | null };
+  school: DocSchool;
   receiptNumber: string;
   reference: string;
   issuedAt: string | Date;
@@ -348,11 +388,13 @@ export function receiptPdf(r: ReceiptData): Promise<Buffer> {
   const money = (n: number) =>
     `${r.currency} ${n.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+  const BRAND = brandOf(r.school);
+  if (drawCrest(doc, r.school, left + width / 2 - 16, doc.y, 32)) doc.y += 36;
   doc
-    .fillColor(FOREST)
+    .fillColor(BRAND)
     .font('Helvetica-Bold')
     .fontSize(16)
-    .text(r.school.name, { align: 'center' });
+    .text(r.school.name, left, doc.y, { width, align: 'center' });
   doc
     .fillColor(OAT)
     .font('Helvetica')
@@ -406,7 +448,7 @@ export function receiptPdf(r: ReceiptData): Promise<Buffer> {
   doc.moveDown(0.5);
   doc.rect(left, doc.y, width, 34).fill('#f0fdf4');
   doc
-    .fillColor(FOREST)
+    .fillColor(BRAND)
     .font('Helvetica-Bold')
     .fontSize(15)
     .text(`Amount Paid: ${money(r.amount)}`, left + 10, doc.y - 26, { width: width - 20 });
@@ -441,6 +483,8 @@ export interface BroadsheetData {
     overallTotal: number;
     position: number | null;
   }>;
+  /** School colour, so an internal printout matches the school's other documents. */
+  brandColor?: string | null;
 }
 
 export function broadsheetPdf(data: BroadsheetData): Promise<Buffer> {
@@ -449,7 +493,7 @@ export function broadsheetPdf(data: BroadsheetData): Promise<Buffer> {
   const width = doc.page.width - left - doc.page.margins.right;
 
   doc
-    .fillColor(FOREST)
+    .fillColor(data.brandColor || FOREST)
     .font('Helvetica-Bold')
     .fontSize(15)
     .text(data.schoolName, { align: 'center' });
