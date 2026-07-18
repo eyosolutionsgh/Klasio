@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Combobox from '@/components/Combobox';
+import Link from 'next/link';
 
 interface RosterRow {
   id: string;
@@ -82,7 +83,10 @@ export default function AttendancePage() {
       <div className="rise rise-1">
         <h1 className="font-display text-3xl">Attendance</h1>
         <p className="text-sm text-oat mt-1.5">
-          Mark the daily register — tap a status for each child.
+          Mark the daily register — tap a status for each child.{' '}
+          <Link href="/attendance/trends" className="text-brand underline underline-offset-2">
+            See attendance patterns →
+          </Link>
         </p>
       </div>
 

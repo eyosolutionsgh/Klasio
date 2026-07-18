@@ -135,6 +135,66 @@ export class SmsService {
     return [...new Set(phones)];
   }
 
+  /**
+   * Send to an explicit list of numbers on behalf of the school, for messages the system raises
+   * itself (absence alerts, results notices, fee reminders) rather than a staff broadcast.
+   *
+   * Credit is the school's, so a run stops at whatever credit is left rather than failing
+   * outright — a partial notification is worth more than none, and the caller is told.
+   */
+  async sendToPhones(opts: {
+    schoolId: string;
+    createdById: string;
+    phones: string[];
+    body: string;
+    batchId: string;
+  }) {
+    const recipients = [
+      ...new Set(opts.phones.map(normalizeMsisdn).filter((x): x is string => !!x)),
+    ];
+    if (recipients.length === 0) return { sent: 0, failed: 0, skipped: 0 };
+
+    const school = await this.db.school.findUniqueOrThrow({ where: { id: opts.schoolId } });
+    const affordable = recipients.slice(0, school.smsCredits);
+    const skipped = recipients.length - affordable.length;
+    const sender = school.smsSenderId ?? 'SCHOOL';
+
+    let sent = 0;
+    let failed = 0;
+    for (const to of affordable) {
+      const result = await this.provider.send(to, opts.body, sender);
+      if (result.ok) sent++;
+      else failed++;
+      await this.db.smsMessage.create({
+        data: {
+          schoolId: opts.schoolId,
+          to,
+          body: opts.body,
+          status: result.ok ? 'SENT' : 'FAILED',
+          provider: this.provider.name,
+          providerRef: result.ref ?? null,
+          cost: 1,
+          batchId: opts.batchId,
+          error: result.error ?? null,
+          createdById: opts.createdById,
+        },
+      });
+    }
+    if (sent > 0) {
+      await this.db.school.update({
+        where: { id: opts.schoolId },
+        data: { smsCredits: { decrement: sent } },
+      });
+    }
+    return { sent, failed, skipped };
+  }
+
+  /** Has this batch already gone out? Keeps automatic alerts to one per subject per day. */
+  async alreadySent(schoolId: string, batchId: string) {
+    const existing = await this.db.smsMessage.findFirst({ where: { schoolId, batchId } });
+    return !!existing;
+  }
+
   async send(auth: AuthUser, dto: SendSmsDto) {
     const recipients = await this.resolveRecipients(auth, dto);
     if (recipients.length === 0) throw new BadRequestException('No recipients matched');
@@ -242,5 +302,5 @@ export class SmsController {
   }
 }
 
-@Module({ controllers: [SmsController], providers: [SmsService] })
+@Module({ controllers: [SmsController], providers: [SmsService], exports: [SmsService] })
 export class SmsModule {}

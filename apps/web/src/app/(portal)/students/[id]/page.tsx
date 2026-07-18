@@ -5,6 +5,7 @@ import StudentFiles from '@/components/StudentFiles';
 import StudentGuardians from '@/components/StudentGuardians';
 import StudentExtras from '@/components/StudentExtras';
 import MedicalNotes from '@/components/MedicalNotes';
+import GrantConcession from '@/components/GrantConcession';
 
 interface Detail {
   id: string;
@@ -140,7 +141,10 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
 
         {/* Ledger */}
         <section className="card p-6 rise rise-3">
-          <h2 className="font-display text-xl">Fee ledger</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-display text-xl">Fee ledger</h2>
+            <GrantConcession studentId={s.id} studentName={s.firstName} />
+          </div>
           <p className="text-xs text-oat mt-1">
             Every charge and payment, newest first. Corrections appear as reversals.
           </p>
@@ -164,7 +168,11 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
                         ? 'Invoice'
                         : e.type === 'PAYMENT'
                           ? `Payment · ${e.method}`
-                          : e.type}
+                          : e.type === 'DISCOUNT'
+                            ? 'Discount'
+                            : e.type === 'WAIVER'
+                              ? 'Waiver'
+                              : e.type}
                     </p>
                     <p className="text-[11px] text-oat tabular">
                       {e.reference}

@@ -32,6 +32,7 @@ import type { GradingKind } from '@prisma/client';
 import { Band, validateBands } from '../common/grading';
 import { Type } from 'class-transformer';
 import { storage } from '../common/storage';
+import { SmsModule, SmsService } from '../sms/sms.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, Roles } from '../common/auth';
 import { reportCardPdf, ReportCardData, broadsheetPdf, BroadsheetData } from '../common/pdf';
@@ -92,7 +93,10 @@ const EXAM_WEIGHT = 70;
 
 @Injectable()
 export class AssessmentService {
-  constructor(private db: PrismaService) {}
+  constructor(
+    private db: PrismaService,
+    private sms: SmsService,
+  ) {}
 
   components(auth: AuthUser) {
     return this.db.assessmentComponent.findMany({
@@ -606,7 +610,46 @@ export class AssessmentService {
       dto.classId,
       { termId: dto.termId, count: result.count },
     );
-    return { published: publish, count: result.count };
+    // Publishing is the moment results become real to a family, so it is worth a message.
+    // Retracting is not — it is usually a mistake being fixed, and announcing it twice is worse.
+    const already = await this.sms.alreadySent(
+      auth.schoolId,
+      `RESULTS-${dto.classId}-${dto.termId}`,
+    );
+    const notified =
+      publish && result.count > 0 && !already ? await this.notifyResults(auth, dto) : 0;
+    return { published: publish, count: result.count, notified };
+  }
+
+  /** One SMS per guardian of the class, pointing at the parent portal rather than carrying marks. */
+  private async notifyResults(auth: AuthUser, dto: PublishReportsDto) {
+    const [students, school, term] = await Promise.all([
+      this.db.student.findMany({
+        where: { schoolId: auth.schoolId, classId: dto.classId, status: 'ACTIVE' },
+        include: {
+          guardians: {
+            where: { isPrimary: true, custodyFlag: { not: 'BLOCKED' } },
+            include: { guardian: { select: { phone: true } } },
+          },
+        },
+      }),
+      this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } }),
+      this.db.term.findUnique({ where: { id: dto.termId } }),
+    ]);
+    const phones = students
+      .map((s) => s.guardians[0]?.guardian.phone)
+      .filter((p): p is string => !!p);
+    if (phones.length === 0) return 0;
+
+    const res = await this.sms.sendToPhones({
+      schoolId: auth.schoolId,
+      createdById: auth.sub,
+      phones,
+      body: `${school.name}: ${term?.name ?? 'This term'} report cards are now available. Sign in at the parent portal with your phone number to view your child's results.`,
+      // Re-publishing the same class and term does not message everyone again.
+      batchId: `RESULTS-${dto.classId}-${dto.termId}`,
+    });
+    return res.sent;
   }
 
   async reportCard(auth: AuthUser, studentId: string, termId: string) {
@@ -893,5 +936,9 @@ export class AssessmentController {
   }
 }
 
-@Module({ controllers: [AssessmentController], providers: [AssessmentService] })
+@Module({
+  imports: [SmsModule],
+  controllers: [AssessmentController],
+  providers: [AssessmentService],
+})
 export class AssessmentModule {}

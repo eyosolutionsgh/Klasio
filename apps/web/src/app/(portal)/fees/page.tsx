@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import DepositQueue from '@/components/DepositQueue';
+import SendReminders from '@/components/SendReminders';
 
 interface Overview {
   invoiced: number;
@@ -196,6 +197,9 @@ export default function FeesPage() {
                     </a>
                   ))}
                 </span>
+              </div>
+              <div className="px-6 pb-1">
+                <SendReminders termId={termId} currency="GHS" />
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm min-w-[380px]">

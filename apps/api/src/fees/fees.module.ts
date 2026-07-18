@@ -19,6 +19,7 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsIn,
   IsNumber,
   IsOptional,
   IsPositive,
@@ -39,6 +40,7 @@ interface UploadedFileLike {
 }
 import { PaymentMethod, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { SmsModule, SmsService } from '../sms/sms.module';
 import { AuthUser, CurrentUser, RequireEntitlement, Roles } from '../common/auth';
 import { receiptPdf } from '../common/pdf';
 import { toCsv, toXlsx, Cell } from '../common/export';
@@ -51,6 +53,15 @@ class RecordPaymentDto {
   @IsEnum(PaymentMethod) method: PaymentMethod;
   @IsOptional() @IsString() note?: string;
   /** Term the money settles. Defaults to the current term; set it to clear an older arrear. */
+  @IsOptional() @IsString() termId?: string;
+}
+
+class ConcessionDto {
+  @IsString() studentId: string;
+  @IsNumber() @IsPositive() amount: number;
+  @IsIn(['DISCOUNT', 'WAIVER']) type: 'DISCOUNT' | 'WAIVER';
+  /** Required: a concession without a stated reason is indistinguishable from a mistake. */
+  @IsString() @MinLength(4) reason: string;
   @IsOptional() @IsString() termId?: string;
 }
 
@@ -91,7 +102,10 @@ class UpdateFeeItemDto {
 
 @Injectable()
 export class FeesService {
-  constructor(private db: PrismaService) {}
+  constructor(
+    private db: PrismaService,
+    private sms: SmsService,
+  ) {}
 
   /**
    * Ledger filter for "everything owed as of this term" — that term and every earlier one, plus
@@ -367,6 +381,65 @@ export class FeesService {
     return { ok: true };
   }
 
+  /**
+   * Remind families who owe money. Escalates on size of debt rather than on a count of previous
+   * nudges: a family owing a few cedis and one owing a term's fees should not hear the same
+   * thing. One message per student per term per day, so a re-run never double-sends.
+   */
+  async sendReminders(auth: AuthUser, termId: string, dryRun = false) {
+    const [defaulters, school, term] = await Promise.all([
+      this.defaulters(auth, termId),
+      this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } }),
+      this.db.term.findUnique({ where: { id: termId } }),
+    ]);
+    const nextTermBegins = term?.nextTermBegins;
+    const money = (n: number) =>
+      `${school.currency} ${n.toLocaleString('en-GH', { minimumFractionDigits: 2 })}`;
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    let sent = 0;
+    let skipped = 0;
+    const planned: { name: string; balance: number; tone: string }[] = [];
+
+    for (const d of defaulters) {
+      if (!d.phone) {
+        skipped++;
+        continue;
+      }
+      // Escalation: a gentle note under a third of a term's bill, firmer above it.
+      const heavy = d.balance >= 500;
+      const tone = heavy ? 'firm' : 'gentle';
+      planned.push({ name: d.name, balance: d.balance, tone });
+      if (dryRun) continue;
+
+      const batchId = `FEEREM-${termId}-${stamp}-${d.studentId}`;
+      if (await this.sms.alreadySent(auth.schoolId, batchId)) {
+        skipped++;
+        continue;
+      }
+      const body = heavy
+        ? `${school.name}: ${d.name} has an outstanding balance of ${money(d.balance)}. Kindly settle before the end of term to avoid disruption${nextTermBegins ? '; next term begins ' + new Date(nextTermBegins).toLocaleDateString('en-GH', { day: 'numeric', month: 'long' }) : ''}. Contact the bursar to arrange payment.`
+        : `${school.name}: a balance of ${money(d.balance)} remains on ${d.name}'s account. Kindly settle at your convenience. Thank you.`;
+      const res = await this.sms.sendToPhones({
+        schoolId: auth.schoolId,
+        createdById: auth.sub,
+        phones: [d.phone],
+        body,
+        batchId,
+      });
+      sent += res.sent;
+      skipped += res.skipped;
+    }
+    if (!dryRun) {
+      await this.db.audit(auth.schoolId, auth.sub, 'fees.reminders', 'Term', termId, {
+        candidates: defaulters.length,
+        sent,
+        skipped,
+      });
+    }
+    return { candidates: defaulters.length, sent, skipped, dryRun, planned: planned.slice(0, 50) };
+  }
+
   /** Who owes money as of this term, counting arrears carried in from earlier terms. */
   async defaulters(auth: AuthUser, termId: string) {
     const entries = await this.db.ledgerEntry.findMany({
@@ -432,6 +505,51 @@ export class FeesService {
       type: XLSX_MIME,
       filename: 'defaulters.xlsx',
     };
+  }
+
+  /**
+   * Grant a discount, waiver or scholarship. It is a ledger entry like any other — append-only,
+   * carrying its reason — so the reduction shows in the student's history rather than silently
+   * shrinking an invoice. Correcting one means a REVERSAL, never an edit.
+   */
+  async grantConcession(auth: AuthUser, dto: ConcessionDto) {
+    const student = await this.db.student.findFirst({
+      where: { id: dto.studentId, schoolId: auth.schoolId },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+
+    const term = dto.termId
+      ? await this.db.term.findFirst({
+          where: { id: dto.termId, academicYear: { schoolId: auth.schoolId } },
+        })
+      : await this.db.term.findFirst({
+          where: { isCurrent: true, academicYear: { schoolId: auth.schoolId, isCurrent: true } },
+        });
+    if (dto.termId && !term) throw new NotFoundException('Term not found');
+
+    const seq =
+      (await this.db.ledgerEntry.count({
+        where: { schoolId: auth.schoolId, type: { in: ['DISCOUNT', 'WAIVER'] } },
+      })) + 1;
+    const entry = await this.db.ledgerEntry.create({
+      data: {
+        schoolId: auth.schoolId,
+        studentId: dto.studentId,
+        termId: term?.id,
+        type: dto.type,
+        amount: dto.amount,
+        reference: `${dto.type === 'WAIVER' ? 'WVR' : 'DSC'}-2026-${String(seq).padStart(5, '0')}`,
+        note: dto.reason,
+        createdById: auth.sub,
+      },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'fees.concession', 'Student', dto.studentId, {
+      type: dto.type,
+      amount: dto.amount,
+      reason: dto.reason,
+      reference: entry.reference,
+    });
+    return { reference: entry.reference, type: entry.type, amount: Number(entry.amount) };
   }
 
   /** Record a manual payment (cash/bank/momo recorded at office). Append-only + receipt. */
@@ -810,6 +928,22 @@ export class FeesController {
     return this.svc.setStudentFeeItem(user, studentId, dto);
   }
 
+  @Post('reminders')
+  @Roles('OWNER', 'HEAD', 'BURSAR')
+  reminders(
+    @CurrentUser() user: AuthUser,
+    @Query('termId') termId: string,
+    @Query('dryRun') dryRun?: string,
+  ) {
+    return this.svc.sendReminders(user, termId, dryRun === 'true');
+  }
+
+  @Post('concessions')
+  @Roles('OWNER', 'HEAD')
+  concession(@CurrentUser() user: AuthUser, @Body() dto: ConcessionDto) {
+    return this.svc.grantConcession(user, dto);
+  }
+
   @Post('invoices/generate')
   @Roles('OWNER', 'HEAD', 'BURSAR')
   generate(@CurrentUser() user: AuthUser, @Body() dto: GenerateInvoicesDto) {
@@ -873,5 +1007,10 @@ export class FeesController {
   }
 }
 
-@Module({ controllers: [FeesController], providers: [FeesService], exports: [FeesService] })
+@Module({
+  imports: [SmsModule],
+  controllers: [FeesController],
+  providers: [FeesService],
+  exports: [FeesService],
+})
 export class FeesModule {}

@@ -3,6 +3,7 @@ import { IsArray, IsDateString, IsEnum, IsString, ValidateNested } from 'class-v
 import { Type } from 'class-transformer';
 import { AttendanceStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { SmsModule, SmsService } from '../sms/sms.module';
 import { AuthUser, CurrentUser } from '../common/auth';
 
 class AttendanceEntryDto {
@@ -21,7 +22,10 @@ class MarkAttendanceDto {
 
 @Injectable()
 export class AttendanceService {
-  constructor(private db: PrismaService) {}
+  constructor(
+    private db: PrismaService,
+    private sms: SmsService,
+  ) {}
 
   private async currentTermId(schoolId: string): Promise<string | null> {
     const term = await this.db.term.findFirst({
@@ -75,7 +79,129 @@ export class AttendanceService {
       date: dto.date,
       count: saved,
     });
-    return { saved };
+    const alerts = await this.alertAbsences(auth, dto, day);
+    return { saved, ...alerts };
+  }
+
+  /**
+   * Tell a guardian, the same morning, that their child is not in school — the single most
+   * valuable message this system sends.
+   *
+   * Registers get corrected (a child marked absent turns up late), so the alert is keyed to the
+   * child and the day: re-marking the same register never sends twice, and a status corrected
+   * away from ABSENT before the first send simply never alerts.
+   */
+  private async alertAbsences(auth: AuthUser, dto: MarkAttendanceDto, day: Date) {
+    const absentIds = dto.entries.filter((e) => e.status === 'ABSENT').map((e) => e.studentId);
+    if (absentIds.length === 0) return { alerted: 0 };
+
+    const students = await this.db.student.findMany({
+      where: { id: { in: absentIds }, schoolId: auth.schoolId },
+      include: {
+        guardians: {
+          where: { isPrimary: true, custodyFlag: { not: 'BLOCKED' } },
+          include: { guardian: { select: { phone: true } } },
+        },
+      },
+    });
+    const school = await this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } });
+    const stamp = day.toISOString().slice(0, 10);
+
+    let alerted = 0;
+    for (const st of students) {
+      const phone = st.guardians[0]?.guardian.phone;
+      if (!phone) continue;
+      const batchId = `ABS-${stamp}-${st.id}`;
+      if (await this.sms.alreadySent(auth.schoolId, batchId)) continue;
+      const res = await this.sms.sendToPhones({
+        schoolId: auth.schoolId,
+        createdById: auth.sub,
+        phones: [phone],
+        body: `${school.name}: ${st.firstName} ${st.lastName} was marked absent today (${stamp}). Please contact the school if this is unexpected.`,
+        batchId,
+      });
+      alerted += res.sent;
+    }
+    return { alerted };
+  }
+
+  /**
+   * Term-wide attendance, by class and by child. Chronic absence is what a daily register cannot
+   * show: a child missing one day a week looks unremarkable every single morning.
+   */
+  async trends(auth: AuthUser, termId: string) {
+    const records = await this.db.attendanceRecord.findMany({
+      where: { schoolId: auth.schoolId, termId },
+      include: {
+        student: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            admissionNo: true,
+            classRoom: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+
+    const present = (st: string) => st === 'PRESENT' || st === 'LATE';
+    const byClass = new Map<string, { name: string; present: number; total: number }>();
+    const byStudent = new Map<
+      string,
+      { name: string; admissionNo: string; className: string; absent: number; total: number }
+    >();
+
+    for (const r of records) {
+      const cls = r.student.classRoom;
+      if (cls) {
+        const c = byClass.get(cls.id) ?? { name: cls.name, present: 0, total: 0 };
+        c.total++;
+        if (present(r.status)) c.present++;
+        byClass.set(cls.id, c);
+      }
+      const s = byStudent.get(r.studentId) ?? {
+        name: `${r.student.firstName} ${r.student.lastName}`,
+        admissionNo: r.student.admissionNo,
+        className: cls?.name ?? '—',
+        absent: 0,
+        total: 0,
+      };
+      s.total++;
+      if (r.status === 'ABSENT') s.absent++;
+      byStudent.set(r.studentId, s);
+    }
+
+    const marked = records.length;
+    const overall = marked ? records.filter((r) => present(r.status)).length / marked : 0;
+
+    // The common definition: missing a tenth or more of sessions. Needs a meaningful sample,
+    // so a child with three marked days cannot be flagged on one absence.
+    const CHRONIC_RATE = 0.1;
+    const MIN_DAYS = 10;
+    const chronic = [...byStudent.entries()]
+      .filter(([, v]) => v.total >= MIN_DAYS && v.absent / v.total >= CHRONIC_RATE)
+      .map(([studentId, v]) => ({
+        studentId,
+        ...v,
+        rate: Math.round((v.absent / v.total) * 1000) / 10,
+      }))
+      .sort((a, b) => b.rate - a.rate);
+
+    return {
+      markedRecords: marked,
+      overallRate: Math.round(overall * 1000) / 10,
+      threshold: { rate: CHRONIC_RATE * 100, minDays: MIN_DAYS },
+      classes: [...byClass.entries()]
+        .map(([id, v]) => ({
+          classId: id,
+          name: v.name,
+          rate: v.total ? Math.round((v.present / v.total) * 1000) / 10 : 0,
+          marked: v.total,
+        }))
+        .sort((a, b) => a.rate - b.rate),
+      chronic,
+    };
   }
 
   async summary(auth: AuthUser, date: string) {
@@ -109,6 +235,11 @@ export class AttendanceController {
     return this.svc.roster(user, classId, date);
   }
 
+  @Get('trends')
+  trends(@CurrentUser() user: AuthUser, @Query('termId') termId: string) {
+    return this.svc.trends(user, termId);
+  }
+
   @Get('summary')
   summary(@CurrentUser() user: AuthUser, @Query('date') date: string) {
     return this.svc.summary(user, date);
@@ -120,5 +251,9 @@ export class AttendanceController {
   }
 }
 
-@Module({ controllers: [AttendanceController], providers: [AttendanceService] })
+@Module({
+  imports: [SmsModule],
+  controllers: [AttendanceController],
+  providers: [AttendanceService],
+})
 export class AttendanceModule {}
