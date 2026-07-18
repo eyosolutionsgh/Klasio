@@ -10,6 +10,7 @@ interface ReportRow {
   overallTotal: number;
   classPosition: number | null;
   classSize: number | null;
+  publishedAt: string | null;
 }
 interface ClassOpt {
   id: string;
@@ -77,6 +78,29 @@ export default function ReportsPage() {
     if (res.ok) setBroadsheet(await res.json());
   }
 
+  /** Publishing is what makes a report visible to guardians — and freezes its remarks. */
+  async function setPublished(published: boolean) {
+    setBusy(true);
+    setMessage(null);
+    const res = await fetch('/api/proxy/assessment/reports/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ classId, termId, published }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (res.ok) {
+      setMessage(
+        published
+          ? `Published ${body.count} report${body.count === 1 ? '' : 's'}.`
+          : `Unpublished ${body.count} report${body.count === 1 ? '' : 's'} — remarks are editable again.`,
+      );
+      load();
+    } else {
+      setMessage(body.message ?? 'Could not change publication state.');
+    }
+  }
+
   async function generate() {
     setBusy(true);
     setMessage(null);
@@ -96,6 +120,8 @@ export default function ReportsPage() {
       setMessage(body.message ?? 'Could not generate reports.');
     }
   }
+
+  const allPublished = rows.length > 0 && rows.every((r) => r.publishedAt);
 
   return (
     <div>
@@ -135,6 +161,26 @@ export default function ReportsPage() {
         >
           {broadsheet ? 'Hide broadsheet' : 'View broadsheet'}
         </button>
+        {rows.length > 0 &&
+          (allPublished ? (
+            <button
+              onClick={() => setPublished(false)}
+              disabled={busy}
+              data-tip="Retract from guardians and re-open remarks for editing"
+              className="tip rounded-lg border border-mist text-clay text-sm font-medium px-5 py-2 hover:bg-clay/5 transition disabled:opacity-50"
+            >
+              Unpublish
+            </button>
+          ) : (
+            <button
+              onClick={() => setPublished(true)}
+              disabled={busy}
+              data-tip="Release these reports to guardians"
+              className="tip rounded-lg bg-gold-soft text-ink text-sm font-medium px-5 py-2 hover:brightness-95 transition disabled:opacity-50"
+            >
+              Publish reports
+            </button>
+          ))}
         {classId && termId && (
           <span className="flex items-center gap-1 text-[13px]">
             <span className="text-oat">Export:</span>
@@ -236,7 +282,14 @@ export default function ReportsPage() {
                   <span className="text-oat text-xs"> / {r.classSize}</span>
                 </td>
                 <td className="px-5 py-3">
-                  <p className="font-medium">{r.name}</p>
+                  <p className="font-medium">
+                    {r.name}
+                    {r.publishedAt && (
+                      <span className="ml-2 text-[10px] uppercase tracking-wider bg-forest-mist text-forest rounded-full px-2 py-0.5">
+                        Published
+                      </span>
+                    )}
+                  </p>
                   <p className="text-[11px] text-oat tabular">{r.admissionNo}</p>
                 </td>
                 <td className="px-5 py-3 text-right tabular font-medium">

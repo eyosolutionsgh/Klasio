@@ -113,6 +113,8 @@ export interface ReportCardData {
   classPosition: number | null;
   classSize: number | null;
   attendance: { present: number; total: number };
+  conduct?: string | null;
+  interest?: string | null;
   teacherRemark: string | null;
   headRemark: string | null;
 }
@@ -131,11 +133,9 @@ export function reportCardPdf(card: ReportCardData): Promise<Buffer> {
     .text(card.school.name, { align: 'center' });
   doc.fillColor(OAT).font('Helvetica-Oblique').fontSize(9);
   if (card.school.motto) doc.text(card.school.motto, { align: 'center' });
-  doc
-    .font('Helvetica')
-    .text([card.school.address, card.school.phone].filter(Boolean).join(' · '), {
-      align: 'center',
-    });
+  doc.font('Helvetica').text([card.school.address, card.school.phone].filter(Boolean).join(' · '), {
+    align: 'center',
+  });
   doc
     .moveDown(0.6)
     .fillColor(INK)
@@ -222,15 +222,37 @@ export function reportCardPdf(card: ReportCardData): Promise<Buffer> {
 
   // Remarks
   doc.moveDown(1);
+  // Always anchor at the left margin: the two-column conduct/interest block above leaves
+  // pdfkit's cursor in the right-hand column, which would indent every following line.
   const remark = (label: string, value: string | null) => {
-    doc.fillColor(OAT).font('Helvetica').fontSize(8).text(label.toUpperCase());
+    doc.fillColor(OAT).font('Helvetica').fontSize(8).text(label.toUpperCase(), left, doc.y);
     doc
       .fillColor(INK)
       .font('Helvetica')
       .fontSize(10)
-      .text(value || ' ', { width });
+      .text(value || ' ', left, doc.y, { width });
     doc.moveDown(0.6);
   };
+  if (card.conduct || card.interest) {
+    const y = doc.y;
+    doc.fillColor(OAT).font('Helvetica').fontSize(8).text('CONDUCT', left, y);
+    doc
+      .fillColor(INK)
+      .fontSize(10)
+      .text(card.conduct || ' ', left, doc.y, { width: width / 2 - 10 });
+    const afterConduct = doc.y;
+    doc
+      .fillColor(OAT)
+      .fontSize(8)
+      .text('INTEREST', left + width / 2, y);
+    doc
+      .fillColor(INK)
+      .fontSize(10)
+      .text(card.interest || ' ', left + width / 2, y + 12, { width: width / 2 - 10 });
+    doc.y = Math.max(afterConduct, doc.y);
+    doc.x = left;
+    doc.moveDown(0.6);
+  }
   remark("Class Teacher's Remark", card.teacherRemark);
   remark("Head Teacher's Remark", card.headRemark);
 

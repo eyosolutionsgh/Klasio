@@ -1,7 +1,8 @@
 import Link from 'next/link';
-import { api } from '@/lib/api';
+import { api, getMe } from '@/lib/api';
 import PrintButton from '@/components/PrintButton';
 import DownloadButton from '@/components/DownloadButton';
+import ReportRemarks from '@/components/ReportRemarks';
 
 interface Line {
   subject: string;
@@ -23,8 +24,11 @@ interface Card {
   classPosition: number | null;
   classSize: number | null;
   attendance: { present: number; total: number };
+  conduct: string | null;
+  interest: string | null;
   teacherRemark: string | null;
   headRemark: string | null;
+  publishedAt: string | null;
 }
 
 const ordinal = (n: number) => {
@@ -39,7 +43,10 @@ export default async function ReportCardPage({
   params: Promise<{ studentId: string; termId: string }>;
 }) {
   const { studentId, termId } = await params;
-  const card = await api<Card>(`/assessment/reports/${studentId}/${termId}`);
+  const [card, me] = await Promise.all([
+    api<Card>(`/assessment/reports/${studentId}/${termId}`),
+    getMe(),
+  ]);
   const earlyYears = card.schemeKind === 'EARLY_YEARS';
   const gradeHeader = card.schemeKind === 'GES_CLASSIC' ? 'Grade' : 'Proficiency';
 
@@ -191,6 +198,22 @@ export default async function ReportCardPage({
         </table>
 
         <section className="mt-6 space-y-4 text-sm">
+          {(card.conduct || card.interest) && (
+            <div className="grid grid-cols-2 gap-x-10">
+              <div>
+                <p className="text-[11px] uppercase tracking-widest text-oat">Conduct</p>
+                <p className="border-b border-dotted border-oat pb-1 mt-1 min-h-6">
+                  {card.conduct ?? ''}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-widest text-oat">Interest</p>
+                <p className="border-b border-dotted border-oat pb-1 mt-1 min-h-6">
+                  {card.interest ?? ''}
+                </p>
+              </div>
+            </div>
+          )}
           <div>
             <p className="text-[11px] uppercase tracking-widest text-oat">Class Teacher’s Remark</p>
             <p className="border-b border-dotted border-oat pb-1 mt-1 min-h-6">
@@ -211,6 +234,21 @@ export default async function ReportCardPage({
             <div className="border-t border-ink w-40 pt-1">Head Teacher’s Signature</div>
           </div>
         </footer>
+      </div>
+
+      <div className="max-w-3xl mx-auto">
+        <ReportRemarks
+          studentId={studentId}
+          termId={termId}
+          role={me.user.role}
+          published={!!card.publishedAt}
+          initial={{
+            conduct: card.conduct,
+            interest: card.interest,
+            teacherRemark: card.teacherRemark,
+            headRemark: card.headRemark,
+          }}
+        />
       </div>
     </div>
   );

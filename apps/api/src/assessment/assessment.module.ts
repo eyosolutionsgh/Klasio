@@ -2,16 +2,29 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Injectable,
   Module,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Query,
   StreamableFile,
 } from '@nestjs/common';
-import { IsArray, IsNumber, IsString, Max, Min, ValidateNested } from 'class-validator';
+import { Prisma } from '@prisma/client';
+import {
+  IsArray,
+  IsBoolean,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, Roles } from '../common/auth';
@@ -39,6 +52,20 @@ class SaveScoresDto {
 class GenerateReportsDto {
   @IsString() classId: string;
   @IsString() termId: string;
+}
+
+class UpdateReportDto {
+  @IsOptional() @IsString() @MaxLength(500) teacherRemark?: string;
+  @IsOptional() @IsString() @MaxLength(500) headRemark?: string;
+  @IsOptional() @IsString() @MaxLength(120) conduct?: string;
+  @IsOptional() @IsString() @MaxLength(120) interest?: string;
+}
+
+class PublishReportsDto {
+  @IsString() classId: string;
+  @IsString() termId: string;
+  /** false un-publishes (e.g. a mistake spotted after release). */
+  @IsOptional() @IsBoolean() published?: boolean;
 }
 
 interface Band {
@@ -353,6 +380,62 @@ export class AssessmentService {
     }));
   }
 
+  /**
+   * Record the human parts of a terminal report: conduct, interest and the two remarks.
+   * The head teacher's remark is reserved for HEAD/OWNER — a class teacher must not be able
+   * to put words in the head's mouth on a document that goes home to guardians.
+   */
+  async updateReport(auth: AuthUser, studentId: string, termId: string, dto: UpdateReportDto) {
+    const report = await this.db.termReport.findFirst({
+      where: { schoolId: auth.schoolId, studentId, termId },
+    });
+    if (!report) throw new NotFoundException('Report not generated yet');
+    if (dto.headRemark !== undefined && !['OWNER', 'HEAD'].includes(auth.role)) {
+      throw new ForbiddenException("Only the head teacher can write the head teacher's remark");
+    }
+    if (report.publishedAt) {
+      throw new BadRequestException('This report is published — unpublish it before editing');
+    }
+
+    const data: Prisma.TermReportUpdateInput = {};
+    if (dto.teacherRemark !== undefined) data.teacherRemark = dto.teacherRemark || null;
+    if (dto.headRemark !== undefined) data.headRemark = dto.headRemark || null;
+    if (dto.conduct !== undefined) data.conduct = dto.conduct || null;
+    if (dto.interest !== undefined) data.interest = dto.interest || null;
+    if (Object.keys(data).length === 0) throw new BadRequestException('Nothing to update');
+
+    const updated = await this.db.termReport.update({ where: { id: report.id }, data });
+    await this.db.audit(auth.schoolId, auth.sub, 'report.remarks', 'TermReport', report.id, {
+      fields: Object.keys(data),
+    });
+    return {
+      studentId,
+      termId,
+      conduct: updated.conduct,
+      interest: updated.interest,
+      teacherRemark: updated.teacherRemark,
+      headRemark: updated.headRemark,
+    };
+  }
+
+  /** Publish (or retract) a whole class's reports for a term. Guardians only ever see published ones. */
+  async publishReports(auth: AuthUser, dto: PublishReportsDto) {
+    const publish = dto.published !== false;
+    const result = await this.db.termReport.updateMany({
+      where: { schoolId: auth.schoolId, classId: dto.classId, termId: dto.termId },
+      data: { publishedAt: publish ? new Date() : null },
+    });
+    await this.db.audit(
+      auth.schoolId,
+      auth.sub,
+      publish ? 'reports.publish' : 'reports.unpublish',
+      'ClassRoom',
+      dto.classId,
+      { termId: dto.termId, count: result.count },
+    );
+    return { published: publish, count: result.count };
+  }
+
   async reportCard(auth: AuthUser, studentId: string, termId: string) {
     const report = await this.db.termReport.findFirst({
       where: { schoolId: auth.schoolId, studentId, termId },
@@ -402,6 +485,7 @@ export class AssessmentService {
       interest: report.interest,
       teacherRemark: report.teacherRemark,
       headRemark: report.headRemark,
+      publishedAt: report.publishedAt,
       generatedAt: report.generatedAt,
     };
   }
@@ -523,6 +607,23 @@ export class AssessmentController {
     @Param('termId') termId: string,
   ) {
     return this.svc.reportCard(user, studentId, termId);
+  }
+
+  @Post('reports/publish')
+  @Roles('OWNER', 'HEAD')
+  publish(@CurrentUser() user: AuthUser, @Body() dto: PublishReportsDto) {
+    return this.svc.publishReports(user, dto);
+  }
+
+  @Patch('reports/:studentId/:termId')
+  @Roles('OWNER', 'HEAD', 'TEACHER')
+  updateReport(
+    @CurrentUser() user: AuthUser,
+    @Param('studentId') studentId: string,
+    @Param('termId') termId: string,
+    @Body() dto: UpdateReportDto,
+  ) {
+    return this.svc.updateReport(user, studentId, termId, dto);
   }
 
   @Get('broadsheet')
