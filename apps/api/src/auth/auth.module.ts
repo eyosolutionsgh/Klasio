@@ -76,6 +76,9 @@ export class AuthService {
         email: school.email,
         website: school.website,
         reportTemplate: school.reportTemplate,
+        // School Setup edits these, so they ride along with the context it already loads.
+        admissionNoFormat: school.admissionNoFormat,
+        admissionNoNext: school.admissionNoNext,
         // The chrome renders the crest and brand colour on every page, so they ride along
         // with /me rather than costing a second round trip per navigation.
         brandColor: school.brandColor,

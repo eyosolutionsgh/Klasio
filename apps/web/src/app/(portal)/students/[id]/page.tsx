@@ -94,7 +94,7 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
             </h1>
             <p className="text-sm text-oat mt-1 tabular">
               {s.admissionNo} · {s.className ?? 'Unassigned'} ·{' '}
-              {s.gender === 'MALE' ? 'Boy' : 'Girl'} · Born {fmtDate(s.dateOfBirth)}
+              {s.gender === 'MALE' ? 'Male' : 'Female'} · Born {fmtDate(s.dateOfBirth)}
             </p>
             {s.status !== 'ACTIVE' && s.exitDate && (
               <p className="text-xs text-oat mt-1">

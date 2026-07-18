@@ -161,6 +161,9 @@ export class OnboardingService {
       const firstName = r['First Name'];
       const lastName = r['Last Name'];
       const genderRaw = (r['Gender'] ?? '').toLowerCase();
+      // Deliberately tolerant of "boy"/"girl": this reads a school's own spreadsheet, and that
+      // is what many of them type. We always *display* Male and Female — accepting their wording
+      // on import is not the same as adopting it.
       const gender: Gender | null = /^m|boy/.test(genderRaw)
         ? 'MALE'
         : /^f|girl/.test(genderRaw)

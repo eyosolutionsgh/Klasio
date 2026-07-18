@@ -196,8 +196,8 @@ export default function ApplicantActions({
                     <legend className="block text-oat mb-1">Gender</legend>
                     <div className="flex gap-2">
                       {[
-                        { v: 'FEMALE', l: 'Girl' },
-                        { v: 'MALE', l: 'Boy' },
+                        { v: 'FEMALE', l: 'Female' },
+                        { v: 'MALE', l: 'Male' },
                       ].map((g) => (
                         <button
                           key={g.v}

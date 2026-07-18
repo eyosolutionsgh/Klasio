@@ -141,6 +141,9 @@ async function main() {
   const school = await db.school.create({
     data: {
       name: 'Brighton Academy',
+      // Match the numbers the seed itself issues below, so enrolling after a reseed continues
+      // the run rather than colliding with BA-0001.
+      admissionNoFormat: 'BA-{####}',
       slug: 'brighton-academy',
       motto: 'Knowledge · Discipline · Service',
       address: 'Adjiringanor Road, East Legon, Accra',
@@ -414,6 +417,13 @@ async function main() {
       });
     }
   }
+
+  // Point the counter past everything the seed issued. Derived from the sequence rather than a
+  // literal, so adding demo students never leaves it stale.
+  await db.school.update({
+    where: { id: sid },
+    data: { admissionNoNext: admissionSeq },
+  });
 
   // Attendance for current term (Term 3): 30 school days
   const days: Date[] = [];

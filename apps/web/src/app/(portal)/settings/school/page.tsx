@@ -46,6 +46,32 @@ const fmt = (d: string | null) =>
 const field =
   'rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
 
+/**
+ * A worked example of the admission number, so a school sees the shape before saving it.
+ *
+ * Deliberately mirrors `formatAdmissionNo` on the server rather than calling it: this runs on
+ * every keystroke and a round trip per character would be absurd. The server remains the
+ * authority — it validates and rejects — this only shows what is about to happen.
+ */
+function previewId(template: string, seq: number): string | null {
+  const t = template.trim();
+  if (!t) return null;
+  const seqTokens = t.match(/\{(#+)\}/g) ?? [];
+  if (seqTokens.length !== 1) return null;
+  const unknown = (t.match(/\{([^}]*)\}/g) ?? []).filter(
+    (tok) => !/^\{#+\}$/.test(tok) && !['{YYYY}', '{YY}', '{LEVEL}'].includes(tok),
+  );
+  if (unknown.length > 0) return null;
+  const year = new Date().getFullYear();
+  return t
+    .replace(/\{YYYY\}/g, String(year))
+    .replace(/\{YY\}/g, String(year % 100).padStart(2, '0'))
+    .replace(/\{LEVEL\}/g, 'JHS')
+    .replace(/\{(#+)\}/g, (_m, h: string) => String(seq).padStart(h.length, '0'))
+    .replace(/([-/_])\1+/g, '$1')
+    .replace(/^[-/_]+|[-/_]+$/g, '');
+}
+
 export default function SchoolSetupPage() {
   const [years, setYears] = useState<Year[]>([]);
   const [levels, setLevels] = useState<Level[]>([]);
@@ -53,6 +79,9 @@ export default function SchoolSetupPage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [template, setTemplate] = useState<'GES' | 'MODERN'>('GES');
   const [message, setMessage] = useState<string | null>(null);
+  const [idFormat, setIdFormat] = useState('{YYYY}-{####}');
+  const [idNext, setIdNext] = useState('1');
+  const [idSaved, setIdSaved] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const [res, meRes] = await Promise.all([
@@ -68,6 +97,8 @@ export default function SchoolSetupPage() {
     if (meRes.ok) {
       const me = await meRes.json();
       if (me.school?.reportTemplate) setTemplate(me.school.reportTemplate);
+      if (me.school?.admissionNoFormat) setIdFormat(me.school.admissionNoFormat);
+      if (me.school?.admissionNoNext) setIdNext(String(me.school.admissionNoNext));
     }
   }, []);
 
@@ -124,6 +155,87 @@ export default function SchoolSetupPage() {
       </div>
 
       {/* Report template */}
+      <section className="card p-6 rise rise-2">
+        <h2 className="font-display text-xl">Student ID numbers</h2>
+        <p className="text-xs text-oat mt-1">
+          How this school numbers its students. Whatever you already print on report cards and ID
+          cards, put it here — you should not have to keep two sets of numbers.
+        </p>
+
+        <form
+          className="mt-4 flex flex-wrap items-end gap-3"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setIdSaved(null);
+            const ok = await send(
+              'settings',
+              { admissionNoFormat: idFormat, admissionNoNext: Number(idNext) },
+              'PATCH',
+            );
+            if (ok) setIdSaved('Saved. New students will be numbered this way.');
+          }}
+        >
+          <label className="text-[13px]">
+            <span className="block text-oat mb-1">Format</span>
+            <input
+              value={idFormat}
+              onChange={(e) => setIdFormat(e.target.value)}
+              placeholder="BA-{YYYY}-{####}"
+              className="w-56 min-h-11 rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+            />
+          </label>
+          <label className="text-[13px]">
+            <span className="block text-oat mb-1">Next number</span>
+            <input
+              type="number"
+              min="1"
+              value={idNext}
+              onChange={(e) => setIdNext(e.target.value)}
+              className="w-28 min-h-11 rounded-lg border border-mist bg-white px-3 py-2 text-sm tabular outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+            />
+          </label>
+          <button className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
+            Save
+          </button>
+        </form>
+
+        <div className="mt-4 rounded-lg bg-parchment/60 p-4">
+          {previewId(idFormat, Number(idNext) || 1) ? (
+            <p className="text-sm">
+              The next student enrolled will be{' '}
+              <span className="font-display text-lg">
+                {previewId(idFormat, Number(idNext) || 1)}
+              </span>
+            </p>
+          ) : (
+            <p className="text-sm text-clay">
+              That format will not work yet — it needs a number part like {'{####}'}, used once.
+            </p>
+          )}
+          <dl className="mt-3 grid gap-x-6 gap-y-1 text-[12px] text-oat sm:grid-cols-2">
+            <div>
+              <dt className="inline font-medium text-ink">{'{YYYY}'}</dt> — the year, in full
+            </div>
+            <div>
+              <dt className="inline font-medium text-ink">{'{YY}'}</dt> — the year, two digits
+            </div>
+            <div>
+              <dt className="inline font-medium text-ink">{'{####}'}</dt> — the number, padded to
+              that many digits
+            </div>
+            <div>
+              <dt className="inline font-medium text-ink">{'{LEVEL}'}</dt> — the level&rsquo;s short
+              code, where you use one
+            </div>
+          </dl>
+          <p className="text-[11px] text-oat mt-3">
+            Anything else you type is kept exactly as it is. Changing the format never renumbers
+            students already enrolled, and the next number cannot be set below one already issued.
+          </p>
+          {idSaved && <p className="text-sm text-leaf mt-2">{idSaved}</p>}
+        </div>
+      </section>
+
       <section className="card p-6 rise rise-2">
         <h2 className="font-display text-xl">Terminal report layout</h2>
         <p className="text-xs text-oat mt-1">
