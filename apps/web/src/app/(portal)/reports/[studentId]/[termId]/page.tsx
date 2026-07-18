@@ -16,6 +16,7 @@ interface Line {
 interface Card {
   schemeKind: 'GES_CLASSIC' | 'NACCA_BANDS' | 'EARLY_YEARS';
   schemeName: string;
+  template: 'GES' | 'MODERN';
   school: { name: string; motto: string | null; address: string | null; phone: string | null };
   student: { name: string; admissionNo: string; className: string | null; gender: string };
   term: { name: string; year: string; nextTermBegins: string | null };
@@ -72,16 +73,32 @@ export default async function ReportCardPage({
       <div className="print-sheet card max-w-3xl mx-auto p-10 relative overflow-hidden">
         <div className="kente-stripe h-1.5 absolute top-0 left-0 right-0" />
 
-        <header className="text-center border-b-2 border-ink pb-5">
-          <h1 className="font-display text-3xl tracking-tight">{card.school.name}</h1>
-          {card.school.motto && <p className="text-xs italic text-oat mt-1">{card.school.motto}</p>}
-          <p className="text-[11px] text-oat mt-1">
-            {card.school.address} · {card.school.phone}
-          </p>
-          <p className="font-display text-lg mt-4 uppercase tracking-wide">
-            Terminal Report — {card.term.name}, {card.term.year}
-          </p>
-        </header>
+        {card.template === 'MODERN' ? (
+          <header className="-mx-10 -mt-10 mb-6 bg-forest-deep text-paper px-10 pt-8 pb-6">
+            <h1 className="font-display text-3xl tracking-tight">{card.school.name}</h1>
+            <p className="text-[11px] text-paper/70 mt-1.5">
+              {[card.school.motto, card.school.address, card.school.phone]
+                .filter(Boolean)
+                .join('  ·  ')}
+            </p>
+            <p className="font-display text-lg mt-5">
+              Terminal Report — {card.term.name}, {card.term.year}
+            </p>
+          </header>
+        ) : (
+          <header className="text-center border-b-2 border-ink pb-5">
+            <h1 className="font-display text-3xl tracking-tight">{card.school.name}</h1>
+            {card.school.motto && (
+              <p className="text-xs italic text-oat mt-1">{card.school.motto}</p>
+            )}
+            <p className="text-[11px] text-oat mt-1">
+              {card.school.address} · {card.school.phone}
+            </p>
+            <p className="font-display text-lg mt-4 uppercase tracking-wide">
+              Terminal Report — {card.term.name}, {card.term.year}
+            </p>
+          </header>
+        )}
 
         <section className="grid grid-cols-2 gap-x-10 gap-y-1.5 text-sm mt-5">
           <p>

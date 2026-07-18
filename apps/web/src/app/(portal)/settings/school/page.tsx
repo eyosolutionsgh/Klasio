@@ -51,16 +51,24 @@ export default function SchoolSetupPage() {
   const [levels, setLevels] = useState<Level[]>([]);
   const [classes, setClasses] = useState<ClassRoom[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [template, setTemplate] = useState<'GES' | 'MODERN'>('GES');
   const [message, setMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const res = await fetch('/api/proxy/school/structure');
+    const [res, meRes] = await Promise.all([
+      fetch('/api/proxy/school/structure'),
+      fetch('/api/proxy/me'),
+    ]);
     if (!res.ok) return;
     const s = await res.json();
     setYears(s.years ?? []);
     setLevels(s.levels ?? []);
     setClasses(s.classes ?? []);
     setSubjects(s.subjects ?? []);
+    if (meRes.ok) {
+      const me = await meRes.json();
+      if (me.school?.reportTemplate) setTemplate(me.school.reportTemplate);
+    }
   }, []);
 
   useEffect(() => {
@@ -114,6 +122,32 @@ export default function SchoolSetupPage() {
         </p>
         {message && <p className="text-sm text-danger mt-2">{message}</p>}
       </div>
+
+      {/* Report template */}
+      <section className="card p-6 rise rise-2">
+        <h2 className="font-display text-xl">Terminal report layout</h2>
+        <p className="text-xs text-oat mt-1">
+          GES keeps the familiar statutory look. Modern is a cleaner layout with a coloured masthead
+          — the same marks, grades and remarks either way.
+        </p>
+        <div className="flex gap-2 mt-4">
+          {(['GES', 'MODERN'] as const).map((t) => (
+            <button
+              key={t}
+              onClick={async () => {
+                if (await send('settings', { reportTemplate: t }, 'PATCH')) setTemplate(t);
+              }}
+              className={`text-[13px] rounded-full px-4 py-1.5 border transition ${
+                template === t
+                  ? 'bg-forest text-paper border-forest'
+                  : 'border-mist bg-white hover:border-forest'
+              }`}
+            >
+              {t === 'GES' ? 'GES classic' : 'Modern'}
+            </button>
+          ))}
+        </div>
+      </section>
 
       {/* Academic years & terms */}
       <section className="card p-6 rise rise-2">

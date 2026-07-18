@@ -64,6 +64,7 @@ export class AuthService {
         tier: school.tier,
         currency: school.currency,
         address: school.address,
+        reportTemplate: school.reportTemplate,
       },
       currentTerm,
       entitlements: entitlementsForTier(school.tier),

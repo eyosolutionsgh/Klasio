@@ -20,11 +20,15 @@ import {
   IsString,
   MinLength,
 } from 'class-validator';
-import { LevelCategory } from '@prisma/client';
+import { LevelCategory, ReportTemplate } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, Roles } from '../common/auth';
 
 const CATEGORIES = ['PRE_SCHOOL', 'PRIMARY', 'JHS', 'SHS'] as const;
+
+class SchoolSettingsDto {
+  @IsOptional() @IsIn(['GES', 'MODERN']) reportTemplate?: ReportTemplate;
+}
 
 class AcademicYearDto {
   @IsString() @MinLength(4) name: string;
@@ -107,6 +111,23 @@ export class SchoolsService {
       subjects,
       years,
     };
+  }
+
+  /** School-level profile settings, currently the terminal-report layout. */
+  async updateSettings(auth: AuthUser, dto: SchoolSettingsDto) {
+    const school = await this.db.school.update({
+      where: { id: auth.schoolId },
+      data: { ...(dto.reportTemplate ? { reportTemplate: dto.reportTemplate } : {}) },
+    });
+    await this.db.audit(
+      auth.schoolId,
+      auth.sub,
+      'school.settings.update',
+      'School',
+      auth.schoolId,
+      dto as object,
+    );
+    return { reportTemplate: school.reportTemplate };
   }
 
   // ── Academic years & terms ─────────────────────────────────────────
@@ -354,6 +375,12 @@ export class SchoolsController {
   @Get('structure')
   structure(@CurrentUser() user: AuthUser) {
     return this.svc.structure(user);
+  }
+
+  @Patch('settings')
+  @Roles('OWNER', 'HEAD')
+  updateSettings(@CurrentUser() user: AuthUser, @Body() dto: SchoolSettingsDto) {
+    return this.svc.updateSettings(user, dto);
   }
 
   @Post('years')

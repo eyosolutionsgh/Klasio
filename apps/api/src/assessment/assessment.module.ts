@@ -631,6 +631,7 @@ export class AssessmentService {
     return {
       schemeKind: scheme?.kind ?? 'GES_CLASSIC',
       schemeName: scheme?.name ?? 'GES Classic',
+      template: school.reportTemplate,
       school: {
         name: school.name,
         motto: school.motto,
