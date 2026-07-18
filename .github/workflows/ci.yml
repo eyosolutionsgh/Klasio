@@ -36,6 +36,17 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+
+      # Write paths against a live database, as a non-owner role so row-level security actually
+      # applies. Two RLS bugs — unsettleable payments and six write paths refused outright —
+      # shipped past lint, typecheck and the unit suite above, because none of them can see a
+      # policy. This is the gate that can.
+      #
+      # It provisions its own database (eyo_sms_it) and the eyo_app role, so it leaves the
+      # seeded eyo_sms_ci database below untouched for the E2E run.
+      - name: Integration tests — tenant-scoped writes and public entry points
+        run: pnpm test:integration
+
       - run: pnpm build
       - name: Seed + E2E visual tests
         run: |

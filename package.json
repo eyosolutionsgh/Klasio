@@ -9,6 +9,7 @@
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
+    "test:integration": "pnpm --filter @eyo/api test:integration",
     "test:e2e": "pnpm --filter @eyo/web test:e2e",
     "db:migrate": "pnpm --filter @eyo/api db:migrate",
     "db:deploy": "pnpm --filter @eyo/api db:deploy",

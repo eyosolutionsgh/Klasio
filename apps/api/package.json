@@ -6,9 +6,10 @@
     "dev": "nest start --watch",
     "start": "node dist/main.js",
     "build": "nest build",
-    "lint": "eslint src",
+    "lint": "eslint src test",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "ts-node --transpile-only prisma/seed.ts",
@@ -35,6 +36,7 @@
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.9",
+    "@swc/core": "^1.15.43",
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^22.10.5",
@@ -43,6 +45,7 @@
     "prisma": "^5.22.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.2",
+    "unplugin-swc": "^1.5.9",
     "vitest": "^2.1.8"
   }
 }
