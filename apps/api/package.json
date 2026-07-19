@@ -12,6 +12,7 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "ts-node --transpile-only prisma/seed.ts",
+    "db:seed:second": "ts-node --transpile-only prisma/seed-second-school.ts",
     "db:drift-check": "bash scripts/drift-check.sh"
   },
   "dependencies": {
