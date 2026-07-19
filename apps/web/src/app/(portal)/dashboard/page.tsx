@@ -6,7 +6,9 @@ interface Stats {
   studentCount: number;
   staffCount: number;
   classCount: number;
-  fees: { invoiced: number; collected: number; outstanding: number; rate: number };
+  // Omitted, not zeroed, for a role without `fees.view` — a teacher, nurse or librarian lands
+  // here too, and the dashboard cannot require a money permission to render.
+  fees?: { invoiced: number; collected: number; outstanding: number; rate: number };
   attendance: { date: string; present: number; total: number } | null;
   announcements: { id: string; title: string; body: string; publishedAt: string }[];
 }
@@ -35,7 +37,10 @@ export default async function DashboardPage() {
   const [me, stats] = await Promise.all([getMe(), api<Stats>('/dashboard')]);
   const att = stats.attendance;
   const attPct = att && att.total > 0 ? Math.round((att.present / att.total) * 100) : null;
-  const feePct = Math.round(stats.fees.rate * 100);
+  // Absent money means "you may not know", which is not the same as a school that has collected
+  // nothing — so the tile and the fees panel are dropped rather than shown reading 0%.
+  const fees = stats.fees;
+  const feePct = fees ? Math.round(fees.rate * 100) : null;
 
   return (
     <div>
@@ -53,7 +58,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* Stat row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-8">
+      <div className={`grid grid-cols-2 gap-4 mt-8 ${fees ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
         {[
           {
             label: 'Students enrolled',
@@ -71,13 +76,17 @@ export default async function DashboardPage() {
             tip: 'Most recent marked school day',
             cls: 'rise-3',
           },
-          {
-            label: 'Fees collected',
-            value: `${feePct}%`,
-            sub: `${money(stats.fees.collected)} of ${money(stats.fees.invoiced)}`,
-            tip: 'Collected against invoiced this term',
-            cls: 'rise-4',
-          },
+          ...(fees
+            ? [
+                {
+                  label: 'Fees collected',
+                  value: `${feePct}%`,
+                  sub: `${money(fees.collected)} of ${money(fees.invoiced)}`,
+                  tip: 'Collected against invoiced this term',
+                  cls: 'rise-4',
+                },
+              ]
+            : []),
         ].map((s) => (
           <div key={s.label} data-tip={s.tip} className={`tip card card-accent p-5 rise ${s.cls}`}>
             <p className="text-[11px] uppercase tracking-widest text-oat">{s.label}</p>
@@ -87,43 +96,45 @@ export default async function DashboardPage() {
         ))}
       </div>
 
-      <div className="grid lg:grid-cols-[1.4fr_1fr] gap-6 mt-8">
+      <div className={`grid gap-6 mt-8 ${fees ? 'lg:grid-cols-[1.4fr_1fr]' : ''}`}>
         {/* Fees position */}
-        <section className="card p-6 rise rise-3">
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-            <h2 className="font-display text-xl">Fees position — {stats.term?.name}</h2>
-            <Link
-              href="/fees"
-              className="text-[13px] text-brand font-medium hover:underline underline-offset-2"
-            >
-              Open fees →
-            </Link>
-          </div>
-          <div
-            className="mt-5 h-3 rounded-full bg-parchment overflow-hidden"
-            role="img"
-            aria-label={`${feePct}% collected`}
-          >
+        {fees && (
+          <section className="card p-6 rise rise-3">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+              <h2 className="font-display text-xl">Fees position — {stats.term?.name}</h2>
+              <Link
+                href="/fees"
+                className="text-[13px] text-brand font-medium hover:underline underline-offset-2"
+              >
+                Open fees →
+              </Link>
+            </div>
             <div
-              className="h-full rounded-full kente-stripe"
-              style={{ width: `${Math.min(100, feePct)}%` }}
-            />
-          </div>
-          <div className="mt-5 grid grid-cols-3 gap-4 text-sm">
-            <div>
-              <p className="text-[11px] uppercase tracking-widest text-oat">Invoiced</p>
-              <p className="tabular font-medium mt-1">{money(stats.fees.invoiced)}</p>
+              className="mt-5 h-3 rounded-full bg-parchment overflow-hidden"
+              role="img"
+              aria-label={`${feePct}% collected`}
+            >
+              <div
+                className="h-full rounded-full kente-stripe"
+                style={{ width: `${Math.min(100, feePct ?? 0)}%` }}
+              />
             </div>
-            <div>
-              <p className="text-[11px] uppercase tracking-widest text-oat">Collected</p>
-              <p className="tabular font-medium mt-1 text-leaf">{money(stats.fees.collected)}</p>
+            <div className="mt-5 grid grid-cols-3 gap-4 text-sm">
+              <div>
+                <p className="text-[11px] uppercase tracking-widest text-oat">Invoiced</p>
+                <p className="tabular font-medium mt-1">{money(fees.invoiced)}</p>
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-widest text-oat">Collected</p>
+                <p className="tabular font-medium mt-1 text-leaf">{money(fees.collected)}</p>
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-widest text-oat">Outstanding</p>
+                <p className="tabular font-medium mt-1 text-clay">{money(fees.outstanding)}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-[11px] uppercase tracking-widest text-oat">Outstanding</p>
-              <p className="tabular font-medium mt-1 text-clay">{money(stats.fees.outstanding)}</p>
-            </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         {/* Announcements */}
         <section className="card p-6 rise rise-4">

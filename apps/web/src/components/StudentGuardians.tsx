@@ -3,15 +3,21 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+/**
+ * Contact details and custody status need `students.guardians` or `pickup.view`; a role without
+ * either — a bursar, say — still sees who a child's guardians are, but the API omits those four
+ * fields entirely rather than blanking them. They are optional here for that reason, and every
+ * read below has to cope with their absence.
+ */
 export interface GuardianLink {
   id: string;
   name: string;
-  phone: string;
+  phone?: string;
   relationship: string;
   isPrimary: boolean;
-  canPickup: boolean;
-  custodyFlag: string;
-  whatsappOptIn: boolean;
+  canPickup?: boolean;
+  custodyFlag?: string;
+  whatsappOptIn?: boolean;
   /** Other students who share this guardian record. */
   alsoGuardianTo: number;
 }
@@ -30,9 +36,12 @@ const field =
 export default function StudentGuardians({
   studentId,
   guardians,
+  canManage,
 }: {
   studentId: string;
   guardians: GuardianLink[];
+  /** `students.guardians` — the write permission. Reading contact details is a weaker bar. */
+  canManage: boolean;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState<string | null>(null);
@@ -98,15 +107,17 @@ export default function StudentGuardians({
     <section className="card p-6 rise rise-2">
       <div className="flex items-center justify-between gap-3">
         <h2 className="font-display text-xl">Guardians</h2>
-        <button
-          onClick={() => {
-            setAdding((a) => !a);
-            setEditing(null);
-          }}
-          className="no-print text-[12.5px] font-medium text-brand hover:underline underline-offset-2"
-        >
-          {adding ? 'Cancel' : '+ Add guardian'}
-        </button>
+        {canManage && (
+          <button
+            onClick={() => {
+              setAdding((a) => !a);
+              setEditing(null);
+            }}
+            className="no-print text-[12.5px] font-medium text-brand hover:underline underline-offset-2"
+          >
+            {adding ? 'Cancel' : '+ Add guardian'}
+          </button>
+        )}
       </div>
 
       {adding && (
@@ -284,43 +295,55 @@ export default function StudentGuardians({
                   )}
                 </p>
                 <p className="text-xs text-oat mt-0.5">
-                  {g.relationship} · <span className="tabular">{g.phone}</span>
+                  {g.relationship}
+                  {g.phone && (
+                    <>
+                      {' · '}
+                      <span className="tabular">{g.phone}</span>
+                    </>
+                  )}
                   {g.whatsappOptIn && ' · WhatsApp ✓'}
                 </p>
-                <button
-                  onClick={() => {
-                    setEditing(g.id);
-                    setAdding(false);
-                  }}
-                  className="no-print text-[12px] text-brand hover:underline underline-offset-2 mt-1"
-                >
-                  Edit
-                </button>
+                {canManage && (
+                  <button
+                    onClick={() => {
+                      setEditing(g.id);
+                      setAdding(false);
+                    }}
+                    className="no-print text-[12px] text-brand hover:underline underline-offset-2 mt-1"
+                  >
+                    Edit
+                  </button>
+                )}
               </div>
-              <span
-                data-tip={
-                  g.custodyFlag === 'BLOCKED'
-                    ? 'Blocked — must not collect this child or see their records'
-                    : g.custodyFlag === 'RESTRICTED'
-                      ? 'Restricted — check with the head before release'
+              {/* No badge at all when custody is redacted — a default would read as "no
+                  restriction", which is exactly the wrong thing to say about a child. */}
+              {g.custodyFlag !== undefined && (
+                <span
+                  data-tip={
+                    g.custodyFlag === 'BLOCKED'
+                      ? 'Blocked — must not collect this child or see their records'
+                      : g.custodyFlag === 'RESTRICTED'
+                        ? 'Restricted — check with the head before release'
+                        : g.canPickup
+                          ? 'Authorized to pick this child up'
+                          : 'NOT authorized for pickup'
+                  }
+                  className={`tip text-[10px] uppercase tracking-wider rounded-full px-2 py-1 shrink-0 ${
+                    g.custodyFlag !== 'NONE'
+                      ? 'bg-danger/10 text-danger'
                       : g.canPickup
-                        ? 'Authorized to pick this child up'
-                        : 'NOT authorized for pickup'
-                }
-                className={`tip text-[10px] uppercase tracking-wider rounded-full px-2 py-1 shrink-0 ${
-                  g.custodyFlag !== 'NONE'
-                    ? 'bg-danger/10 text-danger'
+                        ? 'bg-brand-mist text-brand'
+                        : 'bg-parchment text-oat'
+                  }`}
+                >
+                  {g.custodyFlag !== 'NONE'
+                    ? g.custodyFlag.toLowerCase()
                     : g.canPickup
-                      ? 'bg-brand-mist text-brand'
-                      : 'bg-parchment text-oat'
-                }`}
-              >
-                {g.custodyFlag !== 'NONE'
-                  ? g.custodyFlag.toLowerCase()
-                  : g.canPickup
-                    ? 'Pickup ✓'
-                    : 'No pickup'}
-              </span>
+                      ? 'Pickup ✓'
+                      : 'No pickup'}
+                </span>
+              )}
             </li>
           ),
         )}

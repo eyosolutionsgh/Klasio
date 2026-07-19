@@ -48,15 +48,17 @@ interface Detail {
   photoUrl?: string | null;
   medicalNotes: string | null;
   className: string | null;
+  // phone/canPickup/custodyFlag/whatsappOptIn are omitted, not blanked, for a role without
+  // `students.guardians` or `pickup.view` — see GuardianLink.
   guardians: {
     id: string;
     name: string;
-    phone: string;
+    phone?: string;
     relationship: string;
     isPrimary: boolean;
-    canPickup: boolean;
-    custodyFlag: string;
-    whatsappOptIn: boolean;
+    canPickup?: boolean;
+    custodyFlag?: string;
+    whatsappOptIn?: boolean;
     alsoGuardianTo: number;
   }[];
   otherNames: string | null;
@@ -86,6 +88,7 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
   const [s, me] = await Promise.all([api<Detail>(`/students/${id}`), getMe()]);
   const canReverse = me.permissions?.includes('fees.reverse') ?? false;
   const canEditStudent = me.permissions?.includes('students.edit') ?? false;
+  const canManageGuardians = me.permissions?.includes('students.guardians') ?? false;
   const att = s.attendanceSummary;
   const attTotal = Object.values(att).reduce((a, b) => a + b, 0);
   // Both are presentation only — the API refuses either way. Hiding them keeps a teacher from
@@ -180,7 +183,11 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
 
       <div className="grid lg:grid-cols-[1fr_1.3fr] gap-6 mt-8">
         <div className="space-y-6">
-          <StudentGuardians studentId={s.id} guardians={s.guardians} />
+          <StudentGuardians
+            studentId={s.id}
+            guardians={s.guardians}
+            canManage={canManageGuardians}
+          />
 
           <StudentFiles studentId={s.id} hasPhoto={!!s.photoUrl} />
 
