@@ -160,5 +160,73 @@ describe('flush', () => {
     expect(res.failed).toBe(1);
     expect(res.synced).toBe(1);
     expect(await pending()).toHaveLength(0);
+    // Named, not just counted — the teacher has to know which register to enter again.
+    expect(res.failures).toEqual([
+      { label: 'doomed', status: 400, message: 'The server rejected it.' },
+    ]);
+  });
+
+  it('keeps queued work when the session has expired, and asks for a sign-in', async () => {
+    // The 12-hour cookie outlives a weekend offline. A 401 says nothing about the write: it
+    // would save perfectly a moment after signing in. Dropping these deleted registers a
+    // teacher had marked and would never get back.
+    const { enqueue, flush, pending } = await import('./offline');
+    await enqueue({ url: '/api/a', method: 'POST', body: {}, label: 'Basic 4 register · 18 Jul' });
+    await enqueue({ url: '/api/b', method: 'POST', body: {}, label: 'Basic 5 register · 18 Jul' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({}) }),
+    );
+    const res = await flush();
+    expect(res.needsSignIn).toBe(true);
+    expect(res.synced).toBe(0);
+    expect(res.failed).toBe(0);
+    expect(await pending()).toHaveLength(2);
+  });
+
+  it('stops at the first 401 instead of hammering the rest', async () => {
+    const { enqueue, flush } = await import('./offline');
+    await enqueue({ url: '/api/a', method: 'POST', body: {}, label: 'one' });
+    await enqueue({ url: '/api/b', method: 'POST', body: {}, label: 'two' });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({}) });
+    vi.stubGlobal('fetch', fetchMock);
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('syncs everything once the session is valid again', async () => {
+    const { enqueue, flush, pending } = await import('./offline');
+    await enqueue({ url: '/api/a', method: 'POST', body: {}, label: 'one' });
+    await enqueue({ url: '/api/b', method: 'POST', body: {}, label: 'two' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({}) }),
+    );
+    expect((await flush()).needsSignIn).toBe(true);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }),
+    );
+    const after = await flush();
+    expect(after.synced).toBe(2);
+    expect(after.needsSignIn).toBe(false);
+    expect(await pending()).toHaveLength(0);
+  });
+
+  it('surfaces the server’s own reason for a rejection', async () => {
+    const { enqueue, flush } = await import('./offline');
+    await enqueue({ url: '/api/x', method: 'POST', body: {}, label: 'JHS 2 register · 19 Jul' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: async () => ({ message: ['That student is not in this class'] }),
+      }),
+    );
+    const res = await flush();
+    expect(res.failures[0].message).toBe('That student is not in this class');
+    expect(res.failures[0].label).toBe('JHS 2 register · 19 Jul');
   });
 });

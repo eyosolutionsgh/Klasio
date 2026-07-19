@@ -1,4 +1,7 @@
+import { execFileSync } from 'node:child_process';
+import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
+import { keepGatewayOnThisOrigin } from './support/gateway';
 
 /**
  * Multi-tenancy and subscription isolation.
@@ -11,14 +14,24 @@ import { expect, test, type Page } from '@playwright/test';
  *   pnpm db:seed
  *   pnpm --filter @eyo/api db:seed:second
  *
- * The subscription tests move tenant B's tier, so re-running this file needs the second seed
- * re-run first (it is idempotent). Tenant A's tier is asserted, never changed — that is the
- * whole point of the isolation checks.
+ * Re-runnable without re-seeding. The subscription tests move tenant B's tier, so each one puts
+ * B back where it needs it first — see `resetTenantB`. They used to simply assume a fresh seed,
+ * which meant a second run reported two failures that were about the fixture rather than about
+ * the product. Tenant A's tier is asserted and never changed: that is the whole point of the
+ * isolation checks, and it is why only B is ever reset.
+ *
+ * The seeds are still needed once, for the rich fixtures the isolation tests read — students,
+ * levels, terms. A school registered from scratch has none of those, so there would be nothing
+ * to prove could not leak.
  */
 
 const SHOTS = 'e2e/screenshots/tenancy';
 const API = process.env.E2E_API_URL ?? 'http://localhost:4000';
+const API_DIR = path.resolve(__dirname, '../../api');
 const MOCK_SECRET = 'mock-gateway-secret';
+
+/** Tenant B's slug, the handle the billing-clock script works by. */
+const B_SLUG = 'sunbeam-international';
 
 /** Tenant A — the original demo school. Nothing in this file may change it. */
 const A = {
@@ -82,6 +95,58 @@ async function buyTier(page: Page, tier: 'MEDIUM' | 'ADVANCED'): Promise<string>
   });
   expect(settled.ok()).toBeTruthy();
   return reference as string;
+}
+
+/** What the database says about tenant B's subscription — for setup, never in place of a screen. */
+function clock(action: 'show' | 'expire', daysAgo?: number) {
+  const out = execFileSync(
+    'pnpm',
+    [
+      'exec',
+      'ts-node',
+      '--transpile-only',
+      'prisma/e2e-billing-clock.ts',
+      B_SLUG,
+      action,
+      ...(daysAgo ? [String(daysAgo)] : []),
+    ],
+    { cwd: API_DIR, encoding: 'utf8' },
+  );
+  return JSON.parse(out.trim().split('\n').pop()!) as {
+    schoolTier: string;
+    subscription: { pendingTier: string | null } | null;
+  };
+}
+
+/**
+ * Put tenant B back on the free tier with nothing scheduled.
+ *
+ * Only tenant B, and only ever downward: A is the control in every one of these tests and must
+ * not be touched. Uses the product's own route down — schedule the step, then let the paid
+ * period run out — rather than writing a tier straight into the database, so a bug in that path
+ * shows up here as a failed setup rather than being papered over.
+ *
+ * A no-op on a freshly seeded database, which is the common case.
+ */
+async function resetTenantB(page: Page) {
+  const before = clock('show');
+  if (before.schoolTier === 'BASIC' && !before.subscription?.pendingTier) return;
+
+  await login(page, B.owner);
+  if (before.schoolTier !== 'BASIC') {
+    const res = await page.request.post('/api/proxy/billing/change-tier', {
+      data: { tier: 'BASIC' },
+    });
+    expect(res.ok(), 'setup: an owner must be able to step their school down').toBeTruthy();
+  }
+  // Ends the paid period, which is what makes a scheduled change due.
+  clock('expire', 30);
+  await logout(page);
+
+  // Sign-in is where the product applies anything the clock has made due.
+  await login(page, B.owner);
+  expect(clock('show').schoolTier, 'setup: tenant B should be back on the free tier').toBe('BASIC');
+  await logout(page);
 }
 
 test.describe('multi-tenant isolation', () => {
@@ -154,7 +219,10 @@ test.describe('multi-tenant isolation', () => {
 });
 
 test.describe('subscriptions are per-school', () => {
-  test('tenant B upgrades BASIC → MEDIUM without touching tenant A', async ({ page }) => {
+  test('tenant B upgrades BASIC → MEDIUM without touching tenant A', async ({ page, baseURL }) => {
+    // The climb has to start at the bottom, whatever an earlier run left behind.
+    await resetTenantB(page);
+
     // Record tenant A's billing state before anything happens.
     await login(page, A.owner);
     const aTierBefore = await currentTier(page);
@@ -163,6 +231,7 @@ test.describe('subscriptions are per-school', () => {
     await logout(page);
 
     // Tenant B buys MEDIUM through the UI.
+    await keepGatewayOnThisOrigin(page, baseURL);
     await login(page, B.owner);
     await page.goto('/settings/billing');
     await expect(page.getByRole('heading', { name: 'Subscription', exact: true })).toBeVisible();
@@ -211,9 +280,18 @@ test.describe('subscriptions are per-school', () => {
   });
 
   test('tenant B schedules a downgrade without touching tenant A', async ({ page }) => {
+    /**
+     * Start from a *clean* MEDIUM, not merely from MEDIUM.
+     *
+     * The old guard only bought MEDIUM if the school was not already on it, so a second run
+     * found the downgrade this test had already scheduled — and the plan card reads "Already
+     * scheduled" rather than offering the button, which surfaced as a 45-second timeout.
+     * Resetting first and paying again clears the pending change, because settling a payment
+     * drops it.
+     */
+    await resetTenantB(page);
     await login(page, B.owner);
-    // Stand on our own feet rather than on the previous test's leftovers.
-    if ((await currentTier(page)) !== 'MEDIUM') await buyTier(page, 'MEDIUM');
+    await buyTier(page, 'MEDIUM');
     await page.goto('/settings/billing');
     expect(await currentTier(page)).toBe('MEDIUM');
 

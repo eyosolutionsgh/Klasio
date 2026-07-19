@@ -8,6 +8,7 @@ import {
   StreamableFile,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { enrolmentByLevel, type LevelRow } from '../common/returns-roll';
 import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
 import { toCsv, toXlsx, type Cell } from '../common/export';
 
@@ -18,17 +19,12 @@ import { toCsv, toXlsx, type Cell } from '../common/export';
  * private school assembles them by hand from a register the day before they are due. Everything
  * here is derived from records the school already keeps — nothing is entered twice.
  *
- * Counts are computed, never stored. A return filed in March and re-run in June must reflect the
- * roll as it is now; caching it would quietly file stale numbers.
+ * Counts are computed, never stored — but computed *as at the term being filed*, not as at today.
+ * This comment used to say the opposite ("must reflect the roll as it is now"), and the code
+ * agreed with it: a return for last term read the current roll, so after promotion every pupil
+ * appeared a level too high and the graduating cohort had vanished entirely. Re-running a March
+ * return in June must produce the same document, because it describes March.
  */
-
-interface LevelRow {
-  level: string;
-  category: string;
-  male: number;
-  female: number;
-  total: number;
-}
 
 @Injectable()
 export class ReturnsService {
@@ -62,30 +58,37 @@ export class ReturnsService {
       include: { classes: { select: { id: true } } },
     });
 
-    // Only ACTIVE pupils count toward a return. A withdrawn or graduated child is still on file
-    // and would inflate the roll — the number a regulator is checking is who is in class now.
+    /**
+     * The roll is reconstructed for the term, not read from today. See common/returns-roll.ts —
+     * a return filed after promotion or graduation otherwise describes a school that did not
+     * exist during the term it claims to cover.
+     */
     const students = await this.db.student.findMany({
-      where: { schoolId: auth.schoolId, status: 'ACTIVE' },
-      select: { id: true, gender: true, classId: true },
+      where: { schoolId: auth.schoolId },
+      select: { id: true, gender: true, classId: true, enrolledAt: true, exitDate: true },
     });
+
+    // Where each pupil actually sat that term: the term's own reports first, then its registers.
+    const [historyReports, historyAttendance] = await Promise.all([
+      this.db.termReport.findMany({
+        where: { schoolId: auth.schoolId, termId: term.id },
+        select: { studentId: true, classId: true },
+      }),
+      this.db.attendanceRecord.findMany({
+        where: { schoolId: auth.schoolId, termId: term.id },
+        select: { studentId: true, classId: true },
+        distinct: ['studentId'],
+      }),
+    ]);
+    const history = new Map<string, string>();
+    for (const a of historyAttendance) history.set(a.studentId, a.classId);
+    // Reports win over registers: a register can carry a class a pupil was only visiting.
+    for (const r of historyReports) history.set(r.studentId, r.classId);
 
     const classToLevel = new Map<string, string>();
     for (const l of levels) for (const c of l.classes) classToLevel.set(c.id, l.id);
 
-    const rows: LevelRow[] = levels.map((l) => {
-      const inLevel = students.filter((s) => s.classId && classToLevel.get(s.classId) === l.id);
-      const male = inLevel.filter((s) => s.gender === 'MALE').length;
-      const female = inLevel.filter((s) => s.gender === 'FEMALE').length;
-      return {
-        level: l.name,
-        category: l.category,
-        male,
-        female,
-        // Not male + female: a record with no sex recorded still belongs on the roll, and
-        // dropping it would make the totals disagree with the register.
-        total: inLevel.length,
-      };
-    });
+    const rows: LevelRow[] = enrolmentByLevel(students, term, history, classToLevel, levels);
 
     const staff = await this.db.user.groupBy({
       by: ['role'],
@@ -106,8 +109,10 @@ export class ReturnsService {
       .filter((r) => r.status === 'PRESENT' || r.status === 'LATE')
       .reduce((a, r) => a + r._count._all, 0);
 
+    // Issued means published. A draft generated to proof marks has been shown to nobody, and
+    // counting it declares reports to a regulator that no parent has seen.
     const reports = await this.db.termReport.findMany({
-      where: { schoolId: auth.schoolId, termId: term.id },
+      where: { schoolId: auth.schoolId, termId: term.id, publishedAt: { not: null } },
       select: { overallTotal: true, lines: true },
     });
     const averages = reports

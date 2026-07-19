@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
+import { keepGatewayOnThisOrigin } from './support/gateway';
 
 /**
  * The paid lifecycle of one school, start to finish, with a picture at every step.
@@ -250,6 +251,9 @@ async function dropToBasic(page: Page) {
  * the settled callback moves it, which is the product's whole position on paying.
  */
 async function payThroughCheckout(page: Page, tier: 'MEDIUM' | 'ADVANCED', baseURL?: string) {
+  // The gateway redirects to the API's own configured base, which is not necessarily the port
+  // this suite is driving — and may not be listening at all.
+  await keepGatewayOnThisOrigin(page, baseURL);
   await page.goto('/settings/billing');
   await expect(page.getByRole('heading', { name: 'Subscription', exact: true })).toBeVisible();
 
@@ -259,14 +263,6 @@ async function payThroughCheckout(page: Page, tier: 'MEDIUM' | 'ADVANCED', baseU
 
   // The mock gateway stands in for Paystack/MoMo: same redirect, same callback shape.
   await page.waitForURL(/\/pay\/mock\//, { timeout: 15000 });
-
-  // The API builds checkout and return URLs from its own configured base, which is not
-  // necessarily the port this suite is driving. Land the redirect back on the app under test,
-  // keeping the path the gateway chose.
-  const handoff = new URL(page.url());
-  if (baseURL && handoff.origin !== new URL(baseURL).origin) {
-    await page.goto(`${handoff.pathname}${handoff.search}`);
-  }
   await page.getByRole('button', { name: 'Approve payment' }).click();
 
   // Approving either sends us back to the portal or refuses on the spot. Wait for whichever

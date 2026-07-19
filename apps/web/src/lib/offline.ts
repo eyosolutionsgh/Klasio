@@ -127,21 +127,42 @@ export async function submitOrQueue(
   }
 }
 
+/** A write the server refused outright, named so the user knows what was lost. */
+export interface FlushFailure {
+  label: string;
+  status: number;
+  message: string;
+}
+
 export interface FlushResult {
   synced: number;
   failed: number;
   remaining: number;
+  /** What was discarded, and why. Empty when nothing was. */
+  failures: FlushFailure[];
+  /** Replay stopped because the session has expired — nothing was lost, but a sign-in is needed. */
+  needsSignIn: boolean;
 }
 
 /**
  * Replay the queue oldest-first, stopping at the first network failure so order is preserved.
+ *
  * A write the server rejects outright is dropped rather than retried forever — it would never
- * succeed, and holding it blocks everything behind it.
+ * succeed, and holding it blocks everything behind it. **Except 401**, which is the one refusal
+ * that says nothing about the write at all.
+ *
+ * That exception is the whole point of this function's history. A teacher marks three registers
+ * offline on Friday afternoon; the device stays off the network over the weekend; the 12-hour
+ * session cookie expires; Monday's reconnect replays them, the proxy answers 401 because there is
+ * no cookie, and all three were deleted from IndexedDB — work that would have saved perfectly a
+ * moment after signing in. Now the queue is kept, the loop stops (everything behind it would get
+ * the same answer), and the caller is told to sign in.
  */
 export async function flush(): Promise<FlushResult> {
   const ops = await pending();
   let synced = 0;
-  let failed = 0;
+  const failures: FlushFailure[] = [];
+  let needsSignIn = false;
 
   for (const op of ops) {
     try {
@@ -153,10 +174,22 @@ export async function flush(): Promise<FlushResult> {
       if (res.ok) {
         await remove(op.id!);
         synced++;
+      } else if (res.status === 401) {
+        // Not the write's fault. Keep it and stop — the rest would fail the same way.
+        needsSignIn = true;
+        break;
       } else if (res.status >= 400 && res.status < 500) {
-        // The server will never accept this. Drop it, but count it so the user is told.
+        // The server will never accept this. Drop it, but say which one and why — a bare count
+        // of "1 discarded" tells a teacher nothing about which register to re-enter.
+        const parsed = (await res.json().catch(() => ({}))) as { message?: string | string[] };
+        failures.push({
+          label: op.label,
+          status: res.status,
+          message: Array.isArray(parsed.message)
+            ? parsed.message.join('. ')
+            : (parsed.message ?? 'The server rejected it.'),
+        });
         await remove(op.id!);
-        failed++;
       } else {
         break; // server trouble — keep it and try again later
       }
@@ -164,5 +197,11 @@ export async function flush(): Promise<FlushResult> {
       break; // still offline
     }
   }
-  return { synced, failed, remaining: (await pending()).length };
+  return {
+    synced,
+    failed: failures.length,
+    failures,
+    needsSignIn,
+    remaining: (await pending()).length,
+  };
 }
