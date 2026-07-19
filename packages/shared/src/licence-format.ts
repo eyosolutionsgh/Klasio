@@ -1,0 +1,163 @@
+/**
+ * The licence wire format — the one thing the vendor's portal and a school's server must agree
+ * about exactly.
+ *
+ * This package exists for that agreement. The vendor mints; the school verifies; they are separate
+ * applications, deployed separately, upgraded separately. Two implementations of a byte layout
+ * drift, and the failure mode is a licence that mints cleanly and refuses to verify — with nothing
+ * to point at, because both halves look correct on their own.
+ *
+ * ## What lives here, and what does not
+ *
+ * **Format only.** The payload shape, signing, and verification. No product policy: grace periods,
+ * what an expired licence falls back to, and what a tier is worth are the school application's
+ * business and change on its own schedule. Putting them here would drag the vendor portal into
+ * decisions it has no stake in.
+ *
+ * ## The rule that matters
+ *
+ * `verifyLicence` checks the signature over the **received bytes**, never over a re-serialisation.
+ * That is what makes key order, whitespace and number formatting irrelevant, and it only holds
+ * because `signLicence` and `verifyLicence` share `encodePayload` below. Do not add a second
+ * encoder.
+ */
+import {
+  createPrivateKey,
+  createPublicKey,
+  sign as cryptoSign,
+  verify as cryptoVerify,
+} from 'crypto';
+
+export type LicenceTier = 'BASIC' | 'MEDIUM' | 'ADVANCED';
+
+export const LICENCE_TIERS: LicenceTier[] = ['BASIC', 'MEDIUM', 'ADVANCED'];
+export const LICENCE_FORMAT_VERSION = 1;
+
+export interface LicencePayload {
+  /** Format version. Bump only for a breaking change to the fields below. */
+  v: number;
+  /** The vendor's own reference, so support can say "read me the id on your licence". */
+  licenceId: string;
+  /** Shown at install so a school can confirm the licence is theirs before applying it. */
+  schoolName: string;
+  /**
+   * What the licence is bound to.
+   *
+   * The slug rather than a database id: the vendor mints this at purchase, before the school's
+   * server exists, so it cannot know an id the school has not generated yet.
+   */
+  schoolSlug: string;
+  tier: LicenceTier;
+  /** Enrolment ceiling. `null` is unlimited, and overrides the tier's default. */
+  studentCap: number | null;
+  /** Individual entitlement codes granted on top of the tier, without cutting a release. */
+  extraEntitlements: string[];
+  issuedAt: string;
+  expiresAt: string;
+  /** Days past expiry the full tier still applies. */
+  graceDays: number;
+}
+
+export class LicenceFormatError extends Error {}
+
+function b64url(buf: Buffer): string {
+  return buf.toString('base64url');
+}
+
+/** Serialise once, so signing and verifying can never disagree about the bytes. */
+function encodePayload(payload: LicencePayload): Buffer {
+  return Buffer.from(JSON.stringify(payload), 'utf8');
+}
+
+/** Mint a licence. The private key never leaves the vendor. */
+export function signLicence(payload: LicencePayload, privateKeyPem: string): string {
+  const body = encodePayload(payload);
+  const signature = cryptoSign(null, body, createPrivateKey(privateKeyPem));
+  return `${b64url(body)}.${b64url(signature)}`;
+}
+
+function assertShape(raw: unknown): LicencePayload {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new LicenceFormatError('Licence payload is not an object');
+  }
+  const p = raw as Record<string, unknown>;
+
+  if (p.v !== LICENCE_FORMAT_VERSION) {
+    // A newer licence against an older build. Say which way round it is — "invalid licence" would
+    // send a school to support when the answer is to update the software.
+    throw new LicenceFormatError(
+      `Licence format v${String(p.v)} is not supported by this version (expected v${LICENCE_FORMAT_VERSION}) — update Klasio`,
+    );
+  }
+  for (const field of ['licenceId', 'schoolName', 'schoolSlug', 'issuedAt', 'expiresAt'] as const) {
+    if (typeof p[field] !== 'string' || !p[field]) {
+      throw new LicenceFormatError(`Licence is missing "${field}"`);
+    }
+  }
+  if (!LICENCE_TIERS.includes(p.tier as LicenceTier)) {
+    throw new LicenceFormatError(`Licence has an unknown tier "${String(p.tier)}"`);
+  }
+  if (p.studentCap !== null && (typeof p.studentCap !== 'number' || p.studentCap < 0)) {
+    throw new LicenceFormatError('Licence studentCap must be a non-negative number or null');
+  }
+  if (
+    !Array.isArray(p.extraEntitlements) ||
+    p.extraEntitlements.some((e) => typeof e !== 'string')
+  ) {
+    throw new LicenceFormatError('Licence extraEntitlements must be an array of codes');
+  }
+  if (typeof p.graceDays !== 'number' || p.graceDays < 0) {
+    throw new LicenceFormatError('Licence graceDays must be a non-negative number');
+  }
+  if (Number.isNaN(Date.parse(p.expiresAt as string))) {
+    throw new LicenceFormatError('Licence expiresAt is not a date');
+  }
+  return p as unknown as LicencePayload;
+}
+
+/**
+ * Check the signature and the shape. Throws `LicenceFormatError` with something a human can act on.
+ *
+ * Does **not** check expiry or which school this is: those are policy, and the caller owns them —
+ * so an expired licence still parses, which is what lets a renewal screen show what it replaced.
+ */
+export function verifyLicence(licence: string, publicKeyPem: string): LicencePayload {
+  const parts = licence.trim().split('.');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    throw new LicenceFormatError('Licence is malformed — expected "<payload>.<signature>"');
+  }
+
+  const body = Buffer.from(parts[0], 'base64url');
+  const signature = Buffer.from(parts[1], 'base64url');
+  if (!body.length || !signature.length) {
+    throw new LicenceFormatError('Licence is malformed — empty segment');
+  }
+
+  let key;
+  try {
+    key = createPublicKey(publicKeyPem);
+  } catch {
+    throw new LicenceFormatError('Licence public key is not readable');
+  }
+
+  // Over the received bytes, never a re-serialisation. See the header.
+  if (!cryptoVerify(null, body, key, signature)) {
+    throw new LicenceFormatError(
+      'Licence signature does not match — it was altered, or signed by someone else',
+    );
+  }
+
+  try {
+    return assertShape(JSON.parse(body.toString('utf8')));
+  } catch (e) {
+    if (e instanceof LicenceFormatError) throw e;
+    throw new LicenceFormatError('Licence payload is not valid JSON');
+  }
+}
+
+/** Read a payload without checking the signature — for showing a licence the vendor just made. */
+export function decodeLicenceUnverified(licence: string): LicencePayload {
+  const [body] = licence.trim().split('.');
+  if (!body) throw new LicenceFormatError('Licence is malformed');
+  return assertShape(JSON.parse(Buffer.from(body, 'base64url').toString('utf8')));
+}

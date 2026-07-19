@@ -1,0 +1,132 @@
+// The vendor's own database. Emphatically not a school's.
+//
+// Nothing here is tenant data and nothing here is shared with a school's server. This is the
+// supplier's back office: who the clients are, what was sold to them, and what their servers have
+// reported back. A school's box never reads this and never writes to it — it POSTs a heartbeat and
+// forgets about it.
+//
+// It is a separate database on purpose. The pivot deleted the vendor plane from the school's
+// deployment; putting it back in the same schema would undo that, and would mean a bug in the
+// portal could reach a school's records.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/vendor-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("VENDOR_DATABASE_URL")
+}
+
+enum Tier {
+  BASIC
+  MEDIUM
+  ADVANCED
+}
+
+/// Someone at the vendor who may issue licences.
+///
+/// Deliberately tiny: this is an internal tool for a handful of people, and a role system nobody
+/// needs is a role system nobody maintains. Everyone who can sign in can issue a licence, which is
+/// the whole job.
+model VendorUser {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  active       Boolean  @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+
+  issued Licence[]
+}
+
+/// A school the vendor sells to.
+///
+/// `slug` is the load-bearing field: it is what a licence is bound to, and what the school's own
+/// server calls itself. Getting it wrong means a licence that refuses to install, so it is unique
+/// here and confirmed against the school before the first licence is issued.
+model Client {
+  id       String  @id @default(cuid())
+  name     String
+  slug     String  @unique
+  /// Who to ring. Not a CRM — just enough to chase a renewal.
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  notes        String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  licences   Licence[]
+  heartbeats Heartbeat[]
+
+  @@index([slug])
+}
+
+/// A licence that was issued. Append-only in spirit: a renewal is a new row, not an edit.
+///
+/// The signed text is kept so it can be re-sent when a school loses the email, and so support can
+/// see exactly what was issued rather than a description of it. It is not a secret — the school has
+/// it, and it is verifiable by anyone holding the public key.
+model Licence {
+  id        String @id @default(cuid())
+  clientId  String
+  client    Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  /// The `licenceId` inside the payload — what support asks a school to read out.
+  licenceId String @unique
+  tier      Tier
+  studentCap Int?
+  extraEntitlements String[] @default([])
+  issuedAt  DateTime
+  expiresAt DateTime
+  graceDays Int      @default(30)
+
+  /// The signed licence exactly as the school received it.
+  signed    String
+
+  /// Set when a later licence replaced this one, so history reads in order without deleting.
+  supersededAt DateTime?
+  /// Withdrawn deliberately — a refund, or a licence issued in error.
+  revokedAt    DateTime?
+  revokedReason String?
+
+  issuedById String?
+  issuedBy   VendorUser? @relation(fields: [issuedById], references: [id], onDelete: SetNull)
+  createdAt  DateTime    @default(now())
+
+  @@index([clientId, createdAt])
+  @@index([expiresAt])
+}
+
+/// One report from one school's server.
+///
+/// Append-only, and kept: the value is the pattern over weeks, not any single row. A school that
+/// stops reporting is the signal, and you can only see a gap against a history.
+model Heartbeat {
+  id       String  @id @default(cuid())
+  /// Null when a report arrives for a slug the vendor has no client for — which is itself worth
+  /// seeing, so it is stored rather than dropped.
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  schoolSlug String?
+  licenceId  String?
+  state      String?
+  tierInForce  Tier?
+  tierLicensed Tier?
+  students   Int?
+  studentCap Int?
+  /// vendor | development | none — the tamper signal.
+  verifiedWith String?
+  appVersion   String?
+
+  /// The report as received, so a payload that changes shape is still recoverable.
+  raw        Json
+  receivedAt DateTime @default(now())
+
+  @@index([clientId, receivedAt])
+  @@index([receivedAt])
+}

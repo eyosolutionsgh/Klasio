@@ -1,0 +1,30 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-ink: #10202e;
+  --color-paper: #f4f7fa;
+  --color-mist: #dbe3ec;
+  --color-oat: #55697e;
+  --color-navy: #002b5b;
+  --color-navy-deep: #001d40;
+  --color-teal: #00797d;
+  --color-leaf: #17734a;
+  --color-clay: #a4622a;
+  --color-danger: #b3261e;
+}
+
+/*
+  The portal is deliberately plainer than the school product. It is an internal tool used by a
+  handful of people who look at it every day, so density and legibility beat warmth — and looking
+  visibly different from a school's own portal is a feature, not an oversight: nobody should ever
+  be unsure which of the two they are typing into.
+*/
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+.card {
+  background: #fff;
+  border: 1px solid var(--color-mist);
+  border-radius: 0.6rem;
+}

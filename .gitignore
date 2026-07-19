@@ -22,3 +22,6 @@ test-results/
 .DS_Store
 _to_delete/
 *.tar.gz
+
+# The vendor licensing portal keeps its own env and database.
+apps/vendor/.env
