@@ -54,11 +54,11 @@ export interface RenderedEmail {
  * The portal's own tokens, from `globals.css`. Inlined as literals because email clients strip
  * <style> blocks and none of them resolve CSS custom properties.
  */
-const BRAND = '#17513c';
-const GOLD = '#c9982f';
-const INK = '#1b2822';
-const OAT = '#8d8062';
-const MIST = '#e6ddc9';
+const BRAND = '#002b5b';
+const GOLD = '#00797d';
+const INK = '#10202e';
+const OAT = '#55697e';
+const MIST = '#c9d8e6';
 
 /** The id every crest attachment uses. One image per message, so a fixed value is enough. */
 const CREST_CID = 'school-crest';
@@ -132,7 +132,7 @@ function mastheadHtml(mark: Brandmark): string {
   const badge = mark.crest
     ? // width/height as attributes as well as CSS: Outlook ignores the style block on <img>.
       `<img src="cid:${CREST_CID}" alt="${safeName}" width="52" height="52" style="display:block;width:52px;height:52px;border:0;border-radius:8px;object-fit:contain;" />`
-    : `<span style="display:inline-block;width:52px;height:52px;line-height:52px;text-align:center;background:${BRAND};color:#fffdf3;border-radius:8px;font-size:18px;font-weight:600;">${escapeHtml(initialsOf(mark.name))}</span>`;
+    : `<span style="display:inline-block;width:52px;height:52px;line-height:52px;text-align:center;background:${BRAND};color:#ffffff;border-radius:8px;font-size:18px;font-weight:600;">${escapeHtml(initialsOf(mark.name))}</span>`;
 
   return `<tr><td style="padding-bottom:24px;">
     <table role="presentation" cellpadding="0" cellspacing="0"><tr>
@@ -158,10 +158,10 @@ function layout(opts: {
   footer?: string;
 }): string {
   return `<!doctype html>
-<html><body style="margin:0;padding:0;background:#f3ecdd;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3ecdd;padding:24px 12px;">
+<html><body style="margin:0;padding:0;background:#e7eef6;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#e7eef6;padding:24px 12px;">
     <tr><td align="center">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#fffdf3;border-radius:12px;padding:32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:${INK};">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#ffffff;border-radius:12px;padding:32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:${INK};">
         ${mastheadHtml(opts.mark)}
         <tr><td>
           <h1 style="margin:0 0 16px;font-size:20px;font-weight:600;color:${BRAND};">${opts.heading}</h1>
@@ -185,7 +185,7 @@ function codeBlock(code: string): string {
 function button(href: string, label: string): string {
   const safe = escapeHtml(href);
   return `<p style="margin:24px 0;text-align:center;">
-    <a href="${safe}" style="display:inline-block;background:${BRAND};color:#fffdf3;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:15px;">${escapeHtml(label)}</a>
+    <a href="${safe}" style="display:inline-block;background:${BRAND};color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:15px;">${escapeHtml(label)}</a>
   </p>
   <p style="margin:16px 0;font-size:13px;color:${OAT};word-break:break-all;">
     Or paste this into your browser:<br /><a href="${safe}" style="color:${BRAND};">${safe}</a>

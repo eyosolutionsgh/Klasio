@@ -7,11 +7,11 @@ import PDFDocument from 'pdfkit';
 
 type Doc = PDFKit.PDFDocument;
 
-const INK = '#1c1917';
-const OAT = '#78716c';
-const MIST = '#d6d3d1';
-/** Fallback when a school has not chosen a colour. */
-const FOREST = '#166534';
+const INK = '#10202e';
+const OAT = '#55697e';
+const MIST = '#c9d8e6';
+/** Fallback when a school has not chosen a colour — the Klasio navy. */
+const FOREST = '#002b5b';
 
 /** The school's own details as they appear on a printed document. */
 export interface DocSchool {
@@ -138,7 +138,7 @@ function drawTable(
     return y + h;
   };
 
-  const headerFill = style.zebra ? undefined : '#f5f5f4';
+  const headerFill = style.zebra ? undefined : '#eef3f8';
   let y = drawRow(
     columns.map((c) => c.header),
     doc.y,
@@ -155,7 +155,7 @@ function drawTable(
         headerFill,
       );
     }
-    y = drawRow(row, y, false, style.zebra && i % 2 === 1 ? '#fafaf9' : undefined);
+    y = drawRow(row, y, false, style.zebra && i % 2 === 1 ? '#f7fafc' : undefined);
   });
   doc.y = y;
   return y;
@@ -476,7 +476,7 @@ export function receiptPdf(r: ReceiptData): Promise<Buffer> {
   if (r.note) row('Note', r.note);
 
   doc.moveDown(0.5);
-  doc.rect(left, doc.y, width, 34).fill('#f0fdf4');
+  doc.rect(left, doc.y, width, 34).fill('#eaf5f5');
   doc
     .fillColor(BRAND)
     .font('Helvetica-Bold')
@@ -676,7 +676,7 @@ export function admissionLetterPdf(data: AdmissionLetterData): Promise<Buffer> {
 
   const boxTop = doc.y;
   const boxH = facts.length * 17 + 16;
-  doc.rect(left, boxTop, width, boxH).fill('#f5f5f4');
+  doc.rect(left, boxTop, width, boxH).fill('#eef3f8');
   facts.forEach(([k, v], i) => {
     const y = boxTop + 9 + i * 17;
     doc
@@ -798,7 +798,7 @@ export async function pickupCardPdf(data: PickupCardData): Promise<Buffer> {
     .fontSize(9)
     .text(data.children.join(', '), infoX, doc.y + 1, { width: infoW });
 
-  doc.rect(infoX, 128, infoW, 34).fill('#f5f5f4');
+  doc.rect(infoX, 128, infoW, 34).fill('#eef3f8');
   doc
     .fillColor(OAT)
     .font('Helvetica')
@@ -898,22 +898,22 @@ export async function studentIdCardSheet(cards: StudentIdCardData[]): Promise<Bu
         doc.image(data.photo, 12, top, { fit: [56, 68], align: 'center' });
       } catch {
         // A corrupt or unsupported image must not cost the school its whole print run.
-        doc.rect(12, top, 56, 68).fillAndStroke('#f3f0e8', '#ded8c9');
+        doc.rect(12, top, 56, 68).fillAndStroke('#eef3f8', '#c9d8e6');
       }
     } else {
-      doc.rect(12, top, 56, 68).fillAndStroke('#f3f0e8', '#ded8c9');
+      doc.rect(12, top, 56, 68).fillAndStroke('#eef3f8', '#c9d8e6');
     }
 
     const textX = 78;
     doc
-      .fillColor('#1b2822')
+      .fillColor('#10202e')
       .font('Helvetica-Bold')
       .fontSize(11)
       .text(data.name, textX, top + 2, { width: 100 });
     doc
       .font('Helvetica')
       .fontSize(8)
-      .fillColor('#6b6455')
+      .fillColor('#55697e')
       .text(data.className ?? '—', textX, top + 20, { width: 100 })
       .text(data.admissionNo, textX, top + 32, { width: 100 });
 
@@ -921,7 +921,7 @@ export async function studentIdCardSheet(cards: StudentIdCardData[]): Promise<Bu
 
     doc
       .fontSize(5.5)
-      .fillColor('#6b6455')
+      .fillColor('#55697e')
       .text(
         data.contact
           ? `If found, please return to ${data.school.name} · ${data.contact}`

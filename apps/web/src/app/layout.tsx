@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   // viewportFit lets the guardian portal pad against the notch/home indicator via env().
   viewportFit: 'cover',
-  themeColor: '#0d3627', // --color-forest-deep, matching the portal header
+  themeColor: '#001d40', // --color-forest-deep, matching the portal header
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

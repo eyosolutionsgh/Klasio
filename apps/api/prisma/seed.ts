@@ -154,7 +154,7 @@ async function main() {
       email: 'info@brightonacademy.edu.gh',
       region: 'Greater Accra',
       website: 'www.brightonacademy.edu.gh',
-      brandColor: '#17513c',
+      brandColor: '#002b5b',
       tier: 'MEDIUM',
       smsSenderId: 'BRIGHTON',
       smsCredits: 500,

@@ -15,15 +15,17 @@ interface Profile {
   hasLogo: boolean;
 }
 
-const DEFAULT_BRAND = '#17513c';
+const DEFAULT_BRAND = '#002b5b';
 
-/** A few safe starting points, so a school never has to reach for a colour picker. */
+/** A few safe starting points, so a school never has to reach for a colour picker.
+ *  All are dark enough to carry `text-paper` at 4.5:1 — the portal paints them under white
+ *  labels (buttons, the sidebar), so a light pick here would be unreadable. */
 const PRESETS = [
+  { value: '#002b5b', label: 'Klasio navy' },
   { value: '#17513c', label: 'Forest' },
-  { value: '#1d4ed8', label: 'Royal blue' },
+  { value: '#00595c', label: 'Teal' },
   { value: '#7c2d12', label: 'Terracotta' },
   { value: '#5b21b6', label: 'Plum' },
-  { value: '#0f766e', label: 'Teal' },
   { value: '#9a3412', label: 'Amber earth' },
 ];
 

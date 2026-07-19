@@ -177,12 +177,12 @@ export default function FamilyPage() {
         <div className="accent-rule h-[3px]" />
         <div className="max-w-3xl mx-auto px-5 py-5 flex items-start justify-between gap-4">
           <div>
-            <p className="font-display text-xl text-gold leading-none">{me.school.name}</p>
+            <p className="font-display text-xl text-gold-bright leading-none">{me.school.name}</p>
             <p className="text-[13px] text-paper/70 mt-1.5">Welcome, {me.guardian.name}</p>
           </div>
           <button
             onClick={signOut}
-            className="shrink-0 -mr-2 -mt-1 min-h-11 px-2 text-[13px] text-paper/70 hover:text-gold transition underline underline-offset-2"
+            className="shrink-0 -mr-2 -mt-1 min-h-11 px-2 text-[13px] text-paper/70 hover:text-gold-bright transition underline underline-offset-2"
           >
             Sign out
           </button>

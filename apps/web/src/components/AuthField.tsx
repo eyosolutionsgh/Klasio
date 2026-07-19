@@ -100,7 +100,7 @@ export function AuthButton({
        * gold is about 7:1, so the button keeps the accent the design is built around and stays
        * legible.
        */
-      className="min-h-11 rounded-lg px-10 text-sm font-semibold uppercase tracking-wider text-ink bg-gradient-to-r from-[#e2bb55] to-gold hover:from-gold hover:to-[#b0831f] transition-all disabled:opacity-60 disabled:cursor-not-allowed shadow-[0_6px_16px_-6px_rgba(201,152,47,0.8)]"
+      className="min-h-11 rounded-lg px-10 text-sm font-semibold uppercase tracking-wider text-ink bg-gradient-to-r from-[#00b3b9] to-gold-bright hover:from-[#00c2c8] hover:to-[#00a7ad] transition-all disabled:opacity-60 disabled:cursor-not-allowed shadow-[0_6px_16px_-6px_rgba(0,151,156,0.8)]"
     >
       {busy ? (busyLabel ?? 'Please wait…') : children}
     </button>

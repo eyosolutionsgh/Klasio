@@ -41,14 +41,15 @@ export default function AuthShell({
           className="texture-weave hidden lg:block absolute inset-y-0 right-0 w-[52%] bg-forest-deep overflow-hidden"
           style={{ clipPath: 'polygon(16% 0, 100% 0, 100% 100%, 16% 100%, 0 50%)' }}
         >
-          {/* The same gold bloom the old sign-in panel carried, kept so the brand still reads. */}
+          {/* A teal bloom against the navy — the mark's own pairing. */}
           <div
-            className="absolute -right-24 -bottom-24 w-96 h-96 rounded-full opacity-[0.09]"
-            style={{ background: 'radial-gradient(circle, #c9982f 0%, transparent 70%)' }}
+            className="absolute -right-24 -bottom-24 w-96 h-96 rounded-full opacity-[0.16]"
+            style={{ background: 'radial-gradient(circle, #00979c 0%, transparent 70%)' }}
           />
           <div className="absolute inset-y-0 left-[16%] right-0 flex flex-col justify-center p-10 xl:p-14">
             <h2 className="font-display text-paper text-4xl xl:text-[2.75rem] leading-[1.08]">
-              The school office, <em className="text-gold not-italic">beautifully</em> in order.
+              The school office, <em className="text-gold-bright not-italic">beautifully</em> in
+              order.
             </h2>
             <p className="mt-5 max-w-xs text-paper/70 leading-relaxed text-[15px]">
               Records, attendance, terminal reports and fees — built for private schools in Ghana

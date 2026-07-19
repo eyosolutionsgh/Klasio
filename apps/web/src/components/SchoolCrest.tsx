@@ -68,7 +68,7 @@ export default function SchoolCrest({
       aria-hidden
       style={{ width: size, height: size, borderRadius: radius, fontSize: Math.round(size * 0.34) }}
       className={`shrink-0 grid place-items-center font-medium leading-none ${
-        onDark ? 'bg-paper/15 text-gold' : 'bg-brand text-paper'
+        onDark ? 'bg-paper/15 text-paper' : 'bg-brand text-paper'
       }`}
     >
       {letters}

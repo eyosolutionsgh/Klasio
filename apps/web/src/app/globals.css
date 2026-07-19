@@ -6,18 +6,37 @@
   --font-display: 'Fraunces Variable', Georgia, serif;
   --font-body: 'Libre Franklin Variable', 'Segoe UI', sans-serif;
 
-  --color-ink: #1b2822;
-  --color-paper: #faf6ec;
-  --color-parchment: #f3ecdd;
-  --color-forest: #17513c;
-  --color-forest-deep: #0d3627;
-  --color-forest-mist: #dfe9e0;
-  --color-gold: #c9982f;
-  --color-gold-soft: #f0e3c0;
-  --color-clay: #b4552d;
-  --color-mist: #e6ddc9;
-  --color-oat: #8d8062;
-  --color-leaf: #2e7d4f;
+  /* Palette derived from the Klasio mark: navy #002B5B, teal #00979C, an orange spark #ED8300.
+     Every value below was checked against the pairings the portal actually renders — see the
+     note on --color-gold for the one case a single token could not cover. */
+  --color-ink: #10202e;
+  --color-paper: #f4f7fa;
+  --color-parchment: #e7eef6;
+  --color-forest: #002b5b;
+  --color-forest-deep: #001d40;
+  --color-forest-mist: #dbe7f3;
+
+  /* The logo's teal, split in two because the old single `gold` token was used on *both* the
+     dark sidebar and light paper, and no one value clears 4.5:1 against both. `gold` is the
+     text-safe teal for paper (4.85:1); `gold-bright` is the logo teal for dark surfaces
+     (4.73:1 on --color-forest-deep). Picking the wrong one is a contrast bug, so: light
+     background -> gold, dark background -> gold-bright.
+
+     `gold-bright` is only verifiable against the *fixed* --color-forest-deep. It must not be
+     used on --color-brand-deep: that is the school's own colour, so its lightness is unknown
+     and no accent hue can be guaranteed readable on it. Text over a school-controlled surface
+     stays --color-paper at some opacity — that is what keeps a badly-chosen brand colour from
+     making the portal unreadable. */
+  --color-gold: #00797d;
+  --color-gold-bright: #00979c;
+  --color-gold-soft: #cbe9ea;
+
+  /* The mark's orange spark, darkened from #ED8300 — the raw logo orange is only 2.2:1 on
+     paper, and this token is used as body text 69 times. */
+  --color-clay: #b05600;
+  --color-mist: #c9d8e6;
+  --color-oat: #55697e;
+  --color-leaf: #157a52;
   --color-danger: #b3372c;
 
   /* Brand tokens. A school sets one colour (--brand below); the darker and lighter variants are
@@ -30,7 +49,7 @@
 }
 
 :root {
-  --brand: #17513c;
+  --brand: #002b5b;
   --brand-deep: color-mix(in srgb, var(--brand) 72%, #000);
   --brand-mist: color-mix(in srgb, var(--brand) 14%, #fff);
 
@@ -54,9 +73,9 @@
 
   /* The paper colour *before* the grain multiplies over it. Lightened from --color-paper so the
      composite lands back on roughly the intended tone: the grain averages ~94% luminance, and
-     without this the whole page reads a shade deeper than the design token. Pushing the base any
-     closer to white does not work — the warm ratio clips against 255 and the page turns grey. */
-  --paper-base: #fffdf3;
+     without this the whole page reads a shade deeper than the design token. The tint is now cool
+     rather than warm, so the page sits under the navy instead of fighting it. */
+  --paper-base: #fbfdff;
 }
 
 /**
@@ -92,9 +111,10 @@ html {
 .accent-rule {
   background: var(--color-brand);
 }
-/* On the dark sidebar and art panels, where --brand is the surface itself. */
+/* On the dark sidebar and art panels, where --brand is the surface itself. Uses the brighter
+   teal because it is drawn against deep navy, not paper. */
 .accent-rule-gold {
-  background: var(--color-gold);
+  background: var(--color-gold-bright);
 }
 
 .font-display {
@@ -128,10 +148,10 @@ html {
   background-image:
     var(--tex-grain),
     /* Two soft blooms, one per top corner, so the page has a light source instead of being
-       uniformly flat. Both are under 4% alpha — at a glance you read "warm paper", not
-       "gradient". */
-    radial-gradient(60rem 40rem at 8% -12%, rgba(23, 81, 60, 0.035), transparent 62%),
-    radial-gradient(52rem 38rem at 104% -6%, rgba(201, 152, 47, 0.04), transparent 60%);
+       uniformly flat. One navy, one teal — the mark's two colours. Both are under 5% alpha — at
+       a glance you read "paper", not "gradient". */
+    radial-gradient(60rem 40rem at 8% -12%, rgba(0, 43, 91, 0.04), transparent 62%),
+    radial-gradient(52rem 38rem at 104% -6%, rgba(0, 151, 156, 0.045), transparent 60%);
   /* The tile is drawn at half its pixel size so the grain stays sharp on 2× displays. */
   background-size:
     512px 512px,
@@ -139,7 +159,7 @@ html {
     auto;
   /* Layers blend downward, so the grain multiplies over the blooms *and* the base beneath them.
      If the image ever fails to load this falls back to flat --paper-base, which is a touch
-     lighter than the old page but unmistakably the same warm paper — never white. */
+     lighter than the composited page but unmistakably the same paper — never a flat white. */
   background-blend-mode: multiply, normal, normal;
 }
 
@@ -179,10 +199,10 @@ html {
 
 /* registry card */
 .card {
-  background: #fffdf7;
+  background: #ffffff;
   border: 1px solid var(--color-mist);
   border-radius: 10px;
-  box-shadow: 0 1px 2px rgba(27, 40, 34, 0.05);
+  box-shadow: 0 1px 2px rgba(16, 32, 46, 0.06);
 }
 
 .card-accent {

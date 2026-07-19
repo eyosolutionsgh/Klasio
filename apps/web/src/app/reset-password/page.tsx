@@ -91,7 +91,7 @@ function ResetPasswordForm() {
         <div className="mt-7">
           <button
             onClick={() => router.push('/login')}
-            className="min-h-11 rounded-lg px-10 text-sm font-semibold uppercase tracking-wider text-ink bg-gradient-to-r from-[#e2bb55] to-gold hover:from-gold hover:to-[#b0831f] transition-all"
+            className="min-h-11 rounded-lg px-10 text-sm font-semibold uppercase tracking-wider text-ink bg-gradient-to-r from-[#00b3b9] to-gold-bright hover:from-[#00c2c8] hover:to-[#00a7ad] transition-all"
           >
             Sign in
           </button>

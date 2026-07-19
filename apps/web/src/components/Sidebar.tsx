@@ -309,7 +309,7 @@ export default function Sidebar({
         data-tip={item.tip}
         className={`tip flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] transition ${
           active
-            ? 'bg-paper/10 text-gold font-medium'
+            ? 'bg-paper/10 text-paper font-medium'
             : 'text-paper/70 hover:text-paper hover:bg-paper/5'
         }`}
       >
@@ -388,7 +388,7 @@ export default function Sidebar({
                 aria-controls={`nav-${sec.name}`}
                 className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-[11px] uppercase tracking-widest transition ${
                   holdsCurrent && !isOpen
-                    ? 'text-gold hover:bg-paper/5'
+                    ? 'text-paper hover:bg-paper/5'
                     : 'text-paper/45 hover:text-paper/70 hover:bg-paper/5'
                 }`}
               >

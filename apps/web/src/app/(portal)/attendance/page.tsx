@@ -20,7 +20,7 @@ interface ClassOpt {
 
 const STATUSES = [
   { key: 'PRESENT', label: 'Present', cls: 'bg-brand text-paper border-brand' },
-  { key: 'LATE', label: 'Late', cls: 'bg-gold text-ink border-gold' },
+  { key: 'LATE', label: 'Late', cls: 'bg-gold text-paper border-gold' },
   { key: 'ABSENT', label: 'Absent', cls: 'bg-danger text-paper border-danger' },
   { key: 'EXCUSED', label: 'Excused', cls: 'bg-oat text-paper border-oat' },
 ];

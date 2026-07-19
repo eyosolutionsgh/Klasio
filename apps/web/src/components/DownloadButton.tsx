@@ -59,7 +59,7 @@ export default function DownloadButton({
       >
         {busy ? 'Preparing…' : label}
       </button>
-      {error && <span className="text-xs text-red-600">{error}</span>}
+      {error && <span className="text-xs text-danger">{error}</span>}
     </span>
   );
 }
