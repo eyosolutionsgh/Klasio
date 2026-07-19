@@ -47,6 +47,13 @@ export default function AuthShell({
             style={{ background: 'radial-gradient(circle, #c9982f 0%, transparent 70%)' }}
           />
           <div className="absolute inset-y-0 left-[16%] right-0 flex flex-col justify-center p-10 xl:p-14">
+            {/* On a light chip: the emblem's navy would otherwise disappear into the deep green. */}
+            <span className="mb-6 flex items-center gap-2.5">
+              <span className="grid place-items-center w-9 h-9 rounded-lg bg-paper/95 shrink-0">
+                <img src="/brand/klasio-emblem.png" alt="" aria-hidden className="w-7 h-7" />
+              </span>
+              <span className="font-display text-paper text-lg leading-none">Klasio</span>
+            </span>
             <h2 className="font-display text-paper text-4xl xl:text-[2.75rem] leading-[1.08]">
               The school office, <em className="text-gold not-italic">beautifully</em> in order.
             </h2>

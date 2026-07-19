@@ -3,8 +3,12 @@ import './globals.css';
 import RegisterServiceWorker from '@/components/RegisterServiceWorker';
 
 export const metadata: Metadata = {
-  title: 'EYO — School Management',
+  title: 'Klasio — School Management',
   description: 'AI-powered school management for African private schools',
+  manifest: '/manifest.webmanifest',
+  // icon.png and apple-icon.png sit beside this file; Next wires them up by convention.
+  // The Apple one is the white-background artwork on purpose — iOS composites a transparent
+  // touch icon onto black, which would bury the emblem's navy.
 };
 
 export const viewport: Viewport = {

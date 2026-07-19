@@ -39,7 +39,10 @@ export default function PlatformLoginPage() {
   }
 
   return (
-    <AuthShell title="EYO Platform" subtitle="EYO staff sign-in. This is not a school account.">
+    <AuthShell
+      title="Klasio Platform"
+      subtitle="Klasio staff sign-in. This is not a school account."
+    >
       <form onSubmit={submit} aria-label="Platform sign in">
         <AuthFieldGroup>
           <AuthField

@@ -53,10 +53,15 @@ self.addEventListener('fetch', (event) => {
   // Never serve an API response from cache — see the note above.
   if (url.pathname.startsWith('/api/')) return;
 
-  // Build output and /textures both get cache-first: their contents never change for a given
-  // URL. The textures matter offline — without them the page background loses its grain and
-  // visibly changes tone, which reads as the app half-loading rather than working offline.
-  if (url.pathname.startsWith('/_next/static') || url.pathname.startsWith('/textures/')) {
+  // Build output, /textures and /brand all get cache-first: their contents never change for a
+  // given URL. Both asset folders matter offline — without them the page background loses its
+  // grain and the Klasio mark in the sidebar breaks, which reads as the app half-loading rather
+  // than working offline.
+  if (
+    url.pathname.startsWith('/_next/static') ||
+    url.pathname.startsWith('/textures/') ||
+    url.pathname.startsWith('/brand/')
+  ) {
     event.respondWith(
       caches.match(request).then(
         (hit) =>

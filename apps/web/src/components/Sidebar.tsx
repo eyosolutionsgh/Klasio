@@ -340,7 +340,18 @@ export default function Sidebar({
           <SchoolCrest name={school} hasLogo={hasLogo} size={38} onDark />
           <div className="min-w-0">
             <p className="text-[13px] font-medium leading-tight">{school}</p>
-            <p className="mt-0.5 font-display text-[13px] text-gold leading-none">EYO</p>
+            {/*
+              The vendor mark, under the school's own crest and name — this is Klasio's line, not
+              the school's. The emblem sits on a light chip because its navy is nearly invisible
+              against the dark sidebar, and tinting the logo itself is not ours to do.
+            */}
+            <span className="mt-1 flex items-center gap-1.5">
+              <span className="grid place-items-center w-[18px] h-[18px] rounded bg-paper/95 shrink-0">
+                {/* Plain <img>: a static brand asset, no optimiser round-trip worth the weight. */}
+                <img src="/brand/klasio-emblem.png" alt="" aria-hidden className="w-3.5 h-3.5" />
+              </span>
+              <span className="font-display text-[13px] text-gold leading-none">Klasio</span>
+            </span>
           </div>
         </div>
         <button
