@@ -1,7 +1,7 @@
-# Standalone deployment (Shape 2/3 in docs/03-architecture.md).
+# One school, one server — a school's own cloud VM or an on-prem box.
 # One command boots the full stack: docker compose up -d
-# The same images serve SaaS and standalone; the package tier comes from the
-# vendor-signed license (entitlement engine), never from a build variant.
+# The package tier comes from the vendor-signed licence (entitlement engine), never from a
+# build variant. First boot lands on /setup to create the school and its owner.
 services:
   db:
     image: postgres:16
@@ -10,8 +10,13 @@ services:
       POSTGRES_USER: eyo
       POSTGRES_PASSWORD: ${DB_PASSWORD:-change-me}
       POSTGRES_DB: eyo_sms
+      # Read by the init script below to create the non-owner role the API connects as.
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}
     volumes:
       - dbdata:/var/lib/postgresql/data
+      # Runs once, at first boot, before anything can connect — which is what makes the GRANTs
+      # inside the row-level-security migration find a role to grant to. See the script.
+      - ./ops/db-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U eyo']
       interval: 5s
@@ -39,11 +44,18 @@ services:
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
     environment:
+      # Owner connection: `prisma migrate deploy` and the handful of genuinely tenant-less reads
+      # (sign-in, gateway webhooks). Policies do not apply to the owner.
       DATABASE_URL: postgresql://eyo:${DB_PASSWORD:-change-me}@db:5432/eyo_sms
+      # Runtime connection. MUST be the non-owner role, or every policy in the row-level-security
+      # migration is inert and the database stops refusing a query that lost its where clause.
+      APP_DATABASE_URL: postgresql://eyo_app:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}@db:5432/eyo_sms
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       API_PORT: 4000
       REDIS_URL: redis://redis:6379
-      PAYMENTS_ENCRYPTION_KEY: ${PAYMENTS_ENCRYPTION_KEY:-}
+      # Encrypts every per-school secret at rest — gateway credentials today, social account
+      # tokens too. 32 bytes, hex or base64: `openssl rand -hex 32`.
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:-}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
       # Files land on the mounted volume unless an S3 bucket is configured, so a LAN box
       # keeps working with no object store at all (docs/03 §3.1 shape 3).

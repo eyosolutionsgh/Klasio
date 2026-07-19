@@ -1,13 +1,19 @@
 /**
- * Authenticated encryption for secrets held per tenant — currently payment-gateway
- * credentials (docs/03 §3.3 "per-tenant encryption of sensitive columns").
+ * Authenticated encryption for secrets held per school (docs/03 §3.3 "per-tenant encryption of
+ * sensitive columns") — payment-gateway credentials, and social account access tokens.
  *
  * AES-256-GCM. Ciphertext is stored as `v1:<iv>:<authTag>:<ciphertext>` (base64 parts) so the
  * format is self-describing and can be rotated later without guessing.
  *
- * The key comes from PAYMENTS_ENCRYPTION_KEY (32 bytes, hex or base64). In dev, when it is
- * unset, a fixed development key is used so the stack boots — but storing LIVE gateway
- * credentials without a real key is refused.
+ * The key comes from APP_ENCRYPTION_KEY (32 bytes, hex or base64). In dev, when it is unset, a
+ * fixed development key is used so the stack boots — but storing LIVE gateway credentials
+ * without a real key is refused.
+ *
+ * It was PAYMENTS_ENCRYPTION_KEY, which was already a poor name for a general secret store and
+ * became plainly wrong once it started holding social tokens. The old name is still read so an
+ * existing deployment keeps booting — and it must be, because the two names decrypt the same
+ * ciphertext and renaming the variable without reading it would make every stored secret
+ * undecryptable.
  */
 import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from 'crypto';
 
@@ -43,8 +49,31 @@ export function tempPassword(): string {
 
 export class MissingEncryptionKeyError extends Error {
   constructor() {
-    super('PAYMENTS_ENCRYPTION_KEY must be set (32 bytes, hex or base64) to store live secrets');
+    super('APP_ENCRYPTION_KEY must be set (32 bytes, hex or base64) to store live secrets');
   }
+}
+
+/**
+ * The configured key material, under either name.
+ *
+ * Warns once rather than per call: this is read on every encrypt, and a warning per gateway
+ * write would bury the boot log it is trying to be noticed in.
+ */
+let warnedLegacyKeyName = false;
+
+function rawEncryptionKey(): string | undefined {
+  const current = process.env.APP_ENCRYPTION_KEY;
+  if (current) return current;
+  const legacy = process.env.PAYMENTS_ENCRYPTION_KEY;
+  if (legacy && !warnedLegacyKeyName) {
+    warnedLegacyKeyName = true;
+    console.warn(
+      '[crypto] PAYMENTS_ENCRYPTION_KEY is deprecated — rename it to APP_ENCRYPTION_KEY. It now ' +
+        'protects social account tokens as well as gateway credentials. Keep the same value: ' +
+        'a different key cannot decrypt what the old one stored.',
+    );
+  }
+  return legacy;
 }
 
 function parseKey(raw: string): Buffer | null {
@@ -56,18 +85,18 @@ function parseKey(raw: string): Buffer | null {
 
 /** Resolve the encryption key. `requireReal` refuses the dev fallback (used for LIVE mode). */
 export function encryptionKey(requireReal = false): Buffer {
-  const raw = process.env.PAYMENTS_ENCRYPTION_KEY;
+  const raw = rawEncryptionKey();
   if (!raw) {
     if (requireReal) throw new MissingEncryptionKeyError();
     return DEV_KEY;
   }
   const key = parseKey(raw);
-  if (!key) throw new Error('PAYMENTS_ENCRYPTION_KEY must be 32 bytes (64 hex chars or base64)');
+  if (!key) throw new Error('APP_ENCRYPTION_KEY must be 32 bytes (64 hex chars or base64)');
   return key;
 }
 
 export function hasRealEncryptionKey(): boolean {
-  return !!process.env.PAYMENTS_ENCRYPTION_KEY;
+  return !!rawEncryptionKey();
 }
 
 export function encryptSecret(plaintext: string, requireReal = false): string {

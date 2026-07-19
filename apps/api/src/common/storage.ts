@@ -12,6 +12,20 @@
  * Deliberately no presigned URLs: these are children's photos and documents, so every read
  * goes through an authenticated API route that checks the caller's school. A presigned URL is
  * a long-lived bearer token for child data that we cannot revoke once it leaks.
+ *
+ * Two things are deliberately outside that rule, and both are narrow on purpose:
+ *
+ *  - **The school crest** is served unauthenticated by GET /public/branding/logo, because the
+ *    login page has to show it before anyone has a session. It is institutional artwork — it is
+ *    on the uniforms, the letterhead and the gate. The objection above is to leaking child data;
+ *    it does not reach a logo. Still bytes through the API, never a storage URL.
+ *
+ *  - **Broadcast media** gets a short-lived public token when publishing to Instagram, which
+ *    accepts only a fetchable image_url and offers no binary upload. Minted per publish, dead in
+ *    fifteen minutes, revoked in the same transaction as the publish response — and the image is
+ *    seconds from being on a public Instagram account anyway.
+ *
+ * Neither is a general mechanism. Do not reach for either from a route that serves student data.
  */
 import { createHash, randomUUID } from 'crypto';
 import { mkdir, readFile, rm, writeFile } from 'fs/promises';
