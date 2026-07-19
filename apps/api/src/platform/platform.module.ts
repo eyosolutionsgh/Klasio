@@ -34,6 +34,8 @@ import type { NoticeLevel, Prisma, Tier } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, Public, isPublishedSecret } from '../common/auth';
 import { publicToken } from '../common/crypto';
+import { EmailModule, EmailService } from '../email/email.module';
+import { renderSchoolInvitation } from '../common/email-templates';
 
 /**
  * EYO itself — the vendor — rather than any one school.
@@ -161,7 +163,10 @@ class SchoolQueryDto {
 
 @Injectable()
 export class PlatformService {
-  constructor(private db: PrismaService) {}
+  constructor(
+    private db: PrismaService,
+    private email: EmailService,
+  ) {}
 
   /**
    * Every read here is cross-tenant and therefore goes through `db.system`, the owner connection
@@ -378,8 +383,31 @@ export class PlatformService {
       tier: invitation.tier,
     });
 
+    const base = process.env.PUBLIC_BASE_URL ?? 'http://localhost:3000';
+    const acceptUrl = `${base}/register?token=${encodeURIComponent(token)}`;
+    /**
+     * Deliberately not awaited into the outcome of `invite`.
+     *
+     * The invitation is a real row the moment it is written, and the token is returned below
+     * whether or not the mail lands. Failing the request on a MailerSend outage would leave EYO
+     * with an issued invitation it had been told did not exist, and the "address already has an
+     * invitation outstanding" check above would then block every retry.
+     *
+     * `delivered` reports what actually happened, so the console can show the link for
+     * hand-delivery rather than implying an email is on its way.
+     */
+    const sent = await this.email.send({
+      to: invitation.email,
+      kind: 'school-invitation',
+      message: renderSchoolInvitation({
+        schoolName: invitation.schoolName,
+        acceptUrl,
+        expiresAt: invitation.expiresAt,
+      }),
+    });
+
     // Shown once. There is no endpoint that can produce it again — reissuing means a new one.
-    return { ...invitation, token };
+    return { ...invitation, token, acceptUrl, delivered: sent.ok };
   }
 
   async invitations() {
@@ -640,6 +668,7 @@ export class NoticesController {
 }
 
 @Module({
+  imports: [EmailModule],
   controllers: [PlatformController, NoticesController],
   providers: [PlatformService, PlatformGuard, NoticesService],
   exports: [NoticesService],

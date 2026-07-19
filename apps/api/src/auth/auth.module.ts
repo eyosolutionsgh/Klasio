@@ -8,6 +8,7 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Ip,
   Module,
   NotFoundException,
   Post,
@@ -25,10 +26,27 @@ import { entitlementsForTier } from '../common/entitlements';
 import { ROLE_PRESETS, sanitizePermissions } from '../common/permissions';
 import { hashInviteToken } from '../platform/platform.module';
 import { BillingModule, BillingService } from '../billing/billing.module';
+import { EmailModule, EmailService } from '../email/email.module';
+import { renderPasswordReset } from '../common/email-templates';
+import {
+  RESET_TTL_MINUTES,
+  hashResetToken,
+  resetState,
+  resetStateMessage,
+} from '../common/password-reset';
 
 class LoginDto {
   @IsEmail() email: string;
   @IsString() @MinLength(6) password: string;
+}
+
+class ForgotPasswordDto {
+  @IsEmail() email: string;
+}
+
+class ResetPasswordDto {
+  @IsString() @MinLength(8) @MaxLength(200) token: string;
+  @IsString() @MinLength(8) @MaxLength(200) password: string;
 }
 
 class RegisterDto {
@@ -72,6 +90,7 @@ export class AuthService {
   constructor(
     private db: PrismaService,
     private billing: BillingService,
+    private email: EmailService,
   ) {}
 
   /**
@@ -330,6 +349,119 @@ export class AuthService {
     });
   }
 
+  /**
+   * Ask for a reset link.
+   *
+   * Answers identically whether or not the address has an account, and whether or not the school
+   * is suspended. Sign-in already refuses to say who has an account ("Invalid email or password"),
+   * and an endpoint that answered "no such user" here would hand back exactly what that one
+   * withholds — a way to enumerate every staff address on the platform, one guess at a time.
+   *
+   * The send is awaited but its result is discarded for the same reason.
+   */
+  async forgotPassword(dto: ForgotPasswordDto, ip?: string) {
+    const email = dto.email.toLowerCase();
+    const generic = { sent: true, expiresInMinutes: RESET_TTL_MINUTES };
+
+    // No tenant yet — the same deliberate use of the unscoped client as `login`.
+    const user = await this.db.system.user.findUnique({ where: { email } });
+    if (!user || !user.active) return generic;
+
+    const school = await this.db.system.school.findUnique({ where: { id: user.schoolId } });
+    if (!school || school.suspendedAt) return generic;
+
+    /**
+     * Every earlier outstanding link for this person stops working now.
+     *
+     * Without this, asking twice leaves two live links, and the first — the one more likely to
+     * have been read over someone's shoulder or left sitting in a forwarded mail — stays valid
+     * for its full window. Resetting should always narrow the attack surface, never widen it.
+     */
+    await this.db.system.passwordReset.updateMany({
+      where: { userId: user.id, consumedAt: null, supersededAt: null },
+      data: { supersededAt: new Date() },
+    });
+
+    const token = publicToken(32);
+    await this.db.system.passwordReset.create({
+      data: {
+        schoolId: user.schoolId,
+        userId: user.id,
+        tokenHash: hashResetToken(token),
+        expiresAt: new Date(Date.now() + RESET_TTL_MINUTES * 60_000),
+        requestedIp: ip ?? null,
+      },
+    });
+
+    const base = process.env.PUBLIC_BASE_URL ?? 'http://localhost:3000';
+    await this.email.send({
+      to: user.email,
+      toName: user.name,
+      kind: 'password-reset',
+      message: renderPasswordReset({
+        name: user.name,
+        schoolName: school.name,
+        resetUrl: `${base}/reset-password?token=${encodeURIComponent(token)}`,
+        expiresInMinutes: RESET_TTL_MINUTES,
+      }),
+    });
+
+    return generic;
+  }
+
+  /**
+   * Redeem a reset link.
+   *
+   * Bumps `tokenVersion`, so every session that old password had already opened dies with it —
+   * the point of resetting after a laptop goes missing. Also clears the login throttle: someone
+   * who was locked out by failed guesses has just proved control of the mailbox, and leaving them
+   * locked out would make the reset useless for the case that most needs it.
+   */
+  async resetPassword(dto: ResetPasswordDto) {
+    const row = await this.db.system.passwordReset.findUnique({
+      where: { tokenHash: hashResetToken(dto.token) },
+      include: { user: { select: { id: true, email: true, active: true, schoolId: true } } },
+    });
+    // An unknown token and a malformed one are the same answer: there is nothing to learn here.
+    if (!row) throw new NotFoundException('That reset link is not valid. Ask for a new one.');
+
+    const state = resetState(row, new Date());
+    if (state !== 'valid') throw new GoneException(resetStateMessage(state));
+    if (!row.user.active) throw new ForbiddenException('That account is no longer active.');
+
+    /**
+     * Consume and rotate in one transaction.
+     *
+     * Two people redeeming the same link concurrently would otherwise both pass the state check
+     * above and both set a password — the second silently overwriting the first. The unique
+     * `tokenHash` plus the `consumedAt: null` guard means exactly one of them updates a row.
+     */
+    const consumed = await this.db.system.passwordReset.updateMany({
+      where: { id: row.id, consumedAt: null },
+      data: { consumedAt: new Date() },
+    });
+    if (consumed.count === 0) {
+      throw new GoneException(resetStateMessage('consumed'));
+    }
+
+    await this.db.system.user.update({
+      where: { id: row.userId },
+      data: {
+        passwordHash: await bcrypt.hash(dto.password, BCRYPT_ROUNDS),
+        tokenVersion: { increment: 1 },
+      },
+    });
+    await this.db.system.loginThrottle
+      .delete({ where: { email: row.user.email } })
+      .catch(() => undefined);
+
+    await withTenant(row.user.schoolId, () =>
+      this.db.audit(row.user.schoolId, row.userId, 'auth.password_reset', 'User', row.userId),
+    );
+
+    return { ok: true };
+  }
+
   async me(auth: AuthUser) {
     const [user, school, currentTerm] = await Promise.all([
       this.db.user.findUniqueOrThrow({
@@ -407,6 +539,18 @@ export class PublicAuthController {
   invitation(@Query('token') token: string) {
     return this.svc.inspectInvitation(token ?? '');
   }
+
+  @Public()
+  @Post('forgot-password')
+  forgotPassword(@Body() dto: ForgotPasswordDto, @Ip() ip: string) {
+    return this.svc.forgotPassword(dto, ip);
+  }
+
+  @Public()
+  @Post('reset-password')
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.svc.resetPassword(dto);
+  }
 }
 
 @Controller()
@@ -420,7 +564,7 @@ export class AuthController {
 }
 
 @Module({
-  imports: [BillingModule],
+  imports: [BillingModule, EmailModule],
   controllers: [PublicAuthController, AuthController],
   providers: [AuthService],
 })

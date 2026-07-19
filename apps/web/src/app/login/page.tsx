@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import AuthShell from '@/components/AuthShell';
 import { AuthButton, AuthError, AuthField, AuthFieldGroup } from '@/components/AuthField';
@@ -11,7 +12,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [showHelp, setShowHelp] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -57,28 +57,13 @@ export default function LoginPage() {
         </AuthFieldGroup>
 
         <div className="mt-4 flex justify-end">
-          <button
-            type="button"
-            onClick={() => setShowHelp((s) => !s)}
-            aria-expanded={showHelp}
-            className="min-h-11 text-[13px] text-oat hover:text-brand transition"
+          <Link
+            href="/forgot-password"
+            className="min-h-11 inline-flex items-center text-[13px] text-oat hover:text-brand transition"
           >
             Forgot password?
-          </button>
+          </Link>
         </div>
-
-        {/*
-          There is no self-service reset in this product — the only reset is the one an
-          administrator performs from Staff. Rather than a link to a page that cannot exist, this
-          says who can actually help, which is what a locked-out teacher needs at 7am.
-        */}
-        {showHelp && (
-          <p className="-mt-1 mb-1 text-[13px] text-oat leading-relaxed bg-parchment/70 border border-mist rounded-lg px-3 py-2.5">
-            Ask whoever manages accounts at your school — the proprietor, head or IT administrator.
-            They can set a new password for you from <span className="text-ink">Staff</span> in the
-            portal.
-          </p>
-        )}
 
         {error && <AuthError>{error}</AuthError>}
 

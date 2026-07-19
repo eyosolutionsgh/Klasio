@@ -30,6 +30,8 @@ import { reportCardPdf, ReportCardData } from '../common/pdf';
 import { balanceOf } from '../common/ledger';
 import { storage } from '../common/storage';
 import { SmsModule, SmsService } from '../sms/sms.module';
+import { EmailModule, EmailService } from '../email/email.module';
+import { renderGuardianOtp } from '../common/email-templates';
 
 const OTP_TTL_MINUTES = 10;
 const OTP_MAX_ATTEMPTS = 5;
@@ -100,6 +102,7 @@ export class GuardianService {
     private calendar: CalendarService,
     private resources: ResourcesService,
     private sms: SmsService,
+    private email: EmailService,
   ) {}
 
   /**
@@ -134,7 +137,7 @@ export class GuardianService {
      */
     const school = await this.db.system.school.findUnique({
       where: { id: guardian.schoolId },
-      select: { suspendedAt: true },
+      select: { suspendedAt: true, name: true },
     });
     if (school?.suspendedAt) return generic;
 
@@ -168,12 +171,38 @@ export class GuardianService {
       // all, so in production the code never reached the parent and nobody could sign in — the
       // row said SENT and the endpoint returns a deliberately generic answer, so it looked fine
       // from both ends. The plaintext code stays inside SmsService; see sendOtp.
-      await this.sms.sendOtp({
+      const smsResult = await this.sms.sendOtp({
         schoolId: guardian.schoolId,
         phone,
         code,
         ttlMinutes: OTP_TTL_MINUTES,
       });
+
+      /**
+       * Email only when the SMS did not go out, and only for families who gave the school an
+       * address.
+       *
+       * A fallback rather than a second channel on purpose. Sending both every time would mean a
+       * parent who reads their mail before their messages sees a code, uses it, and then gets a
+       * text carrying the same code that now does nothing — support calls, not convenience. It
+       * also doubles the surface a code travels over for no gain when the SMS worked.
+       *
+       * What makes this worth having is that SMS to Ghanaian networks fails in ways the school
+       * cannot fix: an unregistered sender ID, a number that has moved networks, an exhausted
+       * credit balance. Before this, any of those locked the family out of the portal entirely.
+       */
+      if (!smsResult.ok && guardian.email) {
+        await this.email.send({
+          to: guardian.email,
+          toName: `${guardian.firstName} ${guardian.lastName}`.trim(),
+          kind: 'guardian-otp',
+          message: renderGuardianOtp({
+            schoolName: school?.name ?? 'your school',
+            code,
+            ttlMinutes: OTP_TTL_MINUTES,
+          }),
+        });
+      }
       // Development only. A sign-in code in a log file is a sign-in code anyone with log access
       // can use — request one for a known parent's number and you are that parent.
       if (process.env.NODE_ENV !== 'production') {
@@ -704,7 +733,7 @@ export class GuardianPortalController {
 }
 
 @Module({
-  imports: [FeesModule, PaymentsModule, CalendarModule, ResourcesModule, SmsModule],
+  imports: [FeesModule, PaymentsModule, CalendarModule, ResourcesModule, SmsModule, EmailModule],
   controllers: [GuardianAuthController, GuardianPortalController],
   providers: [GuardianService, GuardianGuard],
 })

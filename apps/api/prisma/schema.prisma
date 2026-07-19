@@ -91,6 +91,7 @@ model School {
   staffRoles    StaffRole[]
   invitation    SchoolInvitation?
   notices       PlatformNotice[]
+  passwordResets PasswordReset[]
 }
 
 /// EYO's own staff — the vendor, not a school.
@@ -233,6 +234,33 @@ model User {
   @@index([schoolId])
 
   timetableSlots TimetableSlot[]
+  passwordResets PasswordReset[]
+}
+
+/// A staff password-reset request, issued by email and usable once.
+///
+/// Deliberately a table rather than a signed stateless token: a reset link must stop working the
+/// moment it is used or superseded, and a JWT cannot be withdrawn. `consumedAt` and the
+/// supersede-on-issue rule below both need somewhere to write.
+model PasswordReset {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// SHA-256 of the token that was emailed. The token itself is never stored, so a leaked
+  /// database yields no working reset links — the same rule SchoolInvitation follows.
+  tokenHash String @unique
+  expiresAt DateTime
+  consumedAt DateTime?
+  /// Set when a newer request replaces this one, so only the most recent email works.
+  supersededAt DateTime?
+  /// Recorded to investigate a reset nobody asked for. Not used for authorisation.
+  requestedIp String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
 }
 
 /// Failed sign-in attempts, so a password cannot be guessed at machine speed.
