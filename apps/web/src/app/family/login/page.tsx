@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import AuthShell from '@/components/AuthShell';
+import { AuthButton, AuthError, AuthField, AuthFieldGroup } from '@/components/AuthField';
 
 /**
  * Guardian sign-in: phone number, then a code by SMS. No password and no email — guardians in
@@ -48,27 +50,25 @@ export default function FamilyLoginPage() {
     }
   }
 
-  const field =
-    'w-full rounded-lg border border-mist bg-white px-3.5 py-3 text-base outline-none focus:border-forest focus:ring-2 focus:ring-forest/15';
-
   return (
-    <main className="min-h-dvh flex items-center justify-center p-6">
-      <div className="card w-full max-w-sm p-8 relative overflow-hidden">
-        <div className="kente-stripe h-1.5 absolute top-0 left-0 right-0" />
-        <p className="font-display text-2xl mt-2">Parent &amp; guardian</p>
-        <p className="text-sm text-oat mt-1.5">
-          {step === 'phone'
-            ? 'Enter the phone number the school has for you.'
-            : `We sent a 6-digit code to ${phone}. It expires in 10 minutes.`}
+    <AuthShell
+      title="Parent & guardian"
+      subtitle={
+        step === 'phone'
+          ? 'Enter the phone number the school has for you.'
+          : `We sent a 6-digit code to ${phone}. It expires in 10 minutes.`
+      }
+      footer={
+        <p className="text-[13px] text-oat">
+          Never share your code. The school will never ask you for it.
         </p>
-
-        {step === 'phone' ? (
-          <form onSubmit={requestCode} className="mt-6">
-            <label className="block text-sm font-medium mb-1.5" htmlFor="phone">
-              Phone number
-            </label>
-            <input
-              id="phone"
+      }
+    >
+      {step === 'phone' ? (
+        <form onSubmit={requestCode} aria-label="Request a sign-in code">
+          <AuthFieldGroup>
+            <AuthField
+              label="Phone number"
               type="tel"
               inputMode="tel"
               autoComplete="tel"
@@ -77,22 +77,24 @@ export default function FamilyLoginPage() {
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               placeholder="024 123 4567"
-              className={field}
             />
-            <button
-              disabled={busy}
-              className="mt-5 w-full rounded-lg bg-forest text-paper font-medium py-3 hover:bg-forest-deep transition disabled:opacity-60"
-            >
-              {busy ? 'Sending…' : 'Send me a code'}
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={verify} className="mt-6">
-            <label className="block text-sm font-medium mb-1.5" htmlFor="code">
-              6-digit code
-            </label>
-            <input
-              id="code"
+          </AuthFieldGroup>
+          {error && <AuthError>{error}</AuthError>}
+          <div className="mt-7">
+            <AuthButton busy={busy} busyLabel="Sending…">
+              Send me a code
+            </AuthButton>
+          </div>
+        </form>
+      ) : (
+        <form onSubmit={verify} aria-label="Enter your sign-in code">
+          <AuthFieldGroup>
+            {/*
+              Not `revealable`: a one-time code is typed once from a message the person is already
+              holding, so a reveal toggle buys nothing and puts the code on screen in a shared room.
+            */}
+            <AuthField
+              label="6-digit code"
               inputMode="numeric"
               autoComplete="one-time-code"
               required
@@ -100,14 +102,14 @@ export default function FamilyLoginPage() {
               value={code}
               onChange={(e) => setCode(e.target.value)}
               placeholder="123456"
-              className={`${field} tabular tracking-[0.3em] text-center`}
+              className="tabular tracking-[0.3em]"
             />
-            <button
-              disabled={busy}
-              className="mt-5 w-full rounded-lg bg-forest text-paper font-medium py-3 hover:bg-forest-deep transition disabled:opacity-60"
-            >
-              {busy ? 'Checking…' : 'Sign in'}
-            </button>
+          </AuthFieldGroup>
+          {error && <AuthError>{error}</AuthError>}
+          <div className="mt-7 flex items-center gap-2 flex-wrap">
+            <AuthButton busy={busy} busyLabel="Checking…">
+              Sign in
+            </AuthButton>
             <button
               type="button"
               onClick={() => {
@@ -115,17 +117,13 @@ export default function FamilyLoginPage() {
                 setCode('');
                 setError(null);
               }}
-              className="mt-2 w-full min-h-11 text-[13px] text-oat hover:text-forest transition"
+              className="min-h-11 px-3 text-[13px] text-oat hover:text-brand transition"
             >
               Use a different number
             </button>
-          </form>
-        )}
-        {error && <p className="mt-4 text-sm text-danger text-center">{error}</p>}
-        <p className="mt-6 text-[11px] text-oat text-center">
-          Never share your code. The school will never ask you for it.
-        </p>
-      </div>
-    </main>
+          </div>
+        </form>
+      )}
+    </AuthShell>
   );
 }

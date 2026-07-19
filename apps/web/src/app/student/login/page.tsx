@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import AuthShell from '@/components/AuthShell';
+import { AuthButton, AuthError, AuthField, AuthFieldGroup } from '@/components/AuthField';
 
 /**
  * Student sign-in: admission number and a PIN the school issues. No email — a JHS student may
@@ -11,9 +13,6 @@ export default function StudentLoginPage() {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const field =
-    'w-full min-h-11 rounded-lg border border-mist bg-white px-3.5 py-3 text-base outline-none focus:border-forest focus:ring-2 focus:ring-forest/15';
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -39,52 +38,45 @@ export default function StudentLoginPage() {
   }
 
   return (
-    <main className="min-h-dvh flex items-center justify-center p-6">
-      <div className="card w-full max-w-sm p-8 relative overflow-hidden">
-        <div className="kente-stripe h-1.5 absolute top-0 left-0 right-0" />
-        <p className="font-display text-2xl mt-2">Student portal</p>
-        <p className="text-sm text-oat mt-1.5">
-          Sign in with your admission number and the PIN the school gave you.
-        </p>
+    <AuthShell
+      title="Student portal"
+      subtitle="Sign in with your admission number and the PIN the school gave you."
+      footer={
+        <p className="text-[13px] text-oat">Lost your PIN? Ask the school office for a new one.</p>
+      }
+    >
+      <form onSubmit={submit} aria-label="Student sign in">
+        <AuthFieldGroup>
+          <AuthField
+            label="Admission number"
+            name="admissionNo"
+            required
+            autoFocus
+            autoComplete="username"
+            placeholder="BA-0001"
+            className="tabular"
+          />
+          <AuthField
+            label="PIN"
+            name="pin"
+            revealable
+            inputMode="numeric"
+            autoComplete="current-password"
+            required
+            minLength={4}
+            placeholder="••••••"
+            className="tabular tracking-[0.2em]"
+          />
+        </AuthFieldGroup>
 
-        <form onSubmit={submit} className="mt-6 space-y-3">
-          <label className="block text-sm font-medium">
-            Admission number
-            <input
-              name="admissionNo"
-              required
-              autoFocus
-              autoComplete="username"
-              placeholder="BA-0001"
-              className={`${field} mt-1.5 tabular`}
-            />
-          </label>
-          <label className="block text-sm font-medium">
-            PIN
-            <input
-              name="pin"
-              type="password"
-              inputMode="numeric"
-              autoComplete="current-password"
-              required
-              minLength={4}
-              placeholder="••••••"
-              className={`${field} mt-1.5 tabular tracking-[0.2em]`}
-            />
-          </label>
-          <button
-            disabled={busy}
-            className="w-full min-h-11 rounded-lg bg-forest text-paper font-medium py-3 hover:bg-forest-deep transition disabled:opacity-60"
-          >
-            {busy ? 'Signing in…' : 'Sign in'}
-          </button>
-        </form>
+        {error && <AuthError>{error}</AuthError>}
 
-        {error && <p className="mt-4 text-sm text-danger text-center">{error}</p>}
-        <p className="mt-6 text-[11px] text-oat text-center">
-          Lost your PIN? Ask the school office for a new one.
-        </p>
-      </div>
-    </main>
+        <div className="mt-7">
+          <AuthButton busy={busy} busyLabel="Signing in…">
+            Log in
+          </AuthButton>
+        </div>
+      </form>
+    </AuthShell>
   );
 }
