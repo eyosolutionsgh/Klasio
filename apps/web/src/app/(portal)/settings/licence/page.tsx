@@ -12,6 +12,14 @@ interface LicenceView {
   daysRemaining: number | null;
   reason: string | null;
   usingDevKey: boolean;
+  reporting: {
+    enabled: boolean;
+    url: string | null;
+    lastAt: string | null;
+    lastOk: boolean | null;
+    lastDetail: string | null;
+    sends: string[];
+  };
   licence: {
     licenceId: string;
     schoolName: string;
@@ -76,7 +84,7 @@ export default function LicencePage() {
         <h1 className="font-display text-3xl">Licence</h1>
         <p className="text-sm text-oat mt-1.5">
           Your licence sets which features this school has and how many students it may enrol. It is
-          checked on this server — nothing is sent anywhere.
+          checked on this server, so it keeps working with no internet at all.
         </p>
       </div>
 
@@ -177,7 +185,58 @@ export default function LicencePage() {
         )}
       </div>
 
-      <form onSubmit={install.run} className="card p-6 mt-6 rise rise-3 max-w-2xl space-y-4">
+      {/*
+        Shown whether reporting is on or off, and off is the default.
+
+        A product that sells on keeping a school's data on the school's own server has to be able
+        to answer "does it phone home, and with what?" precisely. Leaving this out — or only
+        mentioning it when enabled — would make the claim unverifiable, which is the same as
+        asking to be taken on trust.
+      */}
+      <section className="card p-6 mt-6 rise rise-3 max-w-2xl">
+        <h2 className="font-display text-xl">Reporting to your supplier</h2>
+        {view?.reporting.enabled ? (
+          <>
+            <p className="text-sm text-oat mt-1.5">
+              Once a day this server sends your supplier a short summary of this licence. It never
+              sends anything about a student, a guardian or a member of staff, and it has no say in
+              what the school can do — if it never gets through, nothing changes.
+            </p>
+            <dl className="mt-4 grid sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+              <div>
+                <dt className="text-oat text-xs uppercase tracking-widest">Last reported</dt>
+                <dd className="mt-0.5 font-medium">
+                  {view.reporting.lastAt
+                    ? new Date(view.reporting.lastAt).toLocaleString()
+                    : 'Not yet'}
+                  {view.reporting.lastOk === false && (
+                    <span className="text-oat font-normal"> · did not get through</span>
+                  )}
+                </dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-oat text-xs uppercase tracking-widest">Sent to</dt>
+                <dd className="mt-0.5 font-medium truncate" title={view.reporting.url ?? ''}>
+                  {view.reporting.url}
+                </dd>
+              </div>
+            </dl>
+            <p className="mt-4 text-oat text-xs uppercase tracking-widest">Everything it sends</p>
+            <ul className="mt-1.5 space-y-1 text-sm text-oat list-disc pl-5">
+              {view.reporting.sends.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p className="text-sm text-oat mt-1.5">
+            Off. This server does not contact your supplier at all — your licence is checked here,
+            on this machine, and nothing about your school leaves it.
+          </p>
+        )}
+      </section>
+
+      <form onSubmit={install.run} className="card p-6 mt-6 rise rise-4 max-w-2xl space-y-4">
         <div>
           <h2 className="font-display text-xl flex items-center gap-2">
             <KeyIcon aria-hidden />

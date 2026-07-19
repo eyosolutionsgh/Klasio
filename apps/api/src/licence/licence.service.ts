@@ -40,9 +40,18 @@ import {
   type LicenceStatus,
 } from './licence';
 import { InsecureLicenceKeyError, licencePublicKey, usingDevLicenceKey } from './licence-key';
+import { heartbeatPayload, sendHeartbeat, type VerifiedWith } from './heartbeat';
 
 /** How often the box re-checks what it is entitled to. */
 const REVALIDATE_MS = 60 * 60 * 1000;
+
+/**
+ * How often it reports to its supplier, when a URL is configured at all.
+ *
+ * Daily rather than hourly: the vendor's interest is a pattern over weeks, and a school's server
+ * should not be chattering to the internet twenty-four times a day to say nothing has changed.
+ */
+const HEARTBEAT_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class LicenceService implements OnModuleInit, OnModuleDestroy {
@@ -54,6 +63,9 @@ export class LicenceService implements OnModuleInit, OnModuleDestroy {
     extraEntitlements: [],
   };
   private timer?: NodeJS.Timeout;
+  private heartbeatTimer?: NodeJS.Timeout;
+  /** Last attempt, for the licence screen — including on a box with no licence row to write to. */
+  private lastHeartbeat: { at: Date; ok: boolean; detail: string } | null = null;
 
   constructor(private db: PrismaService) {}
 
@@ -65,10 +77,83 @@ export class LicenceService implements OnModuleInit, OnModuleDestroy {
       this.refresh().catch((e) => this.log.error(`Licence re-check failed: ${String(e)}`));
     }, REVALIDATE_MS);
     this.timer.unref();
+
+    /*
+      Opt-in, and silent when it is off. A box with no LICENCE_HEARTBEAT_URL never contacts
+      anything — which is the right default for a product sold partly on not phoning home, and
+      the only correct behaviour on a LAN install with no route out.
+    */
+    if (this.heartbeatUrl()) {
+      // Not on boot: a server restarting in a loop would report on every attempt. First one an
+      // hour in, then daily.
+      this.heartbeatTimer = setInterval(() => {
+        void this.heartbeat();
+      }, HEARTBEAT_MS);
+      this.heartbeatTimer.unref();
+      setTimeout(() => void this.heartbeat(), REVALIDATE_MS).unref();
+      this.log.log(
+        'Licence reporting is on — a daily summary goes to the configured supplier URL.',
+      );
+    }
+  }
+
+  private heartbeatUrl(): string | undefined {
+    // `||` rather than `??`: compose sends an unset variable through as the empty string.
+    return process.env.LICENCE_HEARTBEAT_URL || undefined;
+  }
+
+  private verifiedWith(): VerifiedWith {
+    if (process.env.LICENCE_PUBLIC_KEY) return 'vendor';
+    return usingDevLicenceKey() ? 'development' : 'none';
+  }
+
+  /**
+   * Tell the supplier what this box is running. Never throws, never blocks, never gates anything.
+   *
+   * A failure here is not a problem to escalate — offline is a supported state — so it is logged
+   * at debug and recorded for the licence screen, and that is all.
+   */
+  async heartbeat(): Promise<{ ok: boolean; detail: string; payload: unknown } | null> {
+    const url = this.heartbeatUrl();
+    if (!url) return null;
+
+    const school = await this.db.system.school.findFirst({
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    const students = school
+      ? await this.db.system.student.count({ where: { schoolId: school.id, status: 'ACTIVE' } })
+      : 0;
+
+    const payload = heartbeatPayload({
+      status: this.status,
+      students,
+      verifiedWith: this.verifiedWith(),
+      appVersion: process.env.npm_package_version ?? 'unknown',
+    });
+
+    const result = await sendHeartbeat(url, payload);
+    this.lastHeartbeat = { at: new Date(), ok: result.ok, detail: result.detail };
+    if (result.ok) this.log.debug(`Licence reported: ${result.detail}`);
+    else this.log.debug(`Licence report did not land: ${result.detail}`);
+
+    // Best effort: there may be no licence row to write to, and a failed write here must not turn
+    // a missed heartbeat into a failed request.
+    await this.db.system.licence
+      .update({
+        where: { id: 'singleton' },
+        data: { lastHeartbeatAt: new Date(), lastHeartbeatOk: result.ok },
+      })
+      .catch(() => undefined);
+
+    // The payload goes back to the caller so the licence screen can show a school exactly what
+    // was sent, rather than a description of it.
+    return { ...result, payload };
   }
 
   onModuleDestroy() {
     if (this.timer) clearInterval(this.timer);
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
   }
 
   /** What is in force right now. Cheap — no signature check, no query. */
@@ -220,6 +305,29 @@ export class LicenceService implements OnModuleInit, OnModuleDestroy {
       daysRemaining: s.daysRemaining ?? null,
       reason: s.reason ?? null,
       usingDevKey: usingDevLicenceKey(),
+      /**
+       * What this box reports, and when it last did.
+       *
+       * Shown to the school rather than kept to ourselves. A product that sells on keeping a
+       * school's data on the school's own server has to be able to say exactly what it sends and
+       * when — anything less makes the claim unverifiable, which is the same as untrue.
+       */
+      reporting: {
+        enabled: !!this.heartbeatUrl(),
+        url: this.heartbeatUrl() ?? null,
+        lastAt: this.lastHeartbeat?.at.toISOString() ?? null,
+        lastOk: this.lastHeartbeat?.ok ?? null,
+        lastDetail: this.lastHeartbeat?.detail ?? null,
+        /** Exactly the fields that leave this server. Enumerated so the screen can list them. */
+        sends: [
+          'Licence id and which school it names',
+          'Whether the licence is valid, in grace, expired or missing',
+          'The package in force, and the one the licence bought',
+          'How many students are enrolled, as a single number',
+          'Which key the licence was verified against',
+          'The Klasio version this server runs',
+        ],
+      },
       licence: s.payload
         ? {
             licenceId: s.payload.licenceId,

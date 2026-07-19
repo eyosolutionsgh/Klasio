@@ -1467,6 +1467,14 @@ model Licence {
   studentCap    Int?
   expiresAt     DateTime
   issuedAt      DateTime
+  /// When this box last reported to its supplier, and whether that report landed.
+  ///
+  /// Persisted so the licence screen can show a school exactly when its server last spoke to the
+  /// vendor. A product sold partly on not phoning home has to be able to answer that question
+  /// truthfully, and "trust us" is not an answer.
+  lastHeartbeatAt DateTime?
+  lastHeartbeatOk Boolean?
+
   installedAt   DateTime @default(now())
   /// Null when the licence came from LICENCE_FILE or LICENCE rather than the settings screen.
   installedById String?

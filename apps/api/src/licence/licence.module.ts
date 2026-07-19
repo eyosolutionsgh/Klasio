@@ -39,6 +39,22 @@ export class LicenceController {
   install(@Body() dto: InstallLicenceDto, @CurrentUser() auth: AuthUser) {
     return this.svc.install(dto.licence, auth);
   }
+
+  /**
+   * Report to the supplier now, and hand back exactly what was sent.
+   *
+   * Useful on a support call — "press this while I watch" — but mostly it is the honest form of
+   * the transparency claim: a school does not have to take our word for what leaves its server,
+   * it can press a button and read it.
+   */
+  @Post('report')
+  @RequirePermission('school.settings')
+  async report() {
+    const result = await this.svc.heartbeat();
+    return (
+      result ?? { ok: false, detail: 'Reporting is switched off on this server.', payload: null }
+    );
+  }
 }
 
 /**

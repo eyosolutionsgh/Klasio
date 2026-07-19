@@ -63,6 +63,8 @@ services:
       LICENCE_PUBLIC_KEY: ${LICENCE_PUBLIC_KEY:-}
       # Where the licence file is read from on first boot, before anyone has a portal login.
       LICENCE_FILE: /data/licence/klasio.licence
+      # Optional telemetry, off unless set. Never gates anything — see heartbeat.ts.
+      LICENCE_HEARTBEAT_URL: ${LICENCE_HEARTBEAT_URL:-}
       # Files land on the mounted volume unless an S3 bucket is configured, so a LAN box
       # keeps working with no object store at all (docs/03 §3.1 shape 3).
       STORAGE_LOCAL_DIR: /data/storage
