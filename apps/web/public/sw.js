@@ -7,13 +7,29 @@
  *   - pages are network-first with a cached fallback, so nobody sees stale data while online
  *   - API calls are never cached; a stale balance or register is worse than an honest failure,
  *     and writes are handled by the IndexedDB queue instead.
+ *
+ * ── Cache versioning ────────────────────────────────────────────────────────
+ *
+ * The cache name carries the build it belongs to, taken from the `?v=` on this script's own URL
+ * (see RegisterServiceWorker). It used to be the hardcoded string `eyo-shell-v1`, which meant the
+ * name never changed and so `activate` — which deletes every cache that is not the current one —
+ * never had anything to delete. A deploy left the previous build's assets cached under the same
+ * key, and cache-first served them.
+ *
+ * Because the version rides in the URL, a new build registers a *different* script, which is what
+ * makes the browser install a new worker at all. A constant here plus a constant URL means the
+ * browser has no reason to look at this file again for up to 24 hours.
  */
-const CACHE = 'eyo-shell-v1';
+const VERSION = new URL(self.location.href).searchParams.get('v') || 'dev';
+const CACHE = `eyo-shell-${VERSION}`;
 const OFFLINE_URL = '/offline';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((c) => c.addAll([OFFLINE_URL])).catch(() => undefined),
+    caches
+      .open(CACHE)
+      .then((c) => c.addAll([OFFLINE_URL]))
+      .catch(() => undefined),
   );
   self.skipWaiting();
 });
@@ -22,6 +38,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
+      // Every cache from an older build. Now that the name moves, this finally bites.
       .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
