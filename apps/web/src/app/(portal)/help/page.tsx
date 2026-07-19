@@ -54,7 +54,7 @@ export default async function HelpPage() {
           <Link href="/guide" className="text-brand underline underline-offset-2">
             user guide
           </Link>{' '}
-          for step-by-step walkthroughs, or contact EYO Solutions support.
+          for step-by-step walkthroughs, or contact Klasio support.
         </p>
         <div className="mt-4 grid sm:grid-cols-2 gap-4 text-sm">
           <p>
