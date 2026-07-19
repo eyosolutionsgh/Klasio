@@ -103,11 +103,11 @@ export function initialsOf(name: string): string {
 }
 
 /**
- * The mark at the top of a message: EYO's own for vendor mail, the school's for school mail.
+ * The mark at the top of a message: Klasio's own for vendor mail, the school's for school mail.
  *
- * Which one is not a style choice. An invitation is EYO speaking to someone who has no school
+ * Which one is not a style choice. An invitation is Klasio speaking to someone who has no school
  * yet — there is nothing of theirs to show. A reset or a sign-in code is the *school* speaking to
- * its own staff and families, and a guardian who has never heard of EYO should recognise their
+ * its own staff and families, and a guardian who has never heard of Klasio should recognise their
  * child's school at a glance.
  */
 export type Brandmark =
@@ -116,13 +116,14 @@ export type Brandmark =
 function mastheadHtml(mark: Brandmark): string {
   if (mark.kind === 'eyo') {
     /**
-     * Typographic, because this product has no logo file — the brand is Fraunces in gold, and
-     * inventing a raster mark here would create a second, unofficial one. Webfonts do not load
-     * in most email clients, so the serif stack degrades to Georgia, which is what the portal's
-     * own `--font-display` already falls back to.
+     * Typographic rather than the Klasio lockup. A logo file does now exist — the portal uses it
+     * — but putting it here means a CID attachment on every vendor mail, since remote images are
+     * blocked by default in most clients and there is no public URL to point at. The wordmark
+     * costs nothing and always renders. Webfonts do not load in email either, so the serif stack
+     * degrades to Georgia, which is what the portal's own `--font-display` already falls back to.
      */
     return `<tr><td style="padding-bottom:24px;">
-      <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:26px;letter-spacing:3px;color:${GOLD};line-height:1;">EYO</p>
+      <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:26px;letter-spacing:1px;color:${GOLD};line-height:1;">Klasio</p>
       <p style="margin:6px 0 0;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:${OAT};">School Management</p>
     </td></tr>`;
   }
@@ -166,7 +167,7 @@ function layout(opts: {
           <h1 style="margin:0 0 16px;font-size:20px;font-weight:600;color:${BRAND};">${opts.heading}</h1>
           ${opts.bodyHtml}
           <p style="margin:32px 0 0;padding-top:16px;border-top:1px solid ${MIST};font-size:12px;color:${OAT};">
-            ${opts.footer ?? 'EYO School Management &middot; Accra, Ghana'}
+            ${opts.footer ?? 'Klasio School Management &middot; Accra, Ghana'}
           </p>
         </td></tr>
       </table>
@@ -205,24 +206,24 @@ export function renderSchoolInvitation(opts: {
   const school = escapeHtml(opts.schoolName);
   const expires = opts.expiresAt.toDateString();
   return {
-    subject: `Set up ${opts.schoolName} on EYO School Management`,
+    subject: `Set up ${opts.schoolName} on Klasio School Management`,
     html: layout({
       mark: { kind: 'eyo' },
       heading: 'Your school is ready to set up',
       bodyHtml: `
-        <p style="margin:0 0 12px;font-size:15px;line-height:1.6;">EYO has invited you to set up <strong>${school}</strong> on EYO School Management.</p>
+        <p style="margin:0 0 12px;font-size:15px;line-height:1.6;">Klasio has invited you to set up <strong>${school}</strong> on Klasio School Management.</p>
         <p style="margin:0;font-size:15px;line-height:1.6;">Follow the link below to create your owner account and get started.</p>
         ${button(opts.acceptUrl, 'Set up my school')}
         <p style="margin:0;font-size:13px;color:${OAT};line-height:1.6;">This invitation expires on ${escapeHtml(expires)} and can only be used by this email address. If you were not expecting it, you can ignore this message.</p>`,
     }),
-    text: `EYO has invited you to set up ${opts.schoolName} on EYO School Management.
+    text: `Klasio has invited you to set up ${opts.schoolName} on Klasio School Management.
 
 Create your owner account here:
 ${opts.acceptUrl}
 
 This invitation expires on ${expires} and can only be used by this email address. If you were not expecting it, you can ignore this message.
 
-EYO School Management, Accra, Ghana`,
+Klasio School Management, Accra, Ghana`,
   };
 }
 
@@ -252,7 +253,7 @@ export function renderPasswordReset(opts: {
         <p style="margin:0;font-size:15px;line-height:1.6;">Someone asked to reset the password for your <strong>${school}</strong> account. Choose a new one using the link below.</p>
         ${button(opts.resetUrl, 'Choose a new password')}
         <p style="margin:0;font-size:13px;color:${OAT};line-height:1.6;">This link expires in ${opts.expiresInMinutes} minutes and can be used once. If you did not ask for this, ignore this email — your password will not change, and signing in normally cancels the request.</p>`,
-      footer: `${school} &middot; sent by EYO School Management`,
+      footer: `${school} &middot; sent by Klasio School Management`,
     }),
     text: `Hello ${opts.name.split(' ')[0] || 'there'},
 
@@ -262,7 +263,7 @@ ${opts.resetUrl}
 
 This link expires in ${opts.expiresInMinutes} minutes and can be used once. If you did not ask for this, ignore this email — your password will not change, and signing in normally cancels the request.
 
-${opts.schoolName}, sent by EYO School Management`,
+${opts.schoolName}, sent by Klasio School Management`,
     inlineImages: opts.crest ? [opts.crest] : undefined,
   };
 }
@@ -290,13 +291,13 @@ export function renderGuardianOtp(opts: {
         <p style="margin:0;font-size:15px;line-height:1.6;">Use this code to sign in to the <strong>${school}</strong> guardian portal.</p>
         ${codeBlock(opts.code)}
         <p style="margin:0;font-size:13px;color:${OAT};line-height:1.6;">It expires in ${opts.ttlMinutes} minutes. Never share it — ${school} will never ask you for this code.</p>`,
-      footer: `${school} &middot; sent by EYO School Management`,
+      footer: `${school} &middot; sent by Klasio School Management`,
     }),
     text: `${opts.code} is your ${opts.schoolName} guardian portal sign-in code.
 
 It expires in ${opts.ttlMinutes} minutes. Never share it — ${opts.schoolName} will never ask you for this code.
 
-${opts.schoolName}, sent by EYO School Management`,
+${opts.schoolName}, sent by Klasio School Management`,
     inlineImages: opts.crest ? [opts.crest] : undefined,
   };
 }

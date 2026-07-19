@@ -111,12 +111,12 @@ describe('renderSchoolInvitation', () => {
   });
 
   /**
-   * EYO's mark, not the school's. At this point the school does not exist — there is no row, no
+   * Klasio's mark, not the school's. At this point the school does not exist — there is no row, no
    * crest, nothing of theirs to show — and the message is the vendor introducing itself.
    */
-  it('carries the EYO wordmark and never a crest', () => {
+  it('carries the Klasio wordmark and never a crest', () => {
     const { html, inlineImages } = renderSchoolInvitation(opts);
-    expect(html).toContain('>EYO<');
+    expect(html).toContain('>Klasio<');
     expect(html).not.toContain('cid:');
     expect(inlineImages).toBeUndefined();
   });
@@ -210,16 +210,16 @@ describe('renderGuardianOtp', () => {
   });
 
   it('shows the school crest, which is what makes the code look genuine', () => {
-    // A guardian who has never heard of EYO judges this by whether it looks like their school.
+    // A guardian who has never heard of Klasio judges this by whether it looks like their school.
     const { html, inlineImages } = renderGuardianOtp({ ...opts, crest });
     expect(html).toContain('src="cid:school-crest"');
     expect(inlineImages).toEqual([crest]);
   });
 
-  it('falls back to the initials mark rather than showing EYO to a parent', () => {
+  it('falls back to the initials mark rather than showing Klasio to a parent', () => {
     const { html } = renderGuardianOtp(opts);
     expect(html).toContain('>BA<');
-    expect(html).not.toContain('>EYO<');
+    expect(html).not.toContain('>Klasio<');
   });
 
   it('warns against sharing, naming the school as the party that will never ask', () => {

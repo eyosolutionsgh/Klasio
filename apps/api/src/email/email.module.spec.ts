@@ -40,7 +40,7 @@ afterEach(() => {
 function live(responses: Response[]) {
   process.env.MAILERSEND_API_TOKEN = 'test-token';
   process.env.MAILERSEND_FROM_EMAIL = 'noreply@school.test';
-  process.env.MAILERSEND_FROM_NAME = 'EYO';
+  process.env.MAILERSEND_FROM_NAME = 'Klasio';
   delete process.env.MAILERSEND_REPLY_TO;
   const fetchSpy = vi.fn<typeof fetch>();
   for (const r of responses) fetchSpy.mockResolvedValueOnce(r);

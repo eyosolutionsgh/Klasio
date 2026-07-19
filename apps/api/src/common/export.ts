@@ -44,7 +44,7 @@ export async function toXlsx(
   rows: Cell[][],
 ): Promise<Buffer> {
   const wb = new Workbook();
-  wb.creator = 'EYO School Management';
+  wb.creator = 'Klasio School Management';
   const ws = wb.addWorksheet(sheetName);
   ws.addRow(headers);
   ws.getRow(1).font = { bold: true };
@@ -71,7 +71,7 @@ export interface TemplateSpec {
 /** Build an xlsx onboarding template: header row + a couple of sample rows. */
 export async function templateXlsx(spec: TemplateSpec): Promise<Buffer> {
   const wb = new Workbook();
-  wb.creator = 'EYO School Management';
+  wb.creator = 'Klasio School Management';
   const ws = wb.addWorksheet(spec.sheetName);
   ws.addRow(spec.headers);
   ws.getRow(1).font = { bold: true };

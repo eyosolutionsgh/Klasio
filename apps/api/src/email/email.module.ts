@@ -168,7 +168,7 @@ export class EmailService {
       ? new MailerSendProvider({
           token: MAILERSEND_API_TOKEN,
           fromEmail: MAILERSEND_FROM_EMAIL,
-          fromName: MAILERSEND_FROM_NAME ?? 'EYO School Management',
+          fromName: MAILERSEND_FROM_NAME ?? 'Klasio School Management',
           replyTo: MAILERSEND_REPLY_TO || undefined,
         })
       : new MockEmailProvider();
