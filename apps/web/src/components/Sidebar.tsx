@@ -340,20 +340,25 @@ export default function Sidebar({
         lg:sticky lg:top-0 lg:h-dvh`}
     >
       <div className="accent-rule-gold h-[3px]" />
-      <div className="px-5 pt-6 pb-5 border-b border-paper/10 flex items-start justify-between gap-2">
-        <div className="min-w-0 flex items-center gap-3">
-          <SchoolCrest name={school} hasLogo={hasLogo} size={52} onDark />
-          <div className="min-w-0">
-            <p className="text-[13px] font-medium leading-tight">{school}</p>
-            {/* Where you are, next to whose school it is. The vendor's mark has moved to the
-                foot — this corner belongs to the school. */}
-            <p className="mt-1 text-[11.5px] text-paper/55 leading-none truncate">{termLabel}</p>
-          </div>
-        </div>
+      {/*
+        Stacked, not a row. Beside the text the crest was capped by the height of two small lines
+        and had to share a 200px column with them; on its own row it can be read as a mark rather
+        than an icon, and the school's name gets the full width instead of ~140px — which is what
+        long names here need ("St. Augustine's International Preparatory School").
+
+        The close button is taken out of the flow so it stays pinned to the corner rather than
+        being pushed down by whatever the stack grows to.
+      */}
+      <div className="relative px-5 pt-6 pb-5 border-b border-paper/10">
+        <SchoolCrest name={school} hasLogo={hasLogo} size={76} onDark />
+        <p className="mt-3.5 text-[14px] font-medium leading-snug">{school}</p>
+        {/* Where you are, under whose school it is. The vendor's mark has moved to the foot —
+            this corner belongs to the school. */}
+        <p className="mt-1 text-[11.5px] text-paper/55 leading-none">{termLabel}</p>
         <button
           onClick={onClose}
           aria-label="Close menu"
-          className="lg:hidden -mr-1 -mt-1 p-2 rounded-lg text-paper/60 hover:text-paper hover:bg-paper/10 transition"
+          className="lg:hidden absolute right-3 top-4 p-2 rounded-lg text-paper/60 hover:text-paper hover:bg-paper/10 transition"
         >
           <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current" aria-hidden>
             <path d="M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z" />
