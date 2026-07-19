@@ -1,6 +1,7 @@
 'use client';
 
 import { useId, useState, type InputHTMLAttributes, type ReactNode } from 'react';
+import { Button, type ActionState } from './Button';
 
 /**
  * A field whose label lives inside the box, above the value.
@@ -21,27 +22,43 @@ type Props = InputHTMLAttributes<HTMLInputElement> & {
   label: string;
   /** Adds the reveal toggle. Only for real passwords — never for a one-time code. */
   revealable?: boolean;
+  /**
+   * Decorative leading icon — an envelope, a padlock. Purely a scanning aid: the label already
+   * says what the field is, so this carries `aria-hidden` and adds nothing for a screen reader.
+   */
+  icon?: ReactNode;
 };
 
-export function AuthField({ label, revealable, className = '', ...input }: Props) {
+export function AuthField({ label, revealable, icon, className = '', ...input }: Props) {
   const id = useId();
   const [shown, setShown] = useState(false);
   const type = revealable ? (shown ? 'text' : 'password') : input.type;
 
   return (
-    <div className="relative px-4 py-2.5 transition-colors focus-within:bg-brand-mist/25">
-      <label
-        htmlFor={id}
-        className="block text-[11px] uppercase tracking-wider text-oat pointer-events-none"
-      >
-        {label}
-      </label>
-      <input
-        {...input}
-        id={id}
-        type={type}
-        className={`w-full bg-transparent border-0 p-0 pt-1 pb-1.5 text-[15px] text-ink outline-none placeholder:text-oat/50 ${revealable ? 'pr-10' : ''} ${className}`}
-      />
+    <div className="group relative px-4 py-2.5 transition-colors focus-within:bg-brand-mist/25">
+      <div className="flex items-center gap-3">
+        {icon && (
+          // Tracks the focus ring so the whole row reads as one active control, rather than an
+          // icon sitting inertly beside a field that has clearly woken up.
+          <span className="shrink-0 text-oat/70 transition-colors group-focus-within:text-brand">
+            {icon}
+          </span>
+        )}
+        <div className="min-w-0 flex-1">
+          <label
+            htmlFor={id}
+            className="block text-[11px] uppercase tracking-wider text-oat pointer-events-none"
+          >
+            {label}
+          </label>
+          <input
+            {...input}
+            id={id}
+            type={type}
+            className={`w-full bg-transparent border-0 p-0 pt-1 pb-1.5 text-[15px] text-ink outline-none placeholder:text-oat/50 ${revealable ? 'pr-10' : ''} ${className}`}
+          />
+        </div>
+      </div>
       {revealable && (
         <button
           type="button"
@@ -79,31 +96,40 @@ function EyeOff() {
   );
 }
 
-/** The page's single primary action. Gold rather than the portal's green — see the note below. */
+/**
+ * The page's single primary action, in the sign-in doors' accent.
+ *
+ * A thin wrapper over the shared `Button` so the doors cannot drift from the rest of the app:
+ * the stacked-label width, the pending/settled icons and the live region all come from there.
+ * `busy` is kept because most callers only ever have two states; pass `state` instead to get the
+ * full "Sending… → Sent!" cycle from `useAsyncAction`.
+ */
 export function AuthButton({
   busy,
+  state,
   children,
   busyLabel,
+  doneLabel,
+  icon,
 }: {
   busy?: boolean;
-  children: ReactNode;
+  state?: ActionState;
+  children: string;
   busyLabel?: string;
+  doneLabel?: string;
+  icon?: ReactNode;
 }) {
   return (
-    <button
-      disabled={busy}
-      /**
-       * Dark text on gold, not white.
-       *
-       * The reference this follows uses a bright accent button with white lettering; at EYO's
-       * gold that is roughly 2.6:1 and simply unreadable in sunlight on a phone. Ink on the same
-       * gold is about 7:1, so the button keeps the accent the design is built around and stays
-       * legible.
-       */
-      className="min-h-11 rounded-lg px-10 text-sm font-semibold uppercase tracking-wider text-ink bg-gradient-to-r from-[#00b3b9] to-gold-bright hover:from-[#00c2c8] hover:to-[#00a7ad] transition-all disabled:opacity-60 disabled:cursor-not-allowed shadow-[0_6px_16px_-6px_rgba(0,151,156,0.8)]"
+    <Button
+      variant="accent"
+      className="px-10"
+      state={state ?? (busy ? 'pending' : 'idle')}
+      pendingLabel={busyLabel}
+      doneLabel={doneLabel}
+      icon={icon}
     >
-      {busy ? (busyLabel ?? 'Please wait…') : children}
-    </button>
+      {children}
+    </Button>
   );
 }
 
