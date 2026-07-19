@@ -321,7 +321,7 @@ export default function Sidebar({
       id="portal-nav"
       // Below lg: a fixed drawer that slides in. From lg: an ordinary sticky column, so the
       // desktop layout is untouched.
-      className={`no-print bg-brand-deep text-paper flex flex-col z-50
+      className={`no-print texture-weave bg-brand-deep text-paper flex flex-col z-50
         fixed inset-y-0 left-0 w-[17rem] max-w-[85vw]
         transition-[transform,visibility] duration-200 ease-out motion-reduce:transition-none
         ${
@@ -334,7 +334,7 @@ export default function Sidebar({
         lg:translate-x-0 lg:w-60 lg:shrink-0 lg:shadow-none
         lg:sticky lg:top-0 lg:h-dvh`}
     >
-      <div className="kente-stripe h-1.5" />
+      <div className="accent-rule-gold h-[3px]" />
       <div className="px-5 pt-6 pb-5 border-b border-paper/10 flex items-start justify-between gap-2">
         <div className="min-w-0 flex items-center gap-3">
           <SchoolCrest name={school} hasLogo={hasLogo} size={38} onDark />

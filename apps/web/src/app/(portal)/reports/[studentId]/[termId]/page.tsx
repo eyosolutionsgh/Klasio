@@ -73,7 +73,7 @@ export default async function ReportCardPage({
 
       {/* Print-faithful GES-style terminal report */}
       <div className="print-sheet card max-w-3xl mx-auto p-10 relative overflow-hidden">
-        <div className="kente-stripe h-1.5 absolute top-0 left-0 right-0" />
+        <div className="accent-rule h-[3px] absolute top-0 left-0 right-0" />
 
         {card.template === 'MODERN' ? (
           <header className="-mx-10 -mt-10 mb-6 bg-brand-deep text-paper px-10 pt-8 pb-6">

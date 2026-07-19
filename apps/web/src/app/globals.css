@@ -33,6 +33,11 @@
   --brand: #17513c;
   --brand-deep: color-mix(in srgb, var(--brand) 72%, #000);
   --brand-mist: color-mix(in srgb, var(--brand) 14%, #fff);
+
+  /* Paper fibre. Fractal noise rendered once by the browser's SVG filter — no image asset, no
+     network request, and it tiles seamlessly (stitchTiles) so there is no visible grid seam.
+     Kept grayscale (feColorMatrix saturate 0) so it darkens the paper rather than tinting it. */
+  --tex-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23g)' opacity='0.42'/%3E%3C/svg%3E");
 }
 
 /**
@@ -57,17 +62,20 @@ html {
   background: var(--color-paper);
 }
 
-/* signature kente-inspired stripe */
-.kente-stripe {
-  background: linear-gradient(
-    90deg,
-    var(--color-forest) 0 22%,
-    var(--color-gold) 22% 40%,
-    var(--color-clay) 40% 52%,
-    var(--color-ink) 52% 60%,
-    var(--color-gold) 60% 78%,
-    var(--color-forest) 78% 100%
-  );
+/**
+ * A single quiet accent rule at the head of a card or panel.
+ *
+ * This replaces the multi-colour banner that used to sit here. Six hard colour stops across the
+ * top of every card is a generic look, and it fought the school's own colour: a school that set
+ * --brand to navy still got a green-gold-clay bar above its header. One hairline in the school's
+ * colour says the same thing and lets the branding through.
+ */
+.accent-rule {
+  background: var(--color-brand);
+}
+/* On the dark sidebar and art panels, where --brand is the surface itself. */
+.accent-rule-gold {
+  background: var(--color-gold);
 }
 
 .font-display {
@@ -78,11 +86,71 @@ html {
   font-variant-numeric: tabular-nums;
 }
 
-/* paper grain for the app background */
-.paper-bg {
-  background-color: var(--color-paper);
-  background-image: radial-gradient(rgba(27, 40, 34, 0.035) 1px, transparent 1px);
-  background-size: 22px 22px;
+/**
+ * The page surface: warm paper with a real grain.
+ *
+ * The texture lives on a `position: fixed` pseudo-element at `z-index: -1` rather than in the
+ * body's own `background-image`. Two reasons: a fixed layer is painted once and does not
+ * re-tile on every scroll frame (a repeating background on a tall page does), and it stays put
+ * as content scrolls, so the grain reads as the paper the app is printed on rather than as a
+ * pattern sliding underneath it.
+ *
+ * The negative z-index is what keeps it behind the page content. It works because the paper
+ * colour is declared on `html` (it propagates to the canvas) and body is left transparent — if
+ * body painted its own background it would cover the layer entirely.
+ */
+.paper-bg::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    var(--tex-grain),
+    /* Two soft blooms, one per top corner, so the page has a light source instead of being
+       uniformly flat. Both are well under 6% alpha — at a glance you read "warm paper", not
+       "gradient". */
+    radial-gradient(60rem 40rem at 8% -12%, rgba(23, 81, 60, 0.055), transparent 62%),
+    radial-gradient(52rem 38rem at 104% -6%, rgba(201, 152, 47, 0.06), transparent 60%);
+  background-size:
+    180px 180px,
+    auto,
+    auto;
+  opacity: 0.55;
+}
+
+/**
+ * Woven diagonal texture for dark panels (the sidebar, the sign-in art half).
+ *
+ * Two repeating gradients crossing at ±45° give a cloth weave. On a near-black green the alpha
+ * has to be tiny — 2.5% — or the lines band into visible stripes on gradient-dithering screens.
+ */
+/* In @layer components so a Tailwind positioning utility on the same element still wins: the
+   sidebar is `fixed`/`sticky` and the sign-in art panel is `absolute`, and an unlayered
+   `position: relative` here would silently override both. */
+@layer components {
+  .texture-weave {
+    position: relative;
+    isolation: isolate;
+  }
+}
+.texture-weave::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.025) 0 1px,
+      transparent 1px 7px
+    ),
+    repeating-linear-gradient(
+      -45deg,
+      rgba(255, 255, 255, 0.025) 0 1px,
+      transparent 1px 7px
+    );
 }
 
 /* registry card */
@@ -188,6 +256,11 @@ html {
 @media print {
   body {
     background: white !important;
+  }
+  /* Grain and weave are screen dressing; on paper they are just toner. */
+  .paper-bg::before,
+  .texture-weave::before {
+    display: none !important;
   }
   .no-print {
     display: none !important;

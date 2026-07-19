@@ -174,7 +174,7 @@ export default function FamilyPage() {
   return (
     <main className="min-h-dvh">
       <header className="bg-forest-deep text-paper pt-[env(safe-area-inset-top)]">
-        <div className="kente-stripe h-1.5" />
+        <div className="accent-rule h-[3px]" />
         <div className="max-w-3xl mx-auto px-5 py-5 flex items-start justify-between gap-4">
           <div>
             <p className="font-display text-xl text-gold leading-none">{me.school.name}</p>

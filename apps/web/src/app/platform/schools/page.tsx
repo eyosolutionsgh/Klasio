@@ -146,7 +146,7 @@ export default function PlatformSchoolsPage() {
   return (
     <main className="min-h-dvh">
       <header className="bg-forest-deep text-paper">
-        <div className="kente-stripe h-1.5" />
+        <div className="accent-rule h-[3px]" />
         <div className="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between gap-4">
           <div>
             <p className="text-[11px] uppercase tracking-widest text-paper/50">EYO Platform</p>

@@ -38,11 +38,11 @@ export default async function ApplyPage({ params }: { params: Promise<{ schoolId
     return (
       <main className="min-h-dvh flex items-center justify-center p-6">
         <div className="card w-full max-w-md p-8 text-center relative overflow-hidden">
-          <div className="kente-stripe h-1.5 absolute top-0 left-0 right-0" />
+          <div className="accent-rule h-[3px] absolute top-0 left-0 right-0" />
           <p className="font-display text-2xl mt-2">Applications are not open here</p>
           <p className="text-sm text-oat mt-3 leading-relaxed">
-            This school is not taking applications online at the moment, or the link you followed
-            is not quite right. Please call the school office and they will help you apply.
+            This school is not taking applications online at the moment, or the link you followed is
+            not quite right. Please call the school office and they will help you apply.
           </p>
         </div>
       </main>
@@ -52,7 +52,7 @@ export default async function ApplyPage({ params }: { params: Promise<{ schoolId
   return (
     <main className="min-h-dvh flex items-start justify-center p-4 sm:p-6">
       <div className="card w-full max-w-md p-6 sm:p-8 my-4 relative overflow-hidden">
-        <div className="kente-stripe h-1.5 absolute top-0 left-0 right-0" />
+        <div className="accent-rule h-[3px] absolute top-0 left-0 right-0" />
         <p className="text-[11px] uppercase tracking-widest text-oat mt-2">Apply for admission</p>
         <h1 className="font-display text-2xl mt-1">{data.school.name}</h1>
         <p className="text-sm text-oat mt-2 leading-relaxed">

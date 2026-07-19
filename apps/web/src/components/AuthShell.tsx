@@ -25,20 +25,20 @@ export default function AuthShell({
   footer?: ReactNode;
 }) {
   return (
-    <main className="min-h-dvh grid place-items-center bg-parchment/50 p-4 sm:p-8">
+    // No page-level fill: the body's paper grain is the background here, and an opaque tint
+    // would sit on top of it.
+    <main className="min-h-dvh grid place-items-center p-4 sm:p-8">
       <div className="relative w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_-20px_rgba(27,40,34,0.35)]">
         {/*
-          The stripe spans the whole card, above the clip.
-          Inside the clipped panel it was sliced into what looked like three loose blocks — the
-          clip-path cuts its children, and a stripe that starts partway across does not read as a
-          stripe at all.
+          The accent spans the whole card, above the clip: the clip-path cuts its children, so a
+          rule that starts partway across reads as a loose fragment rather than an edge.
         */}
-        <div className="kente-stripe h-1.5 absolute top-0 left-0 right-0 z-10" />
+        <div className="accent-rule h-[3px] absolute top-0 left-0 right-0 z-10" />
 
         {/* Art half. Sits above the form's right margin, so the point lands inside the card. */}
         <div
           aria-hidden
-          className="hidden lg:block absolute inset-y-0 right-0 w-[52%] bg-forest-deep overflow-hidden"
+          className="texture-weave hidden lg:block absolute inset-y-0 right-0 w-[52%] bg-forest-deep overflow-hidden"
           style={{ clipPath: 'polygon(16% 0, 100% 0, 100% 100%, 16% 100%, 0 50%)' }}
         >
           {/* The same gold bloom the old sign-in panel carried, kept so the brand still reads. */}

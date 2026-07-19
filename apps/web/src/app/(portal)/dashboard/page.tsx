@@ -105,7 +105,7 @@ export default async function DashboardPage() {
             aria-label={`${feePct}% collected`}
           >
             <div
-              className="h-full rounded-full kente-stripe"
+              className="h-full rounded-full bg-brand"
               style={{ width: `${Math.min(100, feePct)}%` }}
             />
           </div>

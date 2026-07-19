@@ -346,7 +346,7 @@ export default function FeesPage() {
               }
             }}
           >
-            <div className="kente-stripe h-1 -mt-7 -mx-7 mb-6 rounded-t-[10px]" />
+            <div className="accent-rule h-[2px] -mt-7 -mx-7 mb-6 rounded-t-[10px]" />
             <h2 className="font-display text-2xl">Record bank deposit</h2>
             <p className="text-sm text-oat mt-1">
               {depositFor.name} · owes{' '}
@@ -466,7 +466,7 @@ export default function FeesPage() {
           aria-modal
         >
           <form onSubmit={recordPayment} className="card w-full max-w-md p-7 rise">
-            <div className="kente-stripe h-1 -mt-7 -mx-7 mb-6 rounded-t-[10px]" />
+            <div className="accent-rule h-[2px] -mt-7 -mx-7 mb-6 rounded-t-[10px]" />
             <h2 className="font-display text-2xl">Record payment</h2>
             <p className="text-sm text-oat mt-1">
               {payFor.name} · {payFor.className} · owes{' '}

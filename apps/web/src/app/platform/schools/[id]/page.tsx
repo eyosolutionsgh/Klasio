@@ -91,7 +91,7 @@ export default function SchoolDetailPage({ params }: { params: Promise<{ id: str
   return (
     <main className="min-h-dvh">
       <header className="bg-forest-deep text-paper">
-        <div className="kente-stripe h-1.5" />
+        <div className="accent-rule h-[3px]" />
         <div className="max-w-5xl mx-auto px-6 py-5">
           <Link
             href="/platform/schools"

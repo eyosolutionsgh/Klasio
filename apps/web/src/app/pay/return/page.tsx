@@ -46,7 +46,7 @@ export default function PayReturnPage() {
   return (
     <main className="min-h-dvh flex items-center justify-center p-6">
       <div className="card max-w-md w-full p-8 text-center relative overflow-hidden">
-        <div className="kente-stripe h-1.5 absolute top-0 left-0 right-0" />
+        <div className="accent-rule h-[3px] absolute top-0 left-0 right-0" />
         {settled ? (
           <>
             <p className="font-display text-2xl mt-2 text-leaf">Payment received</p>
