@@ -29,11 +29,20 @@ describe('normalizeMsisdn', () => {
 });
 
 describe('maskMsisdn', () => {
-  it('shows only the prefix and last four digits', () => {
-    expect(maskMsisdn('233242366410')).toBe('23324 *** 6410');
+  // Shown to a parent deciding which phone to pick up, so it has to read the way they write it.
+  it('renders a Ghanaian number in the local form its owner would recognise', () => {
+    expect(maskMsisdn('233242366410')).toBe('024 *** 6410');
+    expect(maskMsisdn('233554654834')).toBe('055 *** 4834');
+  });
+
+  it('leaves a number outside Ghana alone rather than guessing its national form', () => {
+    expect(maskMsisdn('447700900123')).toBe('447 *** 0123');
   });
 
   it('never leaks a short value', () => {
     expect(maskMsisdn('12345')).toBe('***');
+    // Long enough to pass the first guard, too short to keep prefix and tail apart once
+    // the country code is traded for a leading zero.
+    expect(maskMsisdn('233123')).toBe('***');
   });
 });

@@ -3,6 +3,16 @@ import { NextRequest, NextResponse } from 'next/server';
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 /**
+ * The address the request arrived from, as the hosting platform saw it. Empty in local
+ * development, where everything comes from the loopback anyway.
+ */
+function clientAddress(req: NextRequest): string {
+  const forwarded = req.headers.get('x-forwarded-for');
+  const first = forwarded?.split(',')[0]?.trim();
+  return first || req.headers.get('x-real-ip') || 'local';
+}
+
+/**
  * Forwards guardian-portal calls with the guardian session cookie. Restricted to `guardian/*`
  * so this can never become a general route into the staff API, and it carries only the
  * guardian cookie — never the staff one.
@@ -25,6 +35,11 @@ async function forward(req: NextRequest, params: Promise<{ path: string[] }>) {
     method: req.method,
     headers: {
       'Content-Type': 'application/json',
+      // Overwritten, never appended: the API paces how much it will say about a family by
+      // caller, and a client that could prepend its own value would hand itself a fresh budget
+      // per request. `NextRequest` carries no `.ip` in Next 16, so this is the platform's header
+      // or nothing.
+      'x-forwarded-for': clientAddress(req),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: req.method === 'GET' ? undefined : await req.text(),
