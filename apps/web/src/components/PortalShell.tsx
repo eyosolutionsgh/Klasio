@@ -84,6 +84,8 @@ export default function PortalShell({
         hasLogo={hasLogo}
         entitlements={entitlements}
         role={role}
+        termLabel={termLabel}
+        tier={tier}
         open={open}
         onClose={close}
       />
@@ -104,26 +106,22 @@ export default function PortalShell({
               </svg>
             </button>
 
-            {/* The crest also appears in the sidebar, but the sidebar is hidden on a phone —
-                so the top bar carries the school's identity at every width. */}
-            <Link href="/dashboard" className="flex items-center gap-2.5 min-w-0">
+            {/*
+              Hidden from `lg` up, where the sidebar is a permanent column already showing the
+              crest and the school's name — two crests a few hundred pixels apart read as a
+              mistake. Below `lg` the sidebar is an off-canvas drawer, so this is the only place
+              the school is named and it has to stay.
+            */}
+            <Link href="/dashboard" className="lg:hidden flex items-center gap-2.5 min-w-0">
               <SchoolCrest name={school} hasLogo={hasLogo} size={34} />
-              <span className="min-w-0 leading-tight">
-                <span className="block text-[13.5px] font-medium truncate max-w-[10rem] sm:max-w-none">
-                  {school}
-                </span>
-                <span className="block text-[11px] text-oat truncate">{termLabel}</span>
+              <span className="block text-[13.5px] font-medium truncate max-w-[12rem] sm:max-w-none">
+                {school}
               </span>
             </Link>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            <span
-              data-tip="Your school's package — features unlock by package"
-              className="tip hidden sm:block text-[11px] uppercase tracking-widest font-medium text-brand bg-brand-mist rounded-full px-3 py-1"
-            >
-              {tier}
-            </span>
+          {/* The package moved to the foot of the sidebar; the user menu is what is left here. */}
+          <div className="flex items-center gap-2 shrink-0 ml-auto">
             <UserMenu name={userName} role={role} email={userEmail} />
           </div>
         </header>

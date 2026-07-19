@@ -240,6 +240,8 @@ export default function Sidebar({
   hasLogo,
   entitlements,
   role,
+  termLabel,
+  tier,
   open = false,
   onClose,
 }: {
@@ -247,6 +249,9 @@ export default function Sidebar({
   hasLogo: boolean;
   entitlements: string[];
   role: string;
+  /** e.g. "2025/2026 · Term 3" — standing context, so it lives at the foot rather than the top. */
+  termLabel: string;
+  tier: string;
   /** Drawer state — only meaningful below `lg`, where the sidebar is off-canvas. */
   open?: boolean;
   onClose?: () => void;
@@ -411,6 +416,21 @@ export default function Sidebar({
           );
         })}
       </nav>
+
+      {/*
+        Standing context — which year and term you are working in, and what the school pays for.
+        Both used to sit in the top bar: the term beside the school name, the package as a filled
+        pill. Neither is something you act on, and a pill reads as a live status you might need to
+        respond to. Down here, quiet and unstyled, they answer a question without asking for
+        attention. `mt-auto` is what pins this below a nav short enough not to fill the column.
+      */}
+      <div className="mt-auto shrink-0 px-5 py-4 border-t border-paper/10 text-[11px] leading-relaxed">
+        <p className="text-paper/55">{termLabel}</p>
+        <p className="text-paper/35">
+          {/* Sentence case, not the shouted uppercase of the old badge. */}
+          {tier.charAt(0) + tier.slice(1).toLowerCase()} plan
+        </p>
+      </div>
     </aside>
   );
 }
