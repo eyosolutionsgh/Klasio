@@ -127,7 +127,11 @@ export class AdmissionsService {
               gender: dto.gender ?? null,
               levelId: dto.levelId ?? null,
               guardianName: dto.guardianName.trim(),
-              guardianPhone: dto.guardianPhone.trim(),
+              // The normalized form, not what was typed. Storing "024 123 4567" verbatim meant
+              // the applicant never matched the guardian record found by normalized phone, so
+              // converting them to a student created a second guardian for the same parent —
+              // splitting siblings who should have been recognised as one family.
+              guardianPhone: phone,
               guardianEmail: dto.guardianEmail?.trim() || null,
               previousSchool: dto.previousSchool?.trim() || null,
               notes: dto.notes?.trim() || null,
@@ -276,7 +280,19 @@ export class AdmissionsService {
       data: {
         stage: dto.stage,
         ...(decided ? { decidedAt: new Date() } : {}),
-        ...(dto.note ? { notes: dto.note } : {}),
+        /**
+         * A staff note is appended, never substituted.
+         *
+         * `notes` holds what the parent wrote on the application — often the only free-form
+         * context about the child anywhere in the system. Assigning `dto.note` overwrote it on
+         * the very first stage move that carried one, so the parent's own words were destroyed
+         * by the office's first comment on them.
+         */
+        ...(dto.note
+          ? {
+              notes: applicant.notes ? `${applicant.notes}\n\n${dto.note}` : dto.note,
+            }
+          : {}),
       },
     });
     await this.db.audit(auth.schoolId, auth.sub, 'applicant.stage', 'Applicant', id, {

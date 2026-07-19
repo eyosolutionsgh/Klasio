@@ -15,6 +15,7 @@ import PickupList from '@/components/PickupList';
 import CumulativeRecord from '@/components/CumulativeRecord';
 import ReverseEntry from '@/components/ReverseEntry';
 import StudentPortalAccess from '@/components/StudentPortalAccess';
+import EditStudent from '@/components/EditStudent';
 
 /** One place for the human words, so a parent and a bursar never read different labels. */
 const METHOD_LABEL: Record<string, string> = {
@@ -58,6 +59,8 @@ interface Detail {
     whatsappOptIn: boolean;
     alsoGuardianTo: number;
   }[];
+  otherNames: string | null;
+  classId: string | null;
   feeBalance: number;
   hasPortalPin: boolean;
   ledger: {
@@ -120,6 +123,21 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
               {s.admissionNo} · {s.className ?? 'Unassigned'} ·{' '}
               {s.gender === 'MALE' ? 'Male' : 'Female'} · Born {fmtDate(s.dateOfBirth)}
             </p>
+            {canEditStudent && (
+              <div className="mt-1.5">
+                <EditStudent
+                  studentId={s.id}
+                  student={{
+                    firstName: s.firstName,
+                    lastName: s.lastName,
+                    otherNames: s.otherNames,
+                    gender: s.gender,
+                    dateOfBirth: s.dateOfBirth,
+                    classId: s.classId ?? null,
+                  }}
+                />
+              </div>
+            )}
             {s.status !== 'ACTIVE' && s.exitDate && (
               <p className="text-xs text-oat mt-1">
                 Left {fmtDate(s.exitDate)}

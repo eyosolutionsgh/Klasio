@@ -60,8 +60,11 @@ class CreateStudentDto {
 }
 
 class UpdateStudentDto {
-  @IsOptional() @IsString() firstName?: string;
-  @IsOptional() @IsString() lastName?: string;
+  @IsOptional() @IsString() @MinLength(2) firstName?: string;
+  @IsOptional() @IsString() @MinLength(2) lastName?: string;
+  @IsOptional() @IsString() otherNames?: string;
+  @IsOptional() @IsEnum(Gender) gender?: Gender;
+  @IsOptional() @IsDateString() dateOfBirth?: string;
   @IsOptional() @IsString() classId?: string;
   @IsOptional() @IsString() medicalNotes?: string;
 }
@@ -207,6 +210,8 @@ export class StudentsService {
        */
       medicalNotes: mayReadMedical ? s.medicalNotes : undefined,
       className: s.classRoom?.name,
+      // The id as well as the name, so the edit form can preselect the class the child is in.
+      classId: s.classId,
       levelCategory: s.classRoom?.level.category,
       guardians: s.guardians.map((g) => ({
         id: g.guardianId,
@@ -562,7 +567,8 @@ export class StudentsService {
 
     const student = await this.db.student.update({
       where: { id },
-      data: dto,
+      // dateOfBirth arrives as an ISO string from the form; Prisma needs a Date.
+      data: { ...dto, ...(dto.dateOfBirth ? { dateOfBirth: new Date(dto.dateOfBirth) } : {}) },
       // Never the whole row: it carries medicalNotes and portalPinHash, and returning them on an
       // unrelated edit would undo the field gating detail() goes to lengths to enforce.
       select: {

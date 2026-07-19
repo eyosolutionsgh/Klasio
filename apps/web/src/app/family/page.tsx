@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import GuardianPay from '@/components/GuardianPay';
 import { useRouter } from 'next/navigation';
+import { fileKind, fileSize } from '@/lib/files';
 
 /**
  * Human words for a parent.
@@ -66,9 +67,44 @@ interface Notice {
   body: string;
   publishedAt: string;
 }
+interface CalendarEvent {
+  id: string;
+  title: string;
+  details: string | null;
+  startsAt: string;
+  endsAt: string | null;
+  allDay: boolean;
+  location: string | null;
+  levelName: string | null;
+}
+interface Resource {
+  id: string;
+  title: string;
+  description: string | null;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  subjectName: string | null;
+  levelName: string | null;
+  className: string | null;
+}
 
 const fmtDate = (d: string) =>
   new Date(d).toLocaleDateString('en-GH', { day: 'numeric', month: 'short', year: 'numeric' });
+
+const fmtTime = (d: string) =>
+  new Date(d).toLocaleTimeString('en-GH', { hour: 'numeric', minute: '2-digit' });
+
+/**
+ * When an event happens, said the way a parent would say it. An all-day event has no useful
+ * clock time, so showing "12:00 am" would be worse than showing nothing.
+ */
+const fmtWhen = (e: { startsAt: string; endsAt: string | null; allDay: boolean }) => {
+  const day = fmtDate(e.startsAt);
+  if (e.allDay) return day;
+  const end = e.endsAt && new Date(e.endsAt).toDateString() === new Date(e.startsAt).toDateString();
+  return `${day}, ${fmtTime(e.startsAt)}${end ? `–${fmtTime(e.endsAt!)}` : ''}`;
+};
 
 export default function FamilyPage() {
   const router = useRouter();
@@ -77,6 +113,8 @@ export default function FamilyPage() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [reports, setReports] = useState<ReportRow[]>([]);
   const [notices, setNotices] = useState<Notice[]>([]);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
   const [dismissalNote, setDismissalNote] = useState<string | null>(null);
 
@@ -93,8 +131,16 @@ export default function FamilyPage() {
       const d: Me = await res.json();
       setMe(d);
       if (d.wards[0]) setWardId(d.wards[0].id);
-      const n = await fetch('/api/family/guardian/notices');
+      // Three independent feeds, all school-wide rather than per-ward — fetched together so a
+      // slow connection pays one round trip instead of three.
+      const [n, c, r] = await Promise.all([
+        fetch('/api/family/guardian/notices'),
+        fetch('/api/family/guardian/calendar'),
+        fetch('/api/family/guardian/resources'),
+      ]);
       if (n.ok) setNotices(await n.json());
+      if (c.ok) setEvents(await c.json());
+      if (r.ok) setResources(await r.json());
       setLoading(false);
     })();
   }, [router]);
@@ -355,6 +401,64 @@ export default function FamilyPage() {
               </li>
             ))}
             {notices.length === 0 && <li className="text-sm text-oat">No notices yet.</li>}
+          </ul>
+        </section>
+
+        {/*
+          The API already returns only what this family may see, already excludes anything that
+          has finished, and already sorts soonest-first. Filtering again here would hide events
+          twice — so this renders the list exactly as it arrives.
+        */}
+        <section className="card p-6">
+          <h2 className="font-display text-xl">What&apos;s coming up</h2>
+          <ul className="mt-4 space-y-4">
+            {events.map((e) => (
+              <li key={e.id} className="border-b border-mist/50 last:border-0 pb-3 last:pb-0">
+                <p className="font-medium text-sm">{e.title}</p>
+                <p className="text-[11px] text-oat">
+                  {fmtWhen(e)}
+                  {e.location && ` · ${e.location}`}
+                  {e.levelName && ` · ${e.levelName}`}
+                </p>
+                {e.details && <p className="text-sm mt-1.5">{e.details}</p>}
+              </li>
+            ))}
+            {events.length === 0 && (
+              <li className="text-sm text-oat">
+                Nothing on the calendar yet. Term dates and school events will show up here.
+              </li>
+            )}
+          </ul>
+        </section>
+
+        <section className="card p-6">
+          <h2 className="font-display text-xl">Things to download</h2>
+          <ul className="mt-4 space-y-4">
+            {resources.map((r) => (
+              <li key={r.id} className="border-b border-mist/50 last:border-0 pb-3 last:pb-0">
+                <p className="font-medium text-sm">{r.title}</p>
+                <p className="text-[11px] text-oat">
+                  {fileKind(r.mimeType)} · {fileSize(r.sizeBytes)}
+                  {[r.subjectName, r.className ?? r.levelName]
+                    .filter(Boolean)
+                    .map((x) => ` · ${x}`)
+                    .join('')}
+                </p>
+                {r.description && <p className="text-sm mt-1.5">{r.description}</p>}
+                <a
+                  href={`/api/family/guardian/resources/${r.id}/file`}
+                  className="inline-flex items-center min-h-11 text-[13px] font-medium text-forest underline underline-offset-2"
+                >
+                  Download ↓
+                </a>
+              </li>
+            ))}
+            {resources.length === 0 && (
+              <li className="text-sm text-oat">
+                The school has not shared any files yet. Homework sheets and past questions will
+                appear here.
+              </li>
+            )}
           </ul>
         </section>
 

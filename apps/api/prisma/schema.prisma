@@ -281,6 +281,10 @@ model Student {
   /// Hash of the portal PIN the school issues. Null until a PIN is set; students without one
   /// simply cannot sign in, which is the right default for the youngest classes.
   portalPinHash String?
+  /// Failed portal sign-in attempts since the last success, and how long the account is barred.
+  /// A six-digit PIN is trivially brute-forced without this, and it belongs to a child.
+  portalPinFails Int      @default(0)
+  portalLockedUntil DateTime?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 

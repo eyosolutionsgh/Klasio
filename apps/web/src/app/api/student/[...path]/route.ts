@@ -28,11 +28,21 @@ async function forward(req: NextRequest, params: Promise<{ path: string[] }>) {
     body: req.method === 'GET' ? undefined : await req.text(),
     cache: 'no-store',
   });
-  const body = await res.text();
-  return new NextResponse(body, {
-    status: res.status,
-    headers: { 'Content-Type': res.headers.get('content-type') ?? 'application/json' },
-  });
+  const type = res.headers.get('content-type') ?? '';
+  // JSON is forwarded as text; a learning-resource download is bytes, and reading it with
+  // res.text() would decode it as UTF-8 and silently corrupt every non-text file.
+  if (type.includes('application/json') || type === '') {
+    const body = await res.text();
+    return new NextResponse(body, {
+      status: res.status,
+      headers: { 'Content-Type': type || 'application/json' },
+    });
+  }
+  const buf = await res.arrayBuffer();
+  const headers: Record<string, string> = { 'Content-Type': type };
+  const disposition = res.headers.get('content-disposition');
+  if (disposition) headers['Content-Disposition'] = disposition;
+  return new NextResponse(buf, { status: res.status, headers });
 }
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {

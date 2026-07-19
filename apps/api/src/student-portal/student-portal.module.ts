@@ -25,6 +25,10 @@ import { CalendarModule, CalendarService } from '../calendar/calendar.module';
 import { ResourcesModule, ResourcesService, ResourceScope } from '../resources/resources.module';
 import { balanceOf } from '../common/ledger';
 
+/** Wrong PINs before the account is barred, and for how long. */
+const PIN_MAX_ATTEMPTS = 5;
+const PIN_LOCKOUT_MINUTES = 15;
+
 const SESSION_DAYS = 30;
 const BCRYPT_ROUNDS = 10;
 
@@ -86,7 +90,13 @@ export class StudentPortalService {
     const pin = String(randomInt(0, 1_000_000)).padStart(6, '0');
     await this.db.student.update({
       where: { id: studentId },
-      data: { portalPinHash: await bcrypt.hash(pin, BCRYPT_ROUNDS) },
+      // A new PIN clears any lockout — otherwise the office's only remedy for a barred child
+      // would still leave them barred.
+      data: {
+        portalPinHash: await bcrypt.hash(pin, BCRYPT_ROUNDS),
+        portalPinFails: 0,
+        portalLockedUntil: null,
+      },
     });
     await this.db.audit(auth.schoolId, auth.sub, 'student.portal.pin', 'Student', studentId);
     return { admissionNo: student.admissionNo, pin };
@@ -116,7 +126,52 @@ export class StudentPortalService {
     });
     const refuse = () => new UnauthorizedException('That admission number or PIN is not right');
     if (!student?.portalPinHash) throw refuse();
-    if (!(await bcrypt.compare(dto.pin, student.portalPinHash))) throw refuse();
+
+    /**
+     * Slow down guessing.
+     *
+     * The PIN is six digits, which is a million combinations — minutes of scripted guessing
+     * against an endpoint that had no attempt limit at all, and the account it opens belongs to a
+     * child. Admission numbers are printed on report cards and ID cards, so the other half of the
+     * credential is not secret either.
+     *
+     * A lockout rather than a delay, because the attacker controls the request rate and we do
+     * not. It is deliberately short: a child locked out of their own results by a classmate
+     * messing about should be able to get back in the same afternoon, and the school can always
+     * issue a fresh PIN.
+     */
+    if (student.portalLockedUntil && student.portalLockedUntil > new Date()) {
+      const minutes = Math.max(
+        1,
+        Math.ceil((student.portalLockedUntil.getTime() - Date.now()) / 60_000),
+      );
+      throw new UnauthorizedException(
+        `Too many wrong tries. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}, or ask the school office for a new PIN.`,
+      );
+    }
+
+    if (!(await bcrypt.compare(dto.pin, student.portalPinHash))) {
+      const fails = student.portalPinFails + 1;
+      await this.db.system.student.update({
+        where: { id: student.id },
+        data: {
+          portalPinFails: fails,
+          ...(fails >= PIN_MAX_ATTEMPTS
+            ? { portalLockedUntil: new Date(Date.now() + PIN_LOCKOUT_MINUTES * 60_000) }
+            : {}),
+        },
+      });
+      throw refuse();
+    }
+
+    // A correct PIN clears the run of failures, so an honest child who mistypes twice and then
+    // gets it right does not carry those attempts into next week.
+    if (student.portalPinFails > 0 || student.portalLockedUntil) {
+      await this.db.system.student.update({
+        where: { id: student.id },
+        data: { portalPinFails: 0, portalLockedUntil: null },
+      });
+    }
 
     const payload: StudentUser = {
       sub: student.id,

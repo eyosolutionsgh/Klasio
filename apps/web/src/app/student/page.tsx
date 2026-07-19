@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { fileKind, fileSize } from '@/lib/files';
 
 interface Me {
   student: { name: string; admissionNo: string; className: string | null };
@@ -23,14 +24,48 @@ interface Notice {
   body: string;
   publishedAt: string;
 }
+interface CalendarEvent {
+  id: string;
+  title: string;
+  details: string | null;
+  startsAt: string;
+  endsAt: string | null;
+  allDay: boolean;
+  location: string | null;
+  levelName: string | null;
+}
+interface Resource {
+  id: string;
+  title: string;
+  description: string | null;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  subjectName: string | null;
+  levelName: string | null;
+  className: string | null;
+}
 
 const fmtDate = (d: string) =>
   new Date(d).toLocaleDateString('en-GH', { day: 'numeric', month: 'short', year: 'numeric' });
+
+const fmtTime = (d: string) =>
+  new Date(d).toLocaleTimeString('en-GH', { hour: 'numeric', minute: '2-digit' });
+
+/** An all-day event has no useful clock time — "12:00 am" would read as a mistake. */
+const fmtWhen = (e: { startsAt: string; endsAt: string | null; allDay: boolean }) => {
+  const day = fmtDate(e.startsAt);
+  if (e.allDay) return day;
+  const end = e.endsAt && new Date(e.endsAt).toDateString() === new Date(e.startsAt).toDateString();
+  return `${day}, ${fmtTime(e.startsAt)}${end ? `–${fmtTime(e.endsAt!)}` : ''}`;
+};
 
 export default function StudentPage() {
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [notices, setNotices] = useState<Notice[]>([]);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [resources, setResources] = useState<Resource[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -40,8 +75,15 @@ export default function StudentPage() {
         return;
       }
       setMe(await res.json());
-      const n = await fetch('/api/student/student/notices');
+      // Fetched together so a slow connection pays one round trip instead of three.
+      const [n, c, r] = await Promise.all([
+        fetch('/api/student/student/notices'),
+        fetch('/api/student/student/calendar'),
+        fetch('/api/student/student/resources'),
+      ]);
       if (n.ok) setNotices(await n.json());
+      if (c.ok) setEvents(await c.json());
+      if (r.ok) setResources(await r.json());
     })();
   }, [router]);
 
@@ -148,6 +190,63 @@ export default function StudentPage() {
               </li>
             ))}
             {notices.length === 0 && <li className="text-sm text-oat">No notices yet.</li>}
+          </ul>
+        </section>
+
+        {/*
+          The API already limits this to what this pupil may see, drops anything that has already
+          finished, and sorts soonest-first. Re-filtering here would hide events twice.
+        */}
+        <section className="card p-6">
+          <h2 className="font-display text-xl">What&apos;s coming up</h2>
+          <ul className="mt-4 space-y-4">
+            {events.map((e) => (
+              <li key={e.id} className="border-b border-mist/50 last:border-0 pb-3 last:pb-0">
+                <p className="font-medium text-sm">{e.title}</p>
+                <p className="text-[11px] text-oat">
+                  {fmtWhen(e)}
+                  {e.location && ` · ${e.location}`}
+                  {e.levelName && ` · ${e.levelName}`}
+                </p>
+                {e.details && <p className="text-sm mt-1.5">{e.details}</p>}
+              </li>
+            ))}
+            {events.length === 0 && (
+              <li className="text-sm text-oat">
+                Nothing on the calendar yet. Term dates and school events will show up here.
+              </li>
+            )}
+          </ul>
+        </section>
+
+        <section className="card p-6">
+          <h2 className="font-display text-xl">My class files</h2>
+          <ul className="mt-4 space-y-4">
+            {resources.map((r) => (
+              <li key={r.id} className="border-b border-mist/50 last:border-0 pb-3 last:pb-0">
+                <p className="font-medium text-sm">{r.title}</p>
+                <p className="text-[11px] text-oat">
+                  {fileKind(r.mimeType)} · {fileSize(r.sizeBytes)}
+                  {[r.subjectName, r.className ?? r.levelName]
+                    .filter(Boolean)
+                    .map((x) => ` · ${x}`)
+                    .join('')}
+                </p>
+                {r.description && <p className="text-sm mt-1.5">{r.description}</p>}
+                <a
+                  href={`/api/student/student/resources/${r.id}/file`}
+                  className="inline-flex items-center min-h-11 text-[13px] font-medium text-forest underline underline-offset-2"
+                >
+                  Download ↓
+                </a>
+              </li>
+            ))}
+            {resources.length === 0 && (
+              <li className="text-sm text-oat">
+                Your teachers have not shared any files yet. Notes and past questions will appear
+                here.
+              </li>
+            )}
           </ul>
         </section>
       </div>
