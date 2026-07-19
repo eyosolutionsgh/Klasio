@@ -110,6 +110,13 @@ class ExitDto {
   @IsOptional() @IsString() reason?: string;
 }
 
+class ReinstateDto {
+  /** Where they return to. Their old class may have been deleted, or filled, or renamed. */
+  @IsString() classId: string;
+  /** Required: bringing a child back onto the roll should say why, like exiting does. */
+  @IsString() @MinLength(4) reason: string;
+}
+
 @Injectable()
 export class StudentsService {
   constructor(private db: PrismaService) {}
@@ -695,6 +702,68 @@ export class StudentsService {
     return { id: student.id, status: student.status };
   }
 
+  /**
+   * Put a student back on the roll.
+   *
+   * The lifecycle was one-way: `exit()` requires ACTIVE and the update DTO carries no `status`, so
+   * a child transferred, withdrawn or graduated by mistake could only be corrected in the
+   * database. That is a poor answer for a school — a mis-clicked "Graduate class" ended forty
+   * children's records, and the head's only recourse was to ring EYO.
+   *
+   * Deliberately not a general status editor. It returns someone to ACTIVE and nothing else: the
+   * exits stay one-way and keep their own confirmations, so this cannot become a way to change a
+   * child's history sideways.
+   *
+   * The class is asked for rather than assumed. `classId` survives an exit, but the class may have
+   * been deleted, renamed or promoted on since, and a returning pupil frequently belongs in a
+   * different year anyway.
+   */
+  async reinstate(auth: AuthUser, id: string, dto: ReinstateDto) {
+    const existing = await this.db.student.findFirst({ where: { id, schoolId: auth.schoolId } });
+    if (!existing) throw new NotFoundException('Student not found');
+    if (existing.status === 'ACTIVE') {
+      throw new BadRequestException('That student is already on the roll');
+    }
+
+    const cls = await this.db.classRoom.findFirst({
+      where: { id: dto.classId, schoolId: auth.schoolId },
+    });
+    if (!cls) throw new NotFoundException('Class not found');
+
+    // The same rule enrolment obeys. Coming back onto the roll costs a place exactly as arriving
+    // for the first time does, and skipping the check here would make reinstatement a way around
+    // the cap rather than a correction.
+    const { atCap, cap } = await this.enrolmentStatus(auth);
+    if (atCap) {
+      throw new BadRequestException(
+        `Your package allows ${cap} active students, and you are at the limit. Upgrade, or withdraw another record first.`,
+      );
+    }
+
+    const student = await this.db.student.update({
+      where: { id },
+      data: {
+        status: 'ACTIVE',
+        classId: dto.classId,
+        // Cleared: leaving these set would leave the record reading as though the child were
+        // still gone, and the exit date would print on documents.
+        exitDate: null,
+        exitReason: null,
+      },
+      select: { id: true, status: true, classId: true },
+    });
+
+    await this.db.audit(auth.schoolId, auth.sub, 'student.reinstate', 'Student', id, {
+      from: existing.status,
+      // What was undone, so the trail still shows the exit that happened.
+      previousExitDate: existing.exitDate,
+      previousExitReason: existing.exitReason,
+      classId: dto.classId,
+      reason: dto.reason,
+    });
+    return student;
+  }
+
   transfer(auth: AuthUser, id: string, dto: ExitDto) {
     return this.exit(auth, id, 'TRANSFERRED', dto.reason, 'student.transfer');
   }
@@ -1094,6 +1163,13 @@ export class StudentsController {
   @RequirePermission('students.lifecycle')
   withdraw(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ExitDto) {
     return this.svc.withdraw(user, id, dto);
+  }
+
+  /** The way back. Same permission as the exits — whoever can end a record can undo that. */
+  @Post(':id/reinstate')
+  @RequirePermission('students.lifecycle')
+  reinstate(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ReinstateDto) {
+    return this.svc.reinstate(user, id, dto);
   }
 
   @Post()

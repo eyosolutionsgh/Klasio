@@ -86,6 +86,7 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
   const [s, me] = await Promise.all([api<Detail>(`/students/${id}`), getMe()]);
   const canReverse = me.permissions?.includes('fees.reverse') ?? false;
   const canEditStudent = me.permissions?.includes('students.edit') ?? false;
+  const canEditLifecycle = me.permissions?.includes('students.lifecycle') ?? false;
   const att = s.attendanceSummary;
   const attTotal = Object.values(att).reduce((a, b) => a + b, 0);
   // Both are presentation only — the API refuses either way. Hiding them keeps a teacher from
@@ -172,9 +173,18 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
         </div>
       </div>
 
-      {s.status === 'ACTIVE' && (
+      {/*
+        Rendered whatever the status. Hiding this once a student left was what made an exit
+        one-way: the record showed "withdrawn" and offered nothing, so a mistake had no route
+        back through the product at all.
+      */}
+      {canEditLifecycle && (
         <div className="no-print mt-6 rise rise-2">
-          <StudentLifecycle studentId={s.id} name={`${s.firstName} ${s.lastName}`} />
+          <StudentLifecycle
+            studentId={s.id}
+            name={`${s.firstName} ${s.lastName}`}
+            status={s.status}
+          />
         </div>
       )}
 
