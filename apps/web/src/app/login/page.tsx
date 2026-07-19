@@ -31,12 +31,10 @@ export default function LoginPage() {
   return (
     <main className="min-h-dvh grid lg:grid-cols-[1.1fr_1fr]">
       {/* Brand panel */}
-      <section className="hidden lg:flex flex-col justify-between bg-forest-deep text-paper p-12 relative overflow-hidden">
+      {/* Centred, not spread: the wordmark and the motto that anchored the top and bottom are
+          gone, and justify-between would strand the headline against the ceiling. */}
+      <section className="hidden lg:flex flex-col justify-center bg-forest-deep text-paper p-12 relative overflow-hidden">
         <div className="kente-stripe h-1.5 absolute top-0 left-0 right-0" />
-        <div className="rise rise-1">
-          <p className="font-display text-2xl tracking-tight text-gold">EYO</p>
-          <p className="text-sm text-paper/60 mt-1">School Management</p>
-        </div>
         <div className="rise rise-2">
           <h1 className="font-display text-5xl leading-[1.05] max-w-md">
             The school office, <em className="text-gold not-italic">beautifully</em> in order.
@@ -46,7 +44,6 @@ export default function LoginPage() {
             across Africa.
           </p>
         </div>
-        <p className="text-xs text-paper/40 rise rise-3">Knowledge · Discipline · Service</p>
         <div
           className="absolute -right-24 -bottom-24 w-96 h-96 rounded-full opacity-[0.07]"
           style={{ background: 'radial-gradient(circle, #c9982f 0%, transparent 70%)' }}
@@ -59,8 +56,9 @@ export default function LoginPage() {
           <div className="lg:hidden mb-10">
             <p className="font-display text-2xl text-forest">EYO</p>
           </div>
-          <h2 className="font-display text-3xl text-ink">Sign in</h2>
-          <p className="text-sm text-oat mt-2 mb-8">Welcome back. Enter your staff credentials.</p>
+          {/* The strapline below this carried the gap to the first field; it moves onto the
+              heading now that it is gone. */}
+          <h2 className="font-display text-3xl text-ink mb-8">Sign in</h2>
 
           <label className="block text-sm font-medium mb-1.5" htmlFor="email">
             Email address
