@@ -1,7 +1,8 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import FileField from './FileField';
 
 const field =
   'w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
@@ -35,7 +36,7 @@ export default function UploadResource({
   subjects: { id: string; name: string }[];
 }) {
   const router = useRouter();
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [levelId, setLevelId] = useState('');
@@ -46,7 +47,6 @@ export default function UploadResource({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    const file = fileRef.current?.files?.[0];
     if (!file) {
       setError('Choose a file to upload.');
       return;
@@ -68,7 +68,7 @@ export default function UploadResource({
       setClassId('');
       setSubjectId('');
       setLevelId('');
-      if (fileRef.current) fileRef.current.value = '';
+      setFile(null);
       router.refresh();
     } else {
       const b = await res.json().catch(() => ({}));
@@ -96,10 +96,14 @@ export default function UploadResource({
       <label className="block text-sm font-medium mt-4 mb-1.5" htmlFor="res-file">
         File
       </label>
-      <input id="res-file" ref={fileRef} type="file" accept={ACCEPT} className="text-sm" />
-      <span className="block text-[11px] text-oat mt-1">
-        PDF, Word, PowerPoint, Excel, text or an image, up to 8MB.
-      </span>
+      <FileField
+        id="res-file"
+        accept={ACCEPT}
+        value={file}
+        onChange={setFile}
+        disabled={busy}
+        hint="PDF, Word, PowerPoint, Excel, text or an image, up to 8MB."
+      />
 
       <div className="grid sm:grid-cols-2 gap-3 mt-4">
         <div>

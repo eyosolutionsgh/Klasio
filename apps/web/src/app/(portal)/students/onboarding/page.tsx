@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
+import FileField from '@/components/FileField';
 
 type Kind = 'students' | 'fees' | 'balances';
 
@@ -82,18 +83,22 @@ export default function OnboardingPage() {
             Download {kind} template
           </a>
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-sm text-oat">Step 2 —</span>
-          <input
-            type="file"
-            accept=".xlsx"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="text-sm"
-          />
+        <div className="flex items-start gap-3 flex-wrap">
+          <span className="text-sm text-oat mt-3">Step 2 —</span>
+          <div className="flex-1 min-w-56">
+            <FileField
+              id="onboarding-file"
+              accept=".xlsx"
+              value={file}
+              onChange={setFile}
+              disabled={busy}
+              hint="The filled-in template, as an .xlsx workbook."
+            />
+          </div>
           <button
             onClick={upload}
             disabled={busy || !file}
-            className="rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition disabled:opacity-50"
+            className="mt-1 rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2.5 hover:bg-brand-deep transition disabled:opacity-50"
           >
             {busy ? 'Importing…' : 'Upload & import'}
           </button>

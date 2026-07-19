@@ -1,7 +1,8 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import FileField from './FileField';
 
 const field =
   'w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
@@ -33,7 +34,7 @@ interface Summary {
  */
 export default function ImportSettlement({ currency }: { currency: string }) {
   const router = useRouter();
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
   const [provider, setProvider] = useState('HUBTEL');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +45,6 @@ export default function ImportSettlement({ currency }: { currency: string }) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    const file = fileRef.current?.files?.[0];
     if (!file) {
       setError('Choose the settlement file your gateway sent you.');
       return;
@@ -62,7 +62,7 @@ export default function ImportSettlement({ currency }: { currency: string }) {
     setBusy(false);
     if (res.ok) {
       setResult(body);
-      if (fileRef.current) fileRef.current.value = '';
+      setFile(null);
       router.refresh();
     } else {
       setError(
@@ -100,11 +100,14 @@ export default function ImportSettlement({ currency }: { currency: string }) {
       <label className="block text-sm font-medium mt-4 mb-1.5" htmlFor="rec-file">
         File
       </label>
-      <input id="rec-file" ref={fileRef} type="file" accept=".csv,text/csv" className="text-sm" />
-      <span className="block text-[11px] text-oat mt-1">
-        The CSV as downloaded — columns are found by their headings, so the order does not matter.
-        It needs a reference column and an amount column.
-      </span>
+      <FileField
+        id="rec-file"
+        accept=".csv,text/csv"
+        value={file}
+        onChange={setFile}
+        disabled={busy}
+        hint="The CSV as downloaded — columns are found by their headings, so the order does not matter. It needs a reference column and an amount column."
+      />
 
       {error && (
         <p role="alert" className="mt-3 text-sm text-danger">
