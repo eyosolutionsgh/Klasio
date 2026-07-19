@@ -91,12 +91,18 @@ export class AuthGuard implements CanActivate {
       throw new UnauthorizedException('Invalid or expired token');
     }
 
-    // Guardians and students are different kinds of principal signed with the same secret.
-    // Neither may reach a staff route, whatever their token otherwise says.
+    /**
+     * Other kinds of principal exist — guardians, students, and EYO's own staff — and none of
+     * them may reach a staff route whatever their token otherwise says.
+     *
+     * An allowlist, not a denylist. This named the two kinds that existed at the time, so any
+     * *new* kind was admitted by default: the platform principal added later would have walked
+     * straight through here and on to the account lookup below. A staff token carries no `kind`
+     * at all, so "no kind" is the only thing that may pass, and adding a fourth principal cannot
+     * silently reopen this.
+     */
     const kind = (user as { kind?: string }).kind;
-    if (kind === 'guardian' || kind === 'student') {
-      throw new UnauthorizedException('Not a staff session');
-    }
+    if (kind !== undefined) throw new UnauthorizedException('Not a staff session');
 
     /**
      * Re-check the account on every request. Tokens live 12h, so without this a deactivated
@@ -116,10 +122,21 @@ export class AuthGuard implements CanActivate {
           extraPermissions: true,
           revokedPermissions: true,
           staffRole: { select: { permissions: true } },
+          // Suspension has to bite on the request, not just at sign-in. Tokens live 12h, so a
+          // school suspended at nine in the morning would otherwise carry on until nine at
+          // night. This rides the lookup that already happens, so it costs nothing.
+          school: { select: { suspendedAt: true, suspendedReason: true } },
         },
       }),
     );
     if (!account?.active) throw new UnauthorizedException('This account is no longer active');
+    if (account.school?.suspendedAt) {
+      throw new ForbiddenException(
+        account.school.suspendedReason
+          ? `This school's access is suspended: ${account.school.suspendedReason}`
+          : "This school's access is suspended. Please contact EYO.",
+      );
+    }
     // Trust the database over the token for role, tenant and permissions, so a demotion or a
     // withdrawn permission applies at once rather than when the token happens to expire.
     const permissions = effectivePermissions({

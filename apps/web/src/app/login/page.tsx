@@ -89,6 +89,14 @@ export default function LoginPage() {
         </div>
 
         {/*
+          No sign-up link. Schools join by invitation from EYO, so a link to /register would only
+          lead to a page telling them they need one — see the register page's own empty state.
+        */}
+        <p className="mt-6 text-[13px] text-oat">
+          New school? EYO sets your school up and sends you an invitation link.
+        </p>
+
+        {/*
           Working credentials, so this must never render anywhere real. It was unconditional:
           anyone reaching a school's login page was handed a bursar account for any deployment
           where the demo seed had been run.

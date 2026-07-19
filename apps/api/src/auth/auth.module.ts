@@ -1,22 +1,62 @@
 import {
   Body,
+  ConflictException,
   Controller,
+  ForbiddenException,
   Get,
+  GoneException,
   Injectable,
   Module,
+  NotFoundException,
   Post,
+  Query,
   UnauthorizedException,
 } from '@nestjs/common';
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
+import { Prisma, Tier } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService, withTenant } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, Public, signToken } from '../common/auth';
+import { BCRYPT_ROUNDS, publicToken } from '../common/crypto';
 import { entitlementsForTier } from '../common/entitlements';
+import { ROLE_PRESETS, sanitizePermissions } from '../common/permissions';
+import { hashInviteToken } from '../platform/platform.module';
 import { BillingModule, BillingService } from '../billing/billing.module';
 
 class LoginDto {
   @IsEmail() email: string;
   @IsString() @MinLength(6) password: string;
+}
+
+class RegisterDto {
+  /**
+   * The invitation EYO issued. Registration is vendor-initiated: without one of these there is
+   * no way to create a school, which is what stops the platform from being open signup.
+   */
+  @IsString() @MinLength(8) @MaxLength(200) token: string;
+  @IsString() @MinLength(2) @MaxLength(120) schoolName: string;
+  @IsString() @MinLength(2) @MaxLength(80) ownerName: string;
+  @IsEmail() email: string;
+  @IsString() @MinLength(8) @MaxLength(200) password: string;
+}
+
+/**
+ * A URL-safe stem for a school's name.
+ *
+ * Not unique on its own — "St. Mary's" is a great many schools — so the caller adds a suffix
+ * until the insert succeeds.
+ */
+function slugStem(name: string): string {
+  const stem = name
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+  // A name of nothing but punctuation would otherwise produce an empty slug, and every such
+  // school would collide with every other.
+  return stem || 'school';
 }
 
 @Injectable()
@@ -25,6 +65,149 @@ export class AuthService {
     private db: PrismaService,
     private billing: BillingService,
   ) {}
+
+  /**
+   * Look at an invitation without spending it, so the sign-up page can greet the school by name
+   * and refuse early rather than after they have filled in a form.
+   */
+  async inspectInvitation(token: string) {
+    const invitation = await this.db.system.schoolInvitation.findUnique({
+      where: { tokenHash: hashInviteToken(token) },
+      select: { schoolName: true, email: true, expiresAt: true, acceptedAt: true, revokedAt: true },
+    });
+    if (!invitation) throw new NotFoundException('That invitation link is not valid');
+    if (invitation.acceptedAt) throw new GoneException('That invitation has already been used');
+    if (invitation.revokedAt) throw new GoneException('That invitation has been withdrawn');
+    if (invitation.expiresAt.getTime() < Date.now()) {
+      throw new GoneException('That invitation has expired — ask EYO for a new one');
+    }
+    // The email is echoed so the form can show which address the invitation is bound to. The
+    // school name is a default the owner may correct; only the address is fixed.
+    return { schoolName: invitation.schoolName, email: invitation.email };
+  }
+
+  /**
+   * Register a new school and its owner, and sign them straight in.
+   *
+   * The only route in the product that creates a school, and it takes an invitation: EYO decides
+   * who may put a school on the platform. Before invitations existed this was open signup —
+   * anyone could mint unlimited schools under any name they liked.
+   *
+   * Deliberately minimal: a School row, an OWNER, and the standard staff roles. It invents no
+   * academic year, no terms, no levels — those are the school's own facts, and a wrong calendar
+   * quietly attached to every record is worse than an empty one the owner fills in. The portal
+   * renders fine without them (`me` reports "no current term", the dashboard counts zeros), and
+   * the owner lands on the setup page to enter the real ones.
+   *
+   * Everything starts on BASIC. A tier is only ever raised by a confirmed payment — see
+   * `BillingService.settle`.
+   */
+  async register(dto: RegisterDto) {
+    const email = dto.email.toLowerCase();
+    const name = dto.schoolName.trim();
+
+    const invitation = await this.db.system.schoolInvitation.findUnique({
+      where: { tokenHash: hashInviteToken(dto.token) },
+    });
+    if (!invitation) throw new NotFoundException('That invitation link is not valid');
+    if (invitation.acceptedAt) throw new GoneException('That invitation has already been used');
+    if (invitation.revokedAt) throw new GoneException('That invitation has been withdrawn');
+    if (invitation.expiresAt.getTime() < Date.now()) {
+      throw new GoneException('That invitation has expired — ask EYO for a new one');
+    }
+    /**
+     * The invitation names the address that may accept it.
+     *
+     * Without this the token alone would be a bearer credential for creating a school: forwarded
+     * once, or read out of an inbox, and someone else registers in that school's name.
+     */
+    if (invitation.email !== email) {
+      throw new ForbiddenException(
+        `That invitation was issued to ${invitation.email}. Register with that address.`,
+      );
+    }
+
+    // `User.email` is unique across every school, not per school, because sign-in identifies a
+    // person by email alone before any tenant is known. Checked here so the caller gets a
+    // sentence instead of a unique-constraint error.
+    const taken = await this.db.system.user.findUnique({ where: { email } });
+    if (taken) {
+      throw new ConflictException('That email address already has an account. Log in instead.');
+    }
+
+    // No tenant exists yet — this is the same deliberate use of the unscoped client that
+    // `login` opens with, and for the same reason. RLS on School would refuse the insert
+    // under the app role, since `app.school_id` cannot name a row that does not exist.
+    const stem = slugStem(name);
+    let school: { id: string; name: string; tier: Tier; currency: string } | null = null;
+    for (let attempt = 0; attempt < 5 && !school; attempt++) {
+      const slug = attempt === 0 ? stem : `${stem}-${publicToken(4).toLowerCase()}`;
+      try {
+        school = await this.db.system.school.create({
+          // The tier is the invitation's, not the form's — EYO may have agreed a paid plan up
+          // front, and a school must never be able to name its own tier at signup.
+          data: { name, slug, tier: invitation.tier },
+          select: { id: true, name: true, tier: true, currency: true },
+        });
+      } catch (e) {
+        // Slug collision only — anything else is a real failure and must not be retried.
+        if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) throw e;
+      }
+    }
+    if (!school) throw new ConflictException('Could not create that school. Try a different name.');
+
+    const user = await this.db.system.user.create({
+      data: {
+        schoolId: school.id,
+        name: dto.ownerName.trim(),
+        email,
+        role: 'OWNER',
+        passwordHash: await bcrypt.hash(dto.password, BCRYPT_ROUNDS),
+      },
+      select: { id: true, name: true, email: true, role: true },
+    });
+
+    // From here the school exists, so everything runs scoped to it — `audit` writes through the
+    // tenant-aware proxy and RLS would refuse it outside.
+    await withTenant(school.id, async () => {
+      for (const preset of ROLE_PRESETS) {
+        await this.db.staffRole.create({
+          data: {
+            schoolId: school!.id,
+            name: preset.name,
+            description: preset.description,
+            permissions: sanitizePermissions(preset.permissions),
+            presetKey: preset.key,
+          },
+        });
+      }
+      await this.db.audit(school!.id, user.id, 'school.registered', 'School', school!.id, {
+        name: school!.name,
+        tier: school!.tier,
+        invitationId: invitation.id,
+      });
+    });
+
+    // Spend the invitation last: if anything above failed, the school can try again with it.
+    // Single use from here on — the unique `schoolId` also makes a double-accept impossible.
+    await this.db.system.schoolInvitation.update({
+      where: { id: invitation.id },
+      data: { acceptedAt: new Date(), schoolId: school.id },
+    });
+
+    const payload: AuthUser = {
+      sub: user.id,
+      schoolId: school.id,
+      role: 'OWNER',
+      tier: school.tier,
+      name: user.name,
+    };
+    return {
+      token: signToken(payload),
+      user,
+      school: { id: school.id, name: school.name, tier: school.tier, currency: school.currency },
+    };
+  }
 
   async login(dto: LoginDto) {
     // Sign-in has no tenant yet — an email identifies a person across every school — so this
@@ -44,6 +227,21 @@ export class AuthService {
 
     return withTenant(user.schoolId, async () => {
       const school = await this.db.school.findUniqueOrThrow({ where: { id: user.schoolId } });
+      /**
+       * A suspended school is turned away at the door, and told why.
+       *
+       * Deliberately not folded into the "invalid email or password" message above. That one is
+       * vague on purpose, so it cannot be used to discover who has an account. This is the
+       * opposite case: the credentials were right, and a head teacher staring at a login screen
+       * needs to know it is a billing matter to take up with EYO, not a password to reset.
+       */
+      if (school.suspendedAt) {
+        throw new ForbiddenException(
+          school.suspendedReason
+            ? `This school's access is suspended: ${school.suspendedReason}`
+            : "This school's access is suspended. Please contact EYO.",
+        );
+      }
       const payload: AuthUser = {
         sub: user.id,
         schoolId: user.schoolId,
@@ -108,15 +306,40 @@ export class AuthService {
   }
 }
 
-@Controller()
-export class AuthController {
+/**
+ * The unauthenticated door: signing in, and signing up.
+ *
+ * Kept apart from the authenticated controller below on purpose — the same reasoning as the
+ * public admissions controller. Every route here is `@Public()` by intent, so nothing sits one
+ * careless edit away from exposing a route that assumed a principal.
+ */
+@Controller('auth')
+export class PublicAuthController {
   constructor(private svc: AuthService) {}
 
   @Public()
-  @Post('auth/login')
+  @Post('login')
   login(@Body() dto: LoginDto) {
     return this.svc.login(dto);
   }
+
+  @Public()
+  @Post('register')
+  register(@Body() dto: RegisterDto) {
+    return this.svc.register(dto);
+  }
+
+  /** Read an invitation so the sign-up page can greet the school and refuse a bad link early. */
+  @Public()
+  @Get('invitation')
+  invitation(@Query('token') token: string) {
+    return this.svc.inspectInvitation(token ?? '');
+  }
+}
+
+@Controller()
+export class AuthController {
+  constructor(private svc: AuthService) {}
 
   @Get('me')
   me(@CurrentUser() user: AuthUser) {
@@ -124,5 +347,9 @@ export class AuthController {
   }
 }
 
-@Module({ imports: [BillingModule], controllers: [AuthController], providers: [AuthService] })
+@Module({
+  imports: [BillingModule],
+  controllers: [PublicAuthController, AuthController],
+  providers: [AuthService],
+})
 export class AuthModule {}

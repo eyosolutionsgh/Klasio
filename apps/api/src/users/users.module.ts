@@ -20,8 +20,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { canGrant } from '../common/permissions';
 import { AuthUser, CurrentUser, RequirePermission } from '../common/auth';
 import { canAssignRole, canManageUser, STAFF_ROLES } from '../common/roles';
-
-const BCRYPT_ROUNDS = 10;
+import { BCRYPT_ROUNDS } from '../common/crypto';
 
 class CreateUserDto {
   @IsString() @MinLength(2) name: string;

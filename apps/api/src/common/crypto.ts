@@ -14,6 +14,14 @@ import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from '
 const VERSION = 'v1';
 const DEV_KEY = Buffer.alloc(32, 7); // deterministic, obviously-not-secret dev key
 
+/**
+ * Work factor for every password this product hashes.
+ *
+ * Defined once: registration, staff invitation and password reset must not drift apart, or a
+ * password's resistance to cracking would depend on which screen created it.
+ */
+export const BCRYPT_ROUNDS = 10;
+
 export class MissingEncryptionKeyError extends Error {
   constructor() {
     super('PAYMENTS_ENCRYPTION_KEY must be set (32 bytes, hex or base64) to store live secrets');

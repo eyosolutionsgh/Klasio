@@ -13,7 +13,8 @@
     "db:deploy": "prisma migrate deploy",
     "db:seed": "ts-node --transpile-only prisma/seed.ts",
     "db:seed:second": "ts-node --transpile-only prisma/seed-second-school.ts",
-    "db:drift-check": "bash scripts/drift-check.sh"
+    "db:drift-check": "bash scripts/drift-check.sh",
+    "db:seed:platform": "ts-node --transpile-only prisma/seed-platform.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1090.0",
