@@ -403,6 +403,9 @@ export class AuthService {
         schoolName: school.name,
         resetUrl: `${base}/reset-password?token=${encodeURIComponent(token)}`,
         expiresInMinutes: RESET_TTL_MINUTES,
+        // The school's own crest, not EYO's: a head teacher resetting at 7am should see their
+        // school, and a message that looked like vendor mail is easier to mistake for phishing.
+        crest: await this.email.loadCrest(school.logoUrl),
       }),
     });
 

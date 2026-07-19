@@ -1,10 +1,62 @@
 import { describe, expect, it } from 'vitest';
 import {
+  crestAttachment,
   escapeHtml,
+  initialsOf,
   renderGuardianOtp,
   renderPasswordReset,
   renderSchoolInvitation,
 } from './email-templates';
+
+const BYTES = Buffer.from('not-really-a-png');
+const crest = crestAttachment('schools/s1/logo/l1/abc.png', BYTES)!;
+
+describe('crestAttachment', () => {
+  it.each(['png', 'jpg', 'jpeg', 'PNG'])('embeds %s', (ext) => {
+    expect(crestAttachment(`schools/s1/logo/l1/abc.${ext}`, BYTES)).toMatchObject({
+      id: 'school-crest',
+    });
+  });
+
+  /**
+   * WebP is an accepted upload type, so a school can genuinely have one. Outlook renders nothing
+   * for it and there is no image library here to convert with, so declining it is what keeps the
+   * masthead a lettermark instead of a broken-image icon.
+   */
+  it('declines webp, which Outlook will not render', () => {
+    expect(crestAttachment('schools/s1/logo/l1/abc.webp', BYTES)).toBeNull();
+  });
+
+  it('declines a key with no extension', () => {
+    expect(crestAttachment('schools/s1/logo/l1/abc', BYTES)).toBeNull();
+  });
+
+  it('declines an empty object, which would attach a zero-byte image', () => {
+    expect(crestAttachment('schools/s1/logo/l1/abc.png', Buffer.alloc(0))).toBeNull();
+  });
+
+  it('normalises the filename extension rather than trusting the key', () => {
+    expect(crestAttachment('schools/s1/logo/l1/abc.jpeg', BYTES)?.filename).toBe('crest.jpg');
+  });
+});
+
+describe('initialsOf', () => {
+  it('takes the first letter of the first two words', () => {
+    expect(initialsOf('Brighton Academy')).toBe('BA');
+  });
+
+  it('ignores words beyond the second', () => {
+    expect(initialsOf('St Mary Magdalene School')).toBe('SM');
+  });
+
+  it('survives a single-word name', () => {
+    expect(initialsOf('Brighton')).toBe('B');
+  });
+
+  it('survives extra whitespace, which a pasted school name often carries', () => {
+    expect(initialsOf('  Brighton   Academy ')).toBe('BA');
+  });
+});
 
 describe('escapeHtml', () => {
   it('neutralises the characters that close a tag or an attribute', () => {
@@ -58,6 +110,17 @@ describe('renderSchoolInvitation', () => {
     expect(html).toContain('&lt;script&gt;');
   });
 
+  /**
+   * EYO's mark, not the school's. At this point the school does not exist — there is no row, no
+   * crest, nothing of theirs to show — and the message is the vendor introducing itself.
+   */
+  it('carries the EYO wordmark and never a crest', () => {
+    const { html, inlineImages } = renderSchoolInvitation(opts);
+    expect(html).toContain('>EYO<');
+    expect(html).not.toContain('cid:');
+    expect(inlineImages).toBeUndefined();
+  });
+
   it('escapes a url carrying a quote, which would otherwise break out of href', () => {
     const { html } = renderSchoolInvitation({
       ...opts,
@@ -91,6 +154,35 @@ describe('renderPasswordReset', () => {
     expect(text).toContain('used once');
   });
 
+  it('shows the school crest, attached rather than linked', () => {
+    const { html, inlineImages } = renderPasswordReset({ ...opts, crest });
+    // Linking would not work: crests sit behind an authenticated proxy that an inbox cannot use.
+    expect(html).toContain('src="cid:school-crest"');
+    expect(html).not.toContain('/api/proxy');
+    expect(inlineImages).toEqual([crest]);
+  });
+
+  it('falls back to the initials mark when the school has no crest', () => {
+    const { html, inlineImages } = renderPasswordReset(opts);
+    expect(html).not.toContain('cid:');
+    expect(html).toContain('>BA<');
+    expect(inlineImages).toBeUndefined();
+  });
+
+  it('names the school in the crest alt text, since clients block images by default', () => {
+    // With images suppressed the alt is the only thing identifying who sent this.
+    expect(renderPasswordReset({ ...opts, crest }).html).toContain('alt="Brighton Academy"');
+  });
+
+  it('escapes the school name in the alt text', () => {
+    const { html } = renderPasswordReset({
+      ...opts,
+      schoolName: '"><script>steal()</script>',
+      crest,
+    });
+    expect(html).not.toContain('"><script>');
+  });
+
   it('tells a recipient who did not ask that ignoring it is safe', () => {
     // Reset emails are also what an attacker triggers against a victim's address; the copy has
     // to leave the victim knowing they need do nothing.
@@ -115,6 +207,19 @@ describe('renderGuardianOtp', () => {
     // The code is generated as a zero-padded string; anything that treated it as a number would
     // send five digits and no code would ever verify.
     expect(renderGuardianOtp({ ...opts, code: '000042' }).text).toContain('000042');
+  });
+
+  it('shows the school crest, which is what makes the code look genuine', () => {
+    // A guardian who has never heard of EYO judges this by whether it looks like their school.
+    const { html, inlineImages } = renderGuardianOtp({ ...opts, crest });
+    expect(html).toContain('src="cid:school-crest"');
+    expect(inlineImages).toEqual([crest]);
+  });
+
+  it('falls back to the initials mark rather than showing EYO to a parent', () => {
+    const { html } = renderGuardianOtp(opts);
+    expect(html).toContain('>BA<');
+    expect(html).not.toContain('>EYO<');
   });
 
   it('warns against sharing, naming the school as the party that will never ask', () => {

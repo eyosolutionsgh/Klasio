@@ -137,7 +137,7 @@ export class GuardianService {
      */
     const school = await this.db.system.school.findUnique({
       where: { id: guardian.schoolId },
-      select: { suspendedAt: true, name: true },
+      select: { suspendedAt: true, name: true, logoUrl: true },
     });
     if (school?.suspendedAt) return generic;
 
@@ -200,6 +200,9 @@ export class GuardianService {
             schoolName: school?.name ?? 'your school',
             code,
             ttlMinutes: OTP_TTL_MINUTES,
+            // The crest is what makes this recognisable to a parent who has never heard of EYO
+            // and is deciding whether a code in their inbox is genuine.
+            crest: await this.email.loadCrest(school?.logoUrl),
           }),
         });
       }

@@ -1,5 +1,6 @@
 import { Injectable, Logger, Module } from '@nestjs/common';
-import { RenderedEmail } from '../common/email-templates';
+import { InlineImage, RenderedEmail, crestAttachment } from '../common/email-templates';
+import { storage } from '../common/storage';
 
 export interface EmailResult {
   ok: boolean;
@@ -80,6 +81,21 @@ class MailerSendProvider implements EmailProvider {
           subject: msg.subject,
           html: msg.html,
           text: msg.text,
+          /**
+           * Inline images ride along as base64 attachments with `disposition: 'inline'`, and the
+           * HTML refers to them by `cid:<id>`. Omitted entirely when there are none — an empty
+           * `attachments` array is a validation error rather than a no-op.
+           */
+          ...(msg.inlineImages?.length
+            ? {
+                attachments: msg.inlineImages.map((img) => ({
+                  id: img.id,
+                  filename: img.filename,
+                  disposition: 'inline',
+                  content: img.content.toString('base64'),
+                })),
+              }
+            : {}),
         }),
       });
 
@@ -165,6 +181,30 @@ export class EmailService {
   /** Which provider is live, for the vendor console and for tests. */
   get providerName(): string {
     return this.provider.name;
+  }
+
+  /**
+   * Load a school's crest for embedding, or return null.
+   *
+   * Never throws, and never propagates a storage failure. A crest is decoration on a message that
+   * carries a sign-in code or a reset link: a school whose logo object has gone missing from the
+   * bucket must still be able to get its parents into the portal. Every failure — no logo set, an
+   * unreadable object, a format email clients will not render — degrades to the initials mark the
+   * templates fall back to, which is what the portal's own `SchoolCrest` does.
+   */
+  async loadCrest(logoUrl: string | null | undefined): Promise<InlineImage | null> {
+    if (!logoUrl) return null;
+    try {
+      const bytes = await storage().get(logoUrl);
+      const crest = crestAttachment(logoUrl, bytes);
+      if (!crest) {
+        this.log.warn(`Crest ${logoUrl} is not an embeddable format — falling back to initials`);
+      }
+      return crest;
+    } catch {
+      this.log.warn(`Could not read crest ${logoUrl} — falling back to initials`);
+      return null;
+    }
   }
 
   /**

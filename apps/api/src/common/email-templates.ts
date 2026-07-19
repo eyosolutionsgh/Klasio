@@ -28,14 +28,120 @@ export function escapeHtml(raw: string): string {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * An image that travels with the message and is referenced from the HTML as `cid:<id>`.
+ *
+ * School crests cannot be linked. They live in tenant-scoped storage behind an authenticated
+ * proxy (`/api/proxy/school/logo`) precisely so one school's crest is not fetchable by anyone
+ * holding a URL, and an email client has no session to authenticate with. Embedding the bytes is
+ * the only way to show a crest without putting school assets on a public URL.
+ */
+export interface InlineImage {
+  /** Referenced as `cid:<id>` in the HTML. */
+  id: string;
+  filename: string;
+  content: Buffer;
+}
+
 export interface RenderedEmail {
   subject: string;
   html: string;
   text: string;
+  inlineImages?: InlineImage[];
 }
 
-/** EYO's brand green, matching the portal. Inlined — email clients strip <style> blocks. */
-const BRAND = '#0F6E4F';
+/**
+ * The portal's own tokens, from `globals.css`. Inlined as literals because email clients strip
+ * <style> blocks and none of them resolve CSS custom properties.
+ */
+const BRAND = '#17513c';
+const GOLD = '#c9982f';
+const INK = '#1b2822';
+const OAT = '#8d8062';
+const MIST = '#e6ddc9';
+
+/** The id every crest attachment uses. One image per message, so a fixed value is enough. */
+const CREST_CID = 'school-crest';
+
+/**
+ * Formats worth embedding.
+ *
+ * WebP is an accepted upload type but is deliberately absent: Outlook on Windows renders nothing
+ * for it, and there is no image library in this app to convert with. A school whose crest is WebP
+ * falls back to the initials mark, which is a lettermark rather than a broken image icon.
+ */
+const EMBEDDABLE: Record<string, { ext: string; ok: true } | undefined> = {
+  png: { ext: 'png', ok: true },
+  jpg: { ext: 'jpg', ok: true },
+  jpeg: { ext: 'jpg', ok: true },
+};
+
+/**
+ * Turn a stored crest into an embeddable attachment, or decline.
+ *
+ * Takes the storage key rather than a content type because `storage().get()` returns bytes only;
+ * the key carries the extension `objectKey()` derived from the original upload.
+ */
+export function crestAttachment(storageKey: string, bytes: Buffer): InlineImage | null {
+  const ext = (storageKey.split('.').pop() ?? '').toLowerCase();
+  const match = EMBEDDABLE[ext];
+  if (!match) return null;
+  // An empty object would attach a zero-byte image and render as a broken frame.
+  if (!bytes.length) return null;
+  return { id: CREST_CID, filename: `crest.${match.ext}`, content: bytes };
+}
+
+/** Up to two initials, matching the `SchoolCrest` component's fallback exactly. */
+export function initialsOf(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join('')
+    .toUpperCase();
+}
+
+/**
+ * The mark at the top of a message: EYO's own for vendor mail, the school's for school mail.
+ *
+ * Which one is not a style choice. An invitation is EYO speaking to someone who has no school
+ * yet — there is nothing of theirs to show. A reset or a sign-in code is the *school* speaking to
+ * its own staff and families, and a guardian who has never heard of EYO should recognise their
+ * child's school at a glance.
+ */
+export type Brandmark =
+  { kind: 'eyo' } | { kind: 'school'; name: string; crest: InlineImage | null };
+
+function mastheadHtml(mark: Brandmark): string {
+  if (mark.kind === 'eyo') {
+    /**
+     * Typographic, because this product has no logo file — the brand is Fraunces in gold, and
+     * inventing a raster mark here would create a second, unofficial one. Webfonts do not load
+     * in most email clients, so the serif stack degrades to Georgia, which is what the portal's
+     * own `--font-display` already falls back to.
+     */
+    return `<tr><td style="padding-bottom:24px;">
+      <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:26px;letter-spacing:3px;color:${GOLD};line-height:1;">EYO</p>
+      <p style="margin:6px 0 0;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:${OAT};">School Management</p>
+    </td></tr>`;
+  }
+
+  const safeName = escapeHtml(mark.name);
+  const badge = mark.crest
+    ? // width/height as attributes as well as CSS: Outlook ignores the style block on <img>.
+      `<img src="cid:${CREST_CID}" alt="${safeName}" width="52" height="52" style="display:block;width:52px;height:52px;border:0;border-radius:8px;object-fit:contain;" />`
+    : `<span style="display:inline-block;width:52px;height:52px;line-height:52px;text-align:center;background:${BRAND};color:#fffdf3;border-radius:8px;font-size:18px;font-weight:600;">${escapeHtml(initialsOf(mark.name))}</span>`;
+
+  return `<tr><td style="padding-bottom:24px;">
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+      <td style="padding-right:12px;vertical-align:middle;">${badge}</td>
+      <td style="vertical-align:middle;">
+        <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:17px;color:${INK};line-height:1.3;">${safeName}</p>
+      </td>
+    </tr></table>
+  </td></tr>`;
+}
 
 /**
  * Shared shell for every message.
@@ -44,16 +150,22 @@ const BRAND = '#0F6E4F';
  * table is the layout that survives both desktop clients and the narrow phone screens most
  * Ghanaian guardians read mail on.
  */
-function layout(opts: { heading: string; bodyHtml: string; footer?: string }): string {
+function layout(opts: {
+  mark: Brandmark;
+  heading: string;
+  bodyHtml: string;
+  footer?: string;
+}): string {
   return `<!doctype html>
-<html><body style="margin:0;padding:0;background:#f4f5f4;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f4;padding:24px 12px;">
+<html><body style="margin:0;padding:0;background:#f3ecdd;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3ecdd;padding:24px 12px;">
     <tr><td align="center">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#ffffff;border-radius:12px;padding:32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#1a1a1a;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#fffdf3;border-radius:12px;padding:32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:${INK};">
+        ${mastheadHtml(opts.mark)}
         <tr><td>
           <h1 style="margin:0 0 16px;font-size:20px;font-weight:600;color:${BRAND};">${opts.heading}</h1>
           ${opts.bodyHtml}
-          <p style="margin:32px 0 0;padding-top:16px;border-top:1px solid #e5e7e5;font-size:12px;color:#6b706b;">
+          <p style="margin:32px 0 0;padding-top:16px;border-top:1px solid ${MIST};font-size:12px;color:${OAT};">
             ${opts.footer ?? 'EYO School Management &middot; Accra, Ghana'}
           </p>
         </td></tr>
@@ -72,9 +184,9 @@ function codeBlock(code: string): string {
 function button(href: string, label: string): string {
   const safe = escapeHtml(href);
   return `<p style="margin:24px 0;text-align:center;">
-    <a href="${safe}" style="display:inline-block;background:${BRAND};color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:15px;">${escapeHtml(label)}</a>
+    <a href="${safe}" style="display:inline-block;background:${BRAND};color:#fffdf3;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:600;font-size:15px;">${escapeHtml(label)}</a>
   </p>
-  <p style="margin:16px 0;font-size:13px;color:#6b706b;word-break:break-all;">
+  <p style="margin:16px 0;font-size:13px;color:${OAT};word-break:break-all;">
     Or paste this into your browser:<br /><a href="${safe}" style="color:${BRAND};">${safe}</a>
   </p>`;
 }
@@ -95,12 +207,13 @@ export function renderSchoolInvitation(opts: {
   return {
     subject: `Set up ${opts.schoolName} on EYO School Management`,
     html: layout({
+      mark: { kind: 'eyo' },
       heading: 'Your school is ready to set up',
       bodyHtml: `
         <p style="margin:0 0 12px;font-size:15px;line-height:1.6;">EYO has invited you to set up <strong>${school}</strong> on EYO School Management.</p>
         <p style="margin:0;font-size:15px;line-height:1.6;">Follow the link below to create your owner account and get started.</p>
         ${button(opts.acceptUrl, 'Set up my school')}
-        <p style="margin:0;font-size:13px;color:#6b706b;line-height:1.6;">This invitation expires on ${escapeHtml(expires)} and can only be used by this email address. If you were not expecting it, you can ignore this message.</p>`,
+        <p style="margin:0;font-size:13px;color:${OAT};line-height:1.6;">This invitation expires on ${escapeHtml(expires)} and can only be used by this email address. If you were not expecting it, you can ignore this message.</p>`,
     }),
     text: `EYO has invited you to set up ${opts.schoolName} on EYO School Management.
 
@@ -124,18 +237,21 @@ export function renderPasswordReset(opts: {
   schoolName: string;
   resetUrl: string;
   expiresInMinutes: number;
+  /** The school's crest, already loaded and vetted by `crestAttachment`. */
+  crest?: InlineImage | null;
 }): RenderedEmail {
   const first = escapeHtml(opts.name.split(' ')[0] || 'there');
   const school = escapeHtml(opts.schoolName);
   return {
     subject: `Reset your ${opts.schoolName} password`,
     html: layout({
+      mark: { kind: 'school', name: opts.schoolName, crest: opts.crest ?? null },
       heading: 'Reset your password',
       bodyHtml: `
         <p style="margin:0 0 12px;font-size:15px;line-height:1.6;">Hello ${first},</p>
         <p style="margin:0;font-size:15px;line-height:1.6;">Someone asked to reset the password for your <strong>${school}</strong> account. Choose a new one using the link below.</p>
         ${button(opts.resetUrl, 'Choose a new password')}
-        <p style="margin:0;font-size:13px;color:#6b706b;line-height:1.6;">This link expires in ${opts.expiresInMinutes} minutes and can be used once. If you did not ask for this, ignore this email — your password will not change, and signing in normally cancels the request.</p>`,
+        <p style="margin:0;font-size:13px;color:${OAT};line-height:1.6;">This link expires in ${opts.expiresInMinutes} minutes and can be used once. If you did not ask for this, ignore this email — your password will not change, and signing in normally cancels the request.</p>`,
       footer: `${school} &middot; sent by EYO School Management`,
     }),
     text: `Hello ${opts.name.split(' ')[0] || 'there'},
@@ -147,6 +263,7 @@ ${opts.resetUrl}
 This link expires in ${opts.expiresInMinutes} minutes and can be used once. If you did not ask for this, ignore this email — your password will not change, and signing in normally cancels the request.
 
 ${opts.schoolName}, sent by EYO School Management`,
+    inlineImages: opts.crest ? [opts.crest] : undefined,
   };
 }
 
@@ -160,16 +277,19 @@ export function renderGuardianOtp(opts: {
   schoolName: string;
   code: string;
   ttlMinutes: number;
+  /** The school's crest, already loaded and vetted by `crestAttachment`. */
+  crest?: InlineImage | null;
 }): RenderedEmail {
   const school = escapeHtml(opts.schoolName);
   return {
     subject: `${opts.code} is your ${opts.schoolName} sign-in code`,
     html: layout({
+      mark: { kind: 'school', name: opts.schoolName, crest: opts.crest ?? null },
       heading: 'Your sign-in code',
       bodyHtml: `
         <p style="margin:0;font-size:15px;line-height:1.6;">Use this code to sign in to the <strong>${school}</strong> guardian portal.</p>
         ${codeBlock(opts.code)}
-        <p style="margin:0;font-size:13px;color:#6b706b;line-height:1.6;">It expires in ${opts.ttlMinutes} minutes. Never share it — ${school} will never ask you for this code.</p>`,
+        <p style="margin:0;font-size:13px;color:${OAT};line-height:1.6;">It expires in ${opts.ttlMinutes} minutes. Never share it — ${school} will never ask you for this code.</p>`,
       footer: `${school} &middot; sent by EYO School Management`,
     }),
     text: `${opts.code} is your ${opts.schoolName} guardian portal sign-in code.
@@ -177,5 +297,6 @@ export function renderGuardianOtp(opts: {
 It expires in ${opts.ttlMinutes} minutes. Never share it — ${opts.schoolName} will never ask you for this code.
 
 ${opts.schoolName}, sent by EYO School Management`,
+    inlineImages: opts.crest ? [opts.crest] : undefined,
   };
 }

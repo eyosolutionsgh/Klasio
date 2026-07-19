@@ -128,6 +128,38 @@ describe('request shape', () => {
     });
   });
 
+  it('sends an inline image as a base64 attachment the html can reference', async () => {
+    const { svc, fetchSpy } = live([accepted()]);
+    const content = Buffer.from('crest-bytes');
+    await svc.send({
+      to: 'a@b.test',
+      kind: 'test',
+      message: {
+        ...MESSAGE,
+        html: '<img src="cid:school-crest" />',
+        inlineImages: [{ id: 'school-crest', filename: 'crest.png', content }],
+      },
+    });
+    const body = JSON.parse(fetchSpy.mock.calls[0][1]!.body as string);
+    expect(body.attachments).toEqual([
+      {
+        id: 'school-crest',
+        filename: 'crest.png',
+        // `disposition: inline` is what makes this an embedded image rather than a file the
+        // recipient has to download; without it the message shows a paperclip and no crest.
+        disposition: 'inline',
+        content: content.toString('base64'),
+      },
+    ]);
+  });
+
+  it('omits attachments entirely when there are no inline images', async () => {
+    const { svc, fetchSpy } = live([accepted()]);
+    await send(svc);
+    // An empty array is a validation error, not a no-op.
+    expect(JSON.parse(fetchSpy.mock.calls[0][1]!.body as string)).not.toHaveProperty('attachments');
+  });
+
   it('omits reply_to entirely when none is configured', async () => {
     const { svc, fetchSpy } = live([accepted()]);
     await send(svc);
