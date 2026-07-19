@@ -26,30 +26,46 @@ export default function SchoolCrest({
     .join('')
     .toUpperCase();
 
+  // Scaled from `size` rather than fixed: this renders at 34px in the top bar and 76px in the
+  // sidebar, and a radius that looks right at one is wrong at the other.
+  const radius = Math.round(size * 0.22);
+  const pad = Math.round(size * 0.12);
+
   if (hasLogo && !failed) {
     return (
-      <img
-        src="/api/proxy/school/logo"
-        alt={`${name} crest`}
-        width={size}
-        height={size}
-        onError={() => setFailed(true)}
-        // No plate behind the crest: a school's mark is usually cut out to sit on whatever is
-        // under it, and the white rounded tile this used to add read as part of the logo.
-        // Trade-off worth knowing — a school whose crest is itself dark now has less contrast
-        // against the dark sidebar. The initials fallback below still keeps its tile, because
-        // letters need one.
-        className="object-contain shrink-0"
-        style={{ width: size, height: size }}
-      />
+      /**
+       * A white plate behind the crest.
+       *
+       * Schools upload whatever they have, and most crests are dark or deeply coloured on a
+       * transparent background — exactly the ones that disappear against the dark sidebar with
+       * nothing behind them. A consistent white tile means the portal renders any of them
+       * legibly instead of being right for some schools and broken for others.
+       *
+       * The inset matters: sat flush to the edge the artwork reads as a cropped sticker rather
+       * than a mark on a card. The hairline ring gives the tile an edge on light surfaces, where
+       * white on near-white would otherwise float.
+       */
+      <span
+        className="shrink-0 grid place-items-center bg-white ring-1 ring-ink/10 shadow-sm"
+        style={{ width: size, height: size, borderRadius: radius, padding: pad }}
+      >
+        <img
+          src="/api/proxy/school/logo"
+          alt={`${name} crest`}
+          onError={() => setFailed(true)}
+          className="w-full h-full object-contain"
+        />
+      </span>
     );
   }
 
+  // Radius and lettering scale with `size` for the same reason the plate above does — this used
+  // to be a fixed 13px, which is a small letter marooned in a 76px tile in the sidebar.
   return (
     <span
       aria-hidden
-      style={{ width: size, height: size }}
-      className={`shrink-0 rounded-md grid place-items-center text-[13px] font-medium ${
+      style={{ width: size, height: size, borderRadius: radius, fontSize: Math.round(size * 0.34) }}
+      className={`shrink-0 grid place-items-center font-medium leading-none ${
         onDark ? 'bg-paper/15 text-gold' : 'bg-brand text-paper'
       }`}
     >
