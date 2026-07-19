@@ -34,10 +34,29 @@
   --brand-deep: color-mix(in srgb, var(--brand) 72%, #000);
   --brand-mist: color-mix(in srgb, var(--brand) 14%, #fff);
 
-  /* Paper fibre. Fractal noise rendered once by the browser's SVG filter — no image asset, no
-     network request, and it tiles seamlessly (stitchTiles) so there is no visible grid seam.
-     Kept grayscale (feColorMatrix saturate 0) so it darkens the paper rather than tinting it. */
-  --tex-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23g)' opacity='0.42'/%3E%3C/svg%3E");
+  /**
+   * Paper fibre — a photographed kraft-paper grain, not generated noise.
+   *
+   * Source: ambientCG "Paper006", CC0 / public domain (no attribution required, cleared for
+   * commercial use). The 1024px tile is seamless, so it repeats without a visible grid.
+   *
+   * It ships desaturated and flattened into a *multiply mask*: luminance sits in roughly
+   * 222–255, so the darkest fibre takes about 13% out of whatever is underneath. Multiply is
+   * per-channel, so it scales all three equally and preserves the paper's hue — it only
+   * removes lightness, which is why `--paper-base` below is lightened to compensate.
+   *
+   * Keeping it greyscale and low-contrast is what keeps a 1024² tile at 30 KB. A colour-tinted
+   * version of the same grain costs 109 KB, and a high-contrast one for `soft-light` costs
+   * 186 KB — and soft-light turned out to be invisible against a base this close to white, so
+   * there is nothing to buy for the extra weight.
+   */
+  --tex-grain: url('/textures/paper-grain.webp');
+
+  /* The paper colour *before* the grain multiplies over it. Lightened from --color-paper so the
+     composite lands back on roughly the intended tone: the grain averages ~94% luminance, and
+     without this the whole page reads a shade deeper than the design token. Pushing the base any
+     closer to white does not work — the warm ratio clips against 255 and the page turns grey. */
+  --paper-base: #fffdf3;
 }
 
 /**
@@ -105,18 +124,23 @@ html {
   inset: 0;
   z-index: -1;
   pointer-events: none;
+  background-color: var(--paper-base);
   background-image:
     var(--tex-grain),
     /* Two soft blooms, one per top corner, so the page has a light source instead of being
-       uniformly flat. Both are well under 6% alpha — at a glance you read "warm paper", not
+       uniformly flat. Both are under 4% alpha — at a glance you read "warm paper", not
        "gradient". */
-    radial-gradient(60rem 40rem at 8% -12%, rgba(23, 81, 60, 0.055), transparent 62%),
-    radial-gradient(52rem 38rem at 104% -6%, rgba(201, 152, 47, 0.06), transparent 60%);
+    radial-gradient(60rem 40rem at 8% -12%, rgba(23, 81, 60, 0.035), transparent 62%),
+    radial-gradient(52rem 38rem at 104% -6%, rgba(201, 152, 47, 0.04), transparent 60%);
+  /* The tile is drawn at half its pixel size so the grain stays sharp on 2× displays. */
   background-size:
-    180px 180px,
+    512px 512px,
     auto,
     auto;
-  opacity: 0.55;
+  /* Layers blend downward, so the grain multiplies over the blooms *and* the base beneath them.
+     If the image ever fails to load this falls back to flat --paper-base, which is a touch
+     lighter than the old page but unmistakably the same warm paper — never white. */
+  background-blend-mode: multiply, normal, normal;
 }
 
 /**
