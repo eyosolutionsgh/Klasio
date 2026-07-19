@@ -18,6 +18,7 @@ import { Prisma } from '@prisma/client';
 import {
   IsArray,
   IsBoolean,
+  IsDateString,
   IsIn,
   IsNumber,
   IsOptional,
@@ -35,6 +36,7 @@ import { storage } from '../common/storage';
 import { SmsModule, SmsService } from '../sms/sms.module';
 import { weighSubject } from '../common/weighting';
 import { PrismaService } from '../prisma/prisma.service';
+import { isStaleReplay, parseRecordedAt } from '../common/replay';
 import { hasEntitlement } from '../common/entitlements';
 import { AuthUser, CurrentUser, RequireAnyPermission, RequirePermission } from '../common/auth';
 import { reportCardPdf, ReportCardData, broadsheetPdf, BroadsheetData } from '../common/pdf';
@@ -52,6 +54,13 @@ class SaveScoresDto {
   @IsString() termId: string;
   @IsString() subjectId: string;
   @IsString() classId: string;
+  /**
+   * When the teacher entered these, not when they arrived.
+   *
+   * This page sends the whole class's column at once, so a replay from a device that went offline
+   * days ago would revert every correction made to the subject since. See common/replay.ts.
+   */
+  @IsOptional() @IsDateString() recordedAt?: string;
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ScoreEntryDto)
@@ -388,10 +397,31 @@ export class AssessmentService {
     });
     const inClass = new Set(roll.map((s) => s.id));
 
+    const recordedAt = parseRecordedAt(dto.recordedAt);
+    const stored = await this.db.score.findMany({
+      where: {
+        schoolId: auth.schoolId,
+        subjectId: dto.subjectId,
+        termId: dto.termId,
+        studentId: { in: dto.entries.map((e) => e.studentId) },
+      },
+      select: { studentId: true, componentId: true, updatedAt: true },
+    });
+    const lastTouched = new Map(
+      stored.map((r) => [`${r.studentId}:${r.componentId}`, r.updatedAt]),
+    );
+
     let saved = 0;
+    let superseded = 0;
     for (const e of dto.entries) {
       if (!inClass.has(e.studentId)) {
         throw new BadRequestException('That student is not in this class');
+      }
+      // Per cell, not per request: a teacher's offline column should still land for the pupils
+      // nobody corrected in the meantime.
+      if (isStaleReplay(recordedAt, lastTouched.get(`${e.studentId}:${e.componentId}`))) {
+        superseded++;
+        continue;
       }
       const comp = compById.get(e.componentId);
       if (!comp) throw new BadRequestException(`Unknown component ${e.componentId}`);
@@ -425,8 +455,9 @@ export class AssessmentService {
     await this.db.audit(auth.schoolId, auth.sub, 'scores.save', 'Subject', dto.subjectId, {
       termId: dto.termId,
       count: saved,
+      ...(superseded > 0 ? { superseded } : {}),
     });
-    return { saved };
+    return { saved, superseded };
   }
 
   /** Standard competition ranking (ties share a position) over id→total pairs, highest first. */

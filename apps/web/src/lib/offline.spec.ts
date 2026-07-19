@@ -229,4 +229,23 @@ describe('flush', () => {
     expect(res.failures[0].message).toBe('That student is not in this class');
     expect(res.failures[0].label).toBe('JHS 2 register · 19 Jul');
   });
+
+  it('stamps the moment the user acted, so a late replay cannot outrank a correction', async () => {
+    const { submitOrQueue, pending } = await import('./offline');
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+    await submitOrQueue('/api/proxy/attendance/mark', { classId: 'c1' }, 'Basic 4 register');
+    const [op] = await pending();
+    const stamped = op.body as { recordedAt?: string; classId?: string };
+    expect(stamped.classId).toBe('c1');
+    expect(Date.parse(stamped.recordedAt!)).toBeGreaterThan(0);
+  });
+
+  it('sends the same stamp on the online path', async () => {
+    const { submitOrQueue } = await import('./offline');
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+    vi.stubGlobal('fetch', fetchMock);
+    await submitOrQueue('/api/proxy/attendance/mark', { classId: 'c1' }, 'Basic 4 register');
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.recordedAt).toBeTruthy();
+  });
 });

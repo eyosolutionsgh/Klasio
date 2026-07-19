@@ -95,8 +95,15 @@ class UpdateGuardianDto {
 
 class PromoteDto {
   @IsString() fromClassId: string;
-  // Omit toClassId to graduate a terminal class (status → GRADUATED).
   @IsOptional() @IsString() toClassId?: string;
+  /**
+   * Graduating must be asked for, not inferred from a missing field.
+   *
+   * A destination class that failed to serialise, or a caller that simply forgot it, used to
+   * graduate the whole class instead of erroring — marking every child GRADUATED with an exit
+   * date, which nothing in the product can undo.
+   */
+  @IsOptional() @IsBoolean() graduate?: boolean;
 }
 
 class ExitDto {
@@ -625,6 +632,13 @@ export class StudentsService {
     }
 
     const graduating = !dto.toClassId;
+    if (graduating && dto.graduate !== true) {
+      // Fail loudly rather than doing the irreversible thing by default.
+      throw new BadRequestException(
+        'Choose a class to promote into, or confirm that this class is graduating.',
+      );
+    }
+
     const result = await this.db.student.updateMany({
       where: { schoolId: auth.schoolId, classId: dto.fromClassId, status: 'ACTIVE' },
       data: graduating

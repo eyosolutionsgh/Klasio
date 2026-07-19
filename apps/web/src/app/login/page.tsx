@@ -92,23 +92,6 @@ export default function LoginPage() {
           No sign-up link. Schools join by invitation from EYO, so a link to /register would only
           lead to a page telling them they need one — see the register page's own empty state.
         */}
-        <p className="mt-6 text-[13px] text-oat">
-          New school? EYO sets your school up and sends you an invitation link.
-        </p>
-
-        {/*
-          Working credentials, so this must never render anywhere real. It was unconditional:
-          anyone reaching a school's login page was handed a bursar account for any deployment
-          where the demo seed had been run.
-        */}
-        {process.env.NEXT_PUBLIC_SHOW_DEMO_LOGINS === 'true' && (
-          <p className="mt-8 text-xs text-oat leading-relaxed">
-            Demo school: <span className="font-medium text-ink">bursar@demo.school</span> ·{' '}
-            <span className="font-medium text-ink">head@demo.school</span> ·{' '}
-            <span className="font-medium text-ink">teacher@demo.school</span> — password{' '}
-            <span className="font-medium text-ink">Password1!</span>
-          </p>
-        )}
       </form>
     </AuthShell>
   );

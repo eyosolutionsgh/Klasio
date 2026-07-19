@@ -94,15 +94,31 @@ export async function submitOrQueue(
   label: string,
   method = 'POST',
 ): Promise<SubmitResult> {
+  /**
+   * Stamp the moment the user acted, not the moment this reaches the server.
+   *
+   * A queued register can replay days later, and arrival order is not the order things happened:
+   * a mark made at 09:00 must not overwrite a correction the office made at 10:00 simply because
+   * the device reconnected at 11:00. The server compares this against what it already holds and
+   * skips the ones it has since been told better about — see common/replay.ts on the API side.
+   *
+   * Sent on the online path too, so both paths are judged on the same clock. Endpoints that do
+   * not declare `recordedAt` drop it silently, because the API validates with `whitelist: true`.
+   */
+  const stamped =
+    body && typeof body === 'object' && !Array.isArray(body)
+      ? { ...(body as Record<string, unknown>), recordedAt: new Date().toISOString() }
+      : body;
+
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    await enqueue({ url, method, body, label });
+    await enqueue({ url, method, body: stamped, label });
     return { ok: true, queued: true };
   }
   try {
     const res = await fetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(stamped),
     });
     const parsed = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -120,7 +136,7 @@ export async function submitOrQueue(
     return { ok: true, queued: false, status: res.status, body: parsed };
   } catch (err) {
     if (isNetworkError(err)) {
-      await enqueue({ url, method, body, label });
+      await enqueue({ url, method, body: stamped, label });
       return { ok: true, queued: true };
     }
     return { ok: false, queued: false, message: 'That did not save.' };

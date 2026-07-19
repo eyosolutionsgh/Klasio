@@ -1,8 +1,16 @@
 import { Body, Controller, Get, Injectable, Module, Post, Query } from '@nestjs/common';
-import { IsArray, IsDateString, IsEnum, IsString, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsDateString,
+  IsEnum,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { AttendanceStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { isStaleReplay, parseRecordedAt } from '../common/replay';
 import { hasEntitlement } from '../common/entitlements';
 import { SmsModule, SmsService } from '../sms/sms.module';
 import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
@@ -15,6 +23,13 @@ class AttendanceEntryDto {
 class MarkAttendanceDto {
   @IsString() classId: string;
   @IsDateString() date: string;
+  /**
+   * When the teacher actually marked this, not when it reached us.
+   *
+   * Sent by the offline queue on replay. Without it a register marked at 09:00 and replayed at
+   * 11:00 silently overwrote a correction the office made at 10:00.
+   */
+  @IsOptional() @IsDateString() recordedAt?: string;
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => AttendanceEntryDto)
@@ -59,8 +74,23 @@ export class AttendanceService {
     const termId = await this.currentTermId(auth.schoolId);
     if (!termId) throw new Error('No current term configured');
     const day = new Date(dto.date);
+    const recordedAt = parseRecordedAt(dto.recordedAt);
+
+    // What the server already holds for this day, so a stale replay cannot undo a correction
+    // made while the device was offline. See common/replay.ts.
+    const existing = await this.db.attendanceRecord.findMany({
+      where: { studentId: { in: dto.entries.map((e) => e.studentId) }, date: day },
+      select: { studentId: true, updatedAt: true },
+    });
+    const lastTouched = new Map(existing.map((e) => [e.studentId, e.updatedAt]));
+
     let saved = 0;
+    let superseded = 0;
     for (const entry of dto.entries) {
+      if (isStaleReplay(recordedAt, lastTouched.get(entry.studentId))) {
+        superseded++;
+        continue;
+      }
       await this.db.attendanceRecord.upsert({
         where: { studentId_date: { studentId: entry.studentId, date: day } },
         update: { status: entry.status, markedById: auth.sub },
@@ -79,6 +109,8 @@ export class AttendanceService {
     await this.db.audit(auth.schoolId, auth.sub, 'attendance.mark', 'ClassRoom', dto.classId, {
       date: dto.date,
       count: saved,
+      // Recorded so a teacher asking why their marks "did not save" has an answer on file.
+      ...(superseded > 0 ? { superseded } : {}),
     });
     // Marking the register is Basic; texting guardians about it is Medium. The route itself
     // cannot be gated — every school must be able to mark attendance — so the check lives
@@ -86,7 +118,7 @@ export class AttendanceService {
     const alerts = hasEntitlement(auth.tier, 'comms.absence-alerts')
       ? await this.alertAbsences(auth, dto, day)
       : { alerted: 0 };
-    return { saved, ...alerts };
+    return { saved, superseded, ...alerts };
   }
 
   /**

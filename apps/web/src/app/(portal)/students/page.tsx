@@ -113,6 +113,7 @@ export default async function StudentsPage({
           <PromoteClass
             fromClassId={selectedClass.id}
             fromClassName={selectedClass.name}
+            studentCount={selectedClass.studentCount}
             classes={structure.classes.map((c) => ({ id: c.id, name: c.name }))}
           />
         </div>
