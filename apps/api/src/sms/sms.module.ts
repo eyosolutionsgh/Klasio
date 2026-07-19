@@ -11,6 +11,7 @@ import {
 import { IsArray, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
+import { normalizeMsisdn } from '../common/phone';
 
 type Audience = 'ALL' | 'CLASS' | 'LEVEL' | 'CUSTOM';
 
@@ -22,18 +23,18 @@ class SendSmsDto {
   @IsOptional() @IsArray() @IsString({ each: true }) recipients?: string[];
 }
 
-interface SmsResult {
+export interface SmsResult {
   ok: boolean;
   ref?: string;
   error?: string;
 }
-interface SmsProvider {
+export interface SmsProvider {
   name: string;
   send(to: string, body: string, sender: string): Promise<SmsResult>;
 }
 
 /** Dev/offline fallback: logs the message and reports success without spending credits at a gateway. */
-class MockSmsProvider implements SmsProvider {
+export class MockSmsProvider implements SmsProvider {
   name = 'mock';
   async send(to: string, body: string): Promise<SmsResult> {
     console.log(`[SMS mock] → ${to}: ${body}`);
@@ -42,44 +43,44 @@ class MockSmsProvider implements SmsProvider {
 }
 
 /**
- * Nalo Solutions gateway. Uses the classic query-string send API; the exact parameter/response
- * contract is finalized once live credentials are provided. Falls back to mock when creds absent.
+ * Nalo Solutions gateway (Ghana). Query-string GET API, `type=0` plain text, `dlr=1` for
+ * delivery reports.
+ *
+ * Success is **not** HTTP 200. Nalo answers 200 for authentication failures, unknown sender IDs
+ * and malformed destinations alike, carrying the real outcome in a plaintext body: `1701`
+ * followed by the destination and message id. Anything else is a failure code, and treating
+ * `res.ok` as success would record every rejected message as SENT and debit the school for it.
+ *
+ * `destination` wants a bare MSISDN (233…), never E.164's leading `+`, so the number is
+ * normalised here as well as at the call sites — the provider edge is the one place every send
+ * passes through.
  */
-class NaloSmsProvider implements SmsProvider {
+export class NaloSmsProvider implements SmsProvider {
   name = 'nalo';
   constructor(
     private cfg: { endpoint: string; username: string; password: string; source: string },
   ) {}
 
   async send(to: string, body: string, sender: string): Promise<SmsResult> {
+    const destination = normalizeMsisdn(to);
+    if (!destination) return { ok: false, error: `unusable destination "${to}"` };
     const url = new URL(this.cfg.endpoint);
     url.searchParams.set('username', this.cfg.username);
     url.searchParams.set('password', this.cfg.password);
     url.searchParams.set('type', '0');
-    url.searchParams.set('destination', to);
+    url.searchParams.set('destination', destination);
     url.searchParams.set('dlr', '1');
     url.searchParams.set('source', sender || this.cfg.source);
     url.searchParams.set('message', body);
     try {
       const res = await fetch(url, { method: 'GET' });
       const text = (await res.text()).trim();
-      // Nalo returns "1701|<destination>|<message-id>" on a successful submission.
-      const ok = res.ok && text.startsWith('1701');
+      const ok = text.startsWith('1701');
       return ok ? { ok: true, ref: text } : { ok: false, error: text || `HTTP ${res.status}` };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : 'network error' };
     }
   }
-}
-
-/** Ghana MSISDN normalization: strip spaces/+, map leading 0 to 233. */
-function normalizeMsisdn(raw: string): string | null {
-  const digits = raw.replace(/[^\d]/g, '');
-  if (!digits) return null;
-  if (digits.startsWith('233')) return digits;
-  if (digits.startsWith('0')) return `233${digits.slice(1)}`;
-  if (digits.length === 9) return `233${digits}`;
-  return digits;
 }
 
 @Injectable()
