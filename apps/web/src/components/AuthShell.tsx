@@ -47,13 +47,6 @@ export default function AuthShell({
             style={{ background: 'radial-gradient(circle, #c9982f 0%, transparent 70%)' }}
           />
           <div className="absolute inset-y-0 left-[16%] right-0 flex flex-col justify-center p-10 xl:p-14">
-            {/* On a light chip: the emblem's navy would otherwise disappear into the deep green. */}
-            <span className="mb-6 flex items-center gap-2.5">
-              <span className="grid place-items-center w-9 h-9 rounded-lg bg-paper/95 shrink-0">
-                <img src="/brand/klasio-emblem.png" alt="" aria-hidden className="w-7 h-7" />
-              </span>
-              <span className="font-display text-paper text-lg leading-none">Klasio</span>
-            </span>
             <h2 className="font-display text-paper text-4xl xl:text-[2.75rem] leading-[1.08]">
               The school office, <em className="text-gold not-italic">beautifully</em> in order.
             </h2>
@@ -71,6 +64,20 @@ export default function AuthShell({
           underneath the green and clips it.
         */}
         <section className="relative p-8 sm:p-12 lg:w-[45%] lg:pr-0 lg:py-16 lg:pl-14">
+          {/*
+            The full lockup, on the white half. It carries its own wordmark and tagline, so it
+            replaces the emblem-and-text pair that used to sit on the green panel — repeating the
+            name on both halves said it twice.
+
+            The artwork has a transparent background but was keyed off a white one, so solid areas
+            are ~90% opaque and it is built to sit on white. Do not move it onto the green panel
+            without re-cutting it: it would read as washed out rather than obviously wrong.
+          */}
+          <img
+            src="/brand/klasio-lockup.png"
+            alt="Klasio — School Management System"
+            className="h-14 sm:h-16 w-auto mb-8 sm:mb-10"
+          />
           <h1 className="font-display text-3xl sm:text-[2.5rem] leading-tight text-ink">{title}</h1>
           {subtitle && (
             <p className="mt-3 max-w-sm text-[15px] leading-relaxed text-oat">{subtitle}</p>
