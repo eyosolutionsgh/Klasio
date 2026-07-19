@@ -5,6 +5,8 @@ import {
   ForbiddenException,
   Get,
   GoneException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Module,
   NotFoundException,
@@ -18,6 +20,7 @@ import * as bcrypt from 'bcryptjs';
 import { PrismaService, withTenant } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, Public, signToken } from '../common/auth';
 import { BCRYPT_ROUNDS, publicToken } from '../common/crypto';
+import { lockRemainingMs, lockWaitMinutes, nextFailure } from '../common/login-throttle';
 import { entitlementsForTier } from '../common/entitlements';
 import { ROLE_PRESETS, sanitizePermissions } from '../common/permissions';
 import { hashInviteToken } from '../platform/platform.module';
@@ -46,6 +49,11 @@ class RegisterDto {
  * Not unique on its own — "St. Mary's" is a great many schools — so the caller adds a suffix
  * until the insert succeeds.
  */
+/** At most one housekeeping sweep of `LoginThrottle` an hour, per API process. */
+const SWEEP_INTERVAL_MS = 60 * 60_000;
+/** A row quiet for this long has nothing left to say — every lock is far shorter. */
+const SWEEP_AFTER_MS = 24 * 60 * 60_000;
+
 function slugStem(name: string): string {
   const stem = name
     .toLowerCase()
@@ -201,6 +209,7 @@ export class AuthService {
       role: 'OWNER',
       tier: school.tier,
       name: user.name,
+      tokenVersion: 0,
     };
     return {
       token: signToken(payload),
@@ -209,15 +218,77 @@ export class AuthService {
     };
   }
 
+  /**
+   * Shut the door on an address that has just guessed wrong.
+   *
+   * Recorded for addresses that have no account too — see the note on `LoginThrottle`. The
+   * failure is stored before the caller is refused, so a client that hangs up early still pays
+   * for the attempt.
+   */
+  private async recordFailure(email: string) {
+    const now = new Date();
+    const existing = await this.db.system.loginThrottle.findUnique({ where: { email } });
+    const next = nextFailure(existing, now);
+    await this.db.system.loginThrottle.upsert({
+      where: { email },
+      create: { email, ...next },
+      update: next,
+    });
+    await this.sweepSettledThrottles(now);
+  }
+
+  /**
+   * Drop rows that have been quiet for a day.
+   *
+   * An address that eventually signs in clears its own row, but one that never does — a spray of
+   * invented addresses — leaves a row behind for each. Attached to the failure path because that
+   * is exactly the traffic that grows the table, and rate-limited in process so a flood does not
+   * turn one delete per attempt into its own load problem. Best-effort: this is housekeeping, and
+   * a sign-in must not fail because it could not be done.
+   */
+  private lastSweep = 0;
+  private async sweepSettledThrottles(now: Date) {
+    if (now.getTime() - this.lastSweep < SWEEP_INTERVAL_MS) return;
+    this.lastSweep = now.getTime();
+    await this.db.system.loginThrottle
+      .deleteMany({ where: { updatedAt: { lt: new Date(now.getTime() - SWEEP_AFTER_MS) } } })
+      .catch(() => undefined);
+  }
+
   async login(dto: LoginDto) {
+    const email = dto.email.toLowerCase();
+
+    /**
+     * Checked before the password is, and before the account is even looked up.
+     *
+     * Doing the bcrypt comparison first would mean an attacker still gets the server to burn a
+     * hash on every guess, which is most of what makes a flood expensive to serve.
+     */
+    const throttle = await this.db.system.loginThrottle.findUnique({ where: { email } });
+    const remaining = lockRemainingMs(throttle, new Date());
+    if (remaining > 0) {
+      throw new HttpException(
+        `Too many sign-in attempts. Try again in ${lockWaitMinutes(remaining)} minute(s), ` +
+          'or ask someone at your school with staff access to reset your password.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
     // Sign-in has no tenant yet — an email identifies a person across every school — so this
     // is one of the few deliberate uses of the unscoped client.
-    const user = await this.db.system.user.findUnique({
-      where: { email: dto.email.toLowerCase() },
-    });
-    if (!user || !user.active) throw new UnauthorizedException('Invalid email or password');
+    const user = await this.db.system.user.findUnique({ where: { email } });
+    if (!user || !user.active) {
+      await this.recordFailure(email);
+      throw new UnauthorizedException('Invalid email or password');
+    }
     const ok = await bcrypt.compare(dto.password, user.passwordHash);
-    if (!ok) throw new UnauthorizedException('Invalid email or password');
+    if (!ok) {
+      await this.recordFailure(email);
+      throw new UnauthorizedException('Invalid email or password');
+    }
+    // Proving the password clears the slate, so yesterday's fumbles never combine with today's.
+    // Also how these rows are reaped: every address that ever signs in cleans up after itself.
+    if (throttle) await this.db.system.loginThrottle.delete({ where: { email } }).catch(() => {});
     // From here on the school is known, so everything runs inside its tenant scope — the
     // request has no principal yet, so nothing else would put one there.
     // A scheduled downgrade whose paid period has ended is applied before the tier is read, not
@@ -248,6 +319,7 @@ export class AuthService {
         role: user.role,
         tier: school.tier,
         name: user.name,
+        tokenVersion: user.tokenVersion,
       };
       await this.db.audit(user.schoolId, user.id, 'auth.login', 'User', user.id);
       return {

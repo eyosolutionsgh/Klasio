@@ -24,7 +24,7 @@ import { FeesModule, FeesService } from '../fees/fees.module';
 import { PaymentsModule, PaymentsService } from '../payments/payments.module';
 import { CalendarModule, CalendarService } from '../calendar/calendar.module';
 import { ResourcesModule, ResourcesService, ResourceScope } from '../resources/resources.module';
-import { Public } from '../common/auth';
+import { Public, jwtSecret } from '../common/auth';
 import { maskMsisdn, normalizeMsisdn } from '../common/phone';
 import { reportCardPdf, ReportCardData } from '../common/pdf';
 import { balanceOf } from '../common/ledger';
@@ -37,8 +37,6 @@ const OTP_RESEND_COOLDOWN_SECONDS = 60;
 const OTP_MAX_PER_HOUR = 5;
 /** Guardians pay per SMS, so a long session avoids charging them to re-authenticate weekly. */
 const SESSION_DAYS = 30;
-
-const JWT_SECRET = () => process.env.JWT_SECRET ?? 'dev-secret-do-not-use-in-prod';
 
 /**
  * A guardian session. `kind` keeps it strictly separate from a staff token — the staff guard
@@ -65,7 +63,7 @@ export class GuardianGuard implements CanActivate {
     if (!token) throw new UnauthorizedException('Missing token');
     let payload: GuardianUser;
     try {
-      payload = jwt.verify(token, JWT_SECRET()) as GuardianUser;
+      payload = jwt.verify(token, jwtSecret()) as GuardianUser;
     } catch {
       throw new UnauthorizedException('Invalid or expired token');
     }
@@ -244,7 +242,7 @@ export class GuardianService {
     };
     await this.db.audit(guardian.schoolId, null, 'guardian.login', 'Guardian', guardian.id);
     return {
-      token: jwt.sign(payload, JWT_SECRET(), { expiresIn: `${SESSION_DAYS}d` }),
+      token: jwt.sign(payload, jwtSecret(), { expiresIn: `${SESSION_DAYS}d` }),
       guardian: { name: payload.name },
     };
   }

@@ -21,7 +21,7 @@ import * as jwt from 'jsonwebtoken';
 import * as bcrypt from 'bcryptjs';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, Public, RequirePermission } from '../common/auth';
+import { AuthUser, CurrentUser, Public, RequirePermission, jwtSecret } from '../common/auth';
 import { CalendarModule, CalendarService } from '../calendar/calendar.module';
 import { ResourcesModule, ResourcesService, ResourceScope } from '../resources/resources.module';
 import { balanceOf } from '../common/ledger';
@@ -56,7 +56,7 @@ export class StudentGuard implements CanActivate {
     const header: string | undefined = req.headers.authorization;
     if (!header?.startsWith('Bearer ')) throw new UnauthorizedException('Sign in to continue');
     try {
-      const payload = jwt.verify(header.slice(7), process.env.JWT_SECRET ?? 'dev-secret') as
+      const payload = jwt.verify(header.slice(7), jwtSecret()) as
         (StudentUser & { kind?: string }) | undefined;
       if (!payload || payload.kind !== 'student') {
         throw new UnauthorizedException('Not a student session');
@@ -192,7 +192,7 @@ export class StudentPortalService {
       kind: 'student',
       name: `${student.firstName} ${student.lastName}`,
     };
-    const token = jwt.sign(payload, process.env.JWT_SECRET ?? 'dev-secret', {
+    const token = jwt.sign(payload, jwtSecret(), {
       expiresIn: `${SESSION_DAYS}d`,
     });
     return { token, student: { name: payload.name, school: student.school.name } };

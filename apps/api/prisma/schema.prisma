@@ -217,12 +217,46 @@ model User {
   extraPermissions   String[] @default([])
   revokedPermissions String[] @default([])
   active       Boolean  @default(true)
+  /// Bumped to invalidate every token already issued to this person.
+  ///
+  /// Tokens live 12 hours and there is no session table to delete from, so before this a changed
+  /// password did nothing to the sessions that password had already opened — the whole point of
+  /// changing it after a laptop goes missing. The guard compares this against the claim in the
+  /// token on the lookup it already performs, so revocation costs no extra query.
+  ///
+  /// Existing tokens carry no claim at all; those read as 0 and so match the default, which is
+  /// why shipping this does not sign out every school at once.
+  tokenVersion Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   @@index([schoolId])
 
   timetableSlots TimetableSlot[]
+}
+
+/// Failed sign-in attempts, so a password cannot be guessed at machine speed.
+///
+/// Keyed by the address **as typed**, not by a user row, and written for addresses with no
+/// account as readily as for real ones. That is deliberate: the lockout reply below names the
+/// wait, and if only real accounts could reach it the message would become a perfectly reliable
+/// account-existence oracle — undoing the care taken to keep "Invalid email or password" vague.
+///
+/// Not tenant-owned. Sign-in happens before any school is known, so this is reached through the
+/// system client, and RLS is left on with no policy so the app role can never read it.
+model LoginThrottle {
+  email         String    @id
+  failedCount   Int       @default(0)
+  /// Start of the current counting window. Failures older than the window do not accumulate —
+  /// a teacher who fumbles their password twice a month is not on their way to a lockout.
+  firstFailedAt DateTime  @default(now())
+  lockedUntil   DateTime?
+  updatedAt     DateTime  @updatedAt
+
+  /// For the sweep of settled rows. Addresses that eventually sign in delete their own row, but
+  /// an address that never does — which is what a spray of invented addresses looks like — would
+  /// otherwise sit here forever.
+  @@index([updatedAt])
 }
 
 /// A named bundle of permissions, owned and editable by the school.

@@ -22,6 +22,14 @@ export interface AuthUser {
   tier: Tier;
   name: string;
   /**
+   * The value of `User.tokenVersion` when this token was signed.
+   *
+   * Optional only for tokens issued before the column existed; those read as 0 and match the
+   * default, so deploying this does not sign everybody out. Every token signed from now on
+   * carries it.
+   */
+  tokenVersion?: number;
+  /**
    * Resolved fresh on every request, never carried in the token.
    *
    * Tokens live 12 hours. A permission taken away has to bite now, not at the end of the day —
@@ -31,10 +39,32 @@ export interface AuthUser {
   permissions?: string[];
 }
 
-const JWT_SECRET = () => process.env.JWT_SECRET ?? 'dev-secret-do-not-use-in-prod';
+/**
+ * The key every school session is signed with.
+ *
+ * Refused outright in production rather than falling back, for the same reason
+ * `PLATFORM_JWT_SECRET` is: the fallback string is public in this repository, so a deployment
+ * that forgot the variable is not merely using a weak key — it is using a key anyone reading
+ * the source already has. With it, a forged token naming any `schoolId` and the OWNER role
+ * passes verification, and every check downstream of this file is decoration. Booting is the
+ * wrong moment to be forgiving.
+ *
+ * Exported because guardian and student sessions are signed with the same key. They each had
+ * their own copy of this line and the fallbacks had drifted — `'dev-secret'` in the student
+ * portal against `'dev-secret-do-not-use-in-prod'` here — so on a bare checkout a staff token
+ * and a student token could not be verified by each other's guard.
+ */
+export const jwtSecret = () => {
+  const secret = process.env.JWT_SECRET;
+  if (secret) return secret;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET must be set — it signs every school session.');
+  }
+  return 'dev-secret-do-not-use-in-prod';
+};
 
 export function signToken(payload: AuthUser): string {
-  return jwt.sign(payload, JWT_SECRET(), { expiresIn: '12h' });
+  return jwt.sign(payload, jwtSecret(), { expiresIn: '12h' });
 }
 
 export const Public = () => SetMetadata('isPublic', true);
@@ -86,7 +116,7 @@ export class AuthGuard implements CanActivate {
     if (!token) throw new UnauthorizedException('Missing token');
     let user: AuthUser;
     try {
-      user = jwt.verify(token, JWT_SECRET()) as AuthUser;
+      user = jwt.verify(token, jwtSecret()) as AuthUser;
     } catch {
       throw new UnauthorizedException('Invalid or expired token');
     }
@@ -119,6 +149,7 @@ export class AuthGuard implements CanActivate {
           active: true,
           role: true,
           schoolId: true,
+          tokenVersion: true,
           extraPermissions: true,
           revokedPermissions: true,
           staffRole: { select: { permissions: true } },
@@ -130,6 +161,17 @@ export class AuthGuard implements CanActivate {
       }),
     );
     if (!account?.active) throw new UnauthorizedException('This account is no longer active');
+    /**
+     * A token issued before the password changed is dead.
+     *
+     * Without this, changing a password did nothing to the sessions that password had already
+     * opened — they carried on for the rest of their 12 hours. That is precisely backwards: the
+     * reason anyone changes a password in a hurry is that they believe someone else has it, and
+     * the attacker is the one already holding a live token.
+     */
+    if ((user.tokenVersion ?? 0) !== account.tokenVersion) {
+      throw new UnauthorizedException('Your password was changed. Please sign in again.');
+    }
     if (account.school?.suspendedAt) {
       throw new ForbiddenException(
         account.school.suspendedReason

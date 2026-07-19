@@ -71,8 +71,19 @@ export default function ProfilePage() {
     setBusy(false);
     const d = await res.json().catch(() => ({}));
     setPwError(!res.ok);
-    setPwNote(res.ok ? 'Password changed.' : (d.message ?? 'Could not change your password.'));
-    if (res.ok) form.reset();
+    if (!res.ok) {
+      setPwNote(d.message ?? 'Could not change your password.');
+      return;
+    }
+    form.reset();
+    /**
+     * Changing the password ends every session it had opened — this one included, since the API
+     * cannot tell this browser apart from any other. Say so and go to the sign-in page, rather
+     * than leaving them on a page whose next click would fail with an expired session.
+     */
+    setPwNote('Password changed. Signing you out of every device — please sign in again.');
+    await fetch('/api/session', { method: 'DELETE' });
+    setTimeout(() => router.replace('/login'), 1800);
   }
 
   if (!me) return <p className="text-sm text-oat">Loading…</p>;

@@ -225,13 +225,23 @@ export class UsersService {
     return user;
   }
 
-  /** Issue a fresh temporary password — returned once, stored hashed. */
+  /**
+   * Issue a fresh temporary password — returned once, stored hashed.
+   *
+   * Also ends every session the target already has. This is the button a head reaches for when
+   * a member of staff has left or an account is believed compromised, and leaving the existing
+   * sessions running would have made it almost ceremonial: the person whose access you just
+   * revoked keeps it until their token expires.
+   */
   async resetPassword(auth: AuthUser, id: string) {
     const target = await this.loadTarget(auth, id);
     const plain = tempPassword();
     await this.db.user.update({
       where: { id: target.id },
-      data: { passwordHash: await bcrypt.hash(plain, BCRYPT_ROUNDS) },
+      data: {
+        passwordHash: await bcrypt.hash(plain, BCRYPT_ROUNDS),
+        tokenVersion: { increment: 1 },
+      },
     });
     await this.db.audit(auth.schoolId, auth.sub, 'user.resetPassword', 'User', id);
     return { id: target.id, email: target.email, temporaryPassword: plain };
@@ -272,12 +282,24 @@ export class UsersService {
     if (dto.currentPassword === dto.newPassword) {
       throw new BadRequestException('The new password must be different');
     }
+    /**
+     * Every session ends, including the one making this request.
+     *
+     * There is no session table and no `jti`, so there is no way to spare this browser while
+     * killing the others — and of the two, killing everything is the behaviour that matches why
+     * people change passwords in a hurry. Signing the caller back in from here would mean
+     * handing a fresh token to client-side JavaScript, which is exactly what the httpOnly cookie
+     * exists to avoid, so the caller is told to sign in again instead.
+     */
     await this.db.user.update({
       where: { id: auth.sub },
-      data: { passwordHash: await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS) },
+      data: {
+        passwordHash: await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS),
+        tokenVersion: { increment: 1 },
+      },
     });
     await this.db.audit(auth.schoolId, auth.sub, 'user.self.password', 'User', auth.sub);
-    return { ok: true };
+    return { ok: true, signedOut: true };
   }
 }
 

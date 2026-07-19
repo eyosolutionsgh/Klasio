@@ -54,7 +54,7 @@ import { publicToken } from '../common/crypto';
  * bug report — can be re-signed with a fresh expiry forever. There is no jti and no session
  * table to revoke against, so the only defence is that the key is actually secret.
  */
-const PLATFORM_JWT_SECRET = () => {
+export const platformJwtSecret = () => {
   const secret = process.env.PLATFORM_JWT_SECRET;
   if (secret) return secret;
   if (process.env.NODE_ENV === 'production') {
@@ -77,7 +77,7 @@ export interface PlatformUser {
 }
 
 export function signPlatformToken(payload: PlatformUser): string {
-  return jwt.sign(payload, PLATFORM_JWT_SECRET(), { expiresIn: SESSION });
+  return jwt.sign(payload, platformJwtSecret(), { expiresIn: SESSION });
 }
 
 /** Invitation tokens are stored hashed; the plaintext is shown once and never again. */
@@ -101,7 +101,7 @@ export class PlatformGuard implements CanActivate {
 
     let payload: PlatformUser;
     try {
-      payload = jwt.verify(token, PLATFORM_JWT_SECRET()) as PlatformUser;
+      payload = jwt.verify(token, platformJwtSecret()) as PlatformUser;
     } catch {
       throw new UnauthorizedException('Invalid or expired token');
     }
