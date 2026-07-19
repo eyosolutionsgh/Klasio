@@ -19,7 +19,12 @@ export interface Branding {
   motto: string | null;
   brandColor: string | null;
   hasLogo: boolean;
+  /** Sign-in pages the school has put its own photograph on. Everything else uses the default. */
+  photoSlots: BrandPhotoSlot[];
 }
+
+/** One per sign-in door, plus GENERAL for the pages nobody arrives at on purpose. */
+export type BrandPhotoSlot = 'STAFF' | 'FAMILY' | 'STUDENT' | 'GENERAL';
 
 const FALLBACK: Branding = {
   configured: false,
@@ -27,6 +32,7 @@ const FALLBACK: Branding = {
   motto: null,
   brandColor: null,
   hasLogo: false,
+  photoSlots: [],
 };
 
 const BrandContext = createContext<Branding>(FALLBACK);

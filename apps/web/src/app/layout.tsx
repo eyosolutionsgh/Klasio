@@ -26,6 +26,7 @@ const UNBRANDED: Branding = {
   motto: null,
   brandColor: null,
   hasLogo: false,
+  photoSlots: [],
 };
 
 /**
@@ -39,7 +40,10 @@ async function loadBranding(): Promise<Branding> {
   try {
     const res = await fetch(`${API_URL}/public/branding`, { next: { revalidate: 60 } });
     if (!res.ok) return UNBRANDED;
-    return (await res.json()) as Branding;
+    const data = (await res.json()) as Partial<Branding>;
+    // photoSlots defaulted rather than assumed: an older API answering this route without it
+    // should degrade to the shipped pictures, not crash every sign-in page on `.includes`.
+    return { ...UNBRANDED, ...data, photoSlots: data.photoSlots ?? [] };
   } catch {
     return UNBRANDED;
   }

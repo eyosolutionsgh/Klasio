@@ -172,10 +172,15 @@ async function main() {
    * losing the whole dataset over.
    */
   try {
-    const crest = readFileSync(join(__dirname, 'assets', 'brighton-academy-crest.png'));
-    const crestKey = objectKey(sid, 'logo', sid, 'brighton-academy-crest.png');
+    const crest = readFileSync(join(__dirname, 'assets', 'school-crest.png'));
+    const crestKey = objectKey(sid, 'logo', sid, 'school-crest.png');
     await storage().put(crestKey, crest, 'image/png');
-    await db.school.update({ where: { id: sid }, data: { logoUrl: crestKey } });
+    // logoMimeType too: the crest is served to the open internet by /public/branding/logo now,
+    // and guessing a content type there is not on.
+    await db.school.update({
+      where: { id: sid },
+      data: { logoUrl: crestKey, logoMimeType: 'image/png' },
+    });
   } catch (e) {
     console.warn('Could not install the demo crest, continuing without it:', e);
   }

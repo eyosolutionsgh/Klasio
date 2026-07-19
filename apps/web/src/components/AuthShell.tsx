@@ -3,28 +3,48 @@
 import type { ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import SchoolCrest from './SchoolCrest';
-import { useBrand } from './Brand';
+import { useBrand, type BrandPhotoSlot } from './Brand';
 
 /**
- * Which photograph each door wears, chosen by route rather than passed in.
+ * Which door this is, and what hangs behind it.
  *
- * There are fifteen `<AuthShell>` call sites across seven pages, and threading a prop through all
- * of them to express "this page is the staff one" would put art direction into pages that are
- * otherwise entirely about forms. The route already says which door this is.
+ * Chosen by route rather than passed in: there are fifteen `<AuthShell>` call sites across seven
+ * pages, and threading a prop through all of them to say "this is the staff one" would put art
+ * direction into pages that are otherwise entirely about forms. The route already knows.
  *
- * Both images are CC0 and neither shows an identifiable child — see public/photos/LICENSES.md,
- * which explains why that is a rule rather than a coincidence.
+ * Each slot has a picture the product ships and a picture the school may upload instead. The
+ * shipped ones are CC0 and show no identifiable child — see public/photos/LICENSES.md, which
+ * explains why that is a rule and not a coincidence. A school's own photograph of its own
+ * building is better than any of them, which is the point of letting them replace it.
  */
-const PHOTOS: { match: (p: string) => boolean; src: string; srcSet: string }[] = [
+const DOORS: {
+  match: (p: string) => boolean;
+  slot: BrandPhotoSlot;
+  src: string;
+  srcSet: string;
+}[] = [
   {
-    // Guardians, students, and anyone recovering an account: the quieter of the two.
-    match: (p) => p.startsWith('/family') || p.startsWith('/student') || p.includes('password'),
+    match: (p) => p.startsWith('/family'),
+    slot: 'FAMILY',
     src: '/photos/auth/courtyard-800.webp',
     srcSet: '/photos/auth/courtyard-800.webp 800w, /photos/auth/courtyard-1400.webp 1400w',
   },
   {
-    // Staff, first-run setup and the public application form.
+    match: (p) => p.startsWith('/student'),
+    slot: 'STUDENT',
+    src: '/photos/auth/courtyard-800.webp',
+    srcSet: '/photos/auth/courtyard-800.webp 800w, /photos/auth/courtyard-1400.webp 1400w',
+  },
+  {
+    // Password reset and first-run setup — pages nobody arrives at on purpose.
+    match: (p) => p.includes('password') || p.startsWith('/setup'),
+    slot: 'GENERAL',
+    src: '/photos/auth/courtyard-800.webp',
+    srcSet: '/photos/auth/courtyard-800.webp 800w, /photos/auth/courtyard-1400.webp 1400w',
+  },
+  {
     match: () => true,
+    slot: 'STAFF',
     src: '/photos/auth/schoolyard-800.webp',
     srcSet: '/photos/auth/schoolyard-800.webp 800w, /photos/auth/schoolyard-1400.webp 1400w',
   },
@@ -67,7 +87,17 @@ export default function AuthShell({
 }) {
   const brand = useBrand();
   const pathname = usePathname() ?? '';
-  const photo = PHOTOS.find((p) => p.match(pathname))!;
+  const door = DOORS.find((d) => d.match(pathname))!;
+  /*
+    The school's own picture wins when it has uploaded one for this door. Decided from the slot
+    list rather than by trying the URL and handling a 404, so the shipped default is never
+    requested and then thrown away — and so a school that has replaced nothing costs no extra
+    request at all.
+  */
+  const usesOwn = brand.photoSlots.includes(door.slot);
+  const photo = usesOwn
+    ? { src: `/api/branding/photo/${door.slot}`, srcSet: undefined }
+    : { src: door.src, srcSet: door.srcSet };
   // A box that has not been set up yet genuinely has no school, and the setup page is the one
   // that runs there. Naming the product is the honest answer rather than an empty heading.
   const schoolName = brand.name ?? 'Klasio';
@@ -180,16 +210,22 @@ export default function AuthShell({
           {/*
             Klasio signs the card, quietly.
 
-            The emblem rather than the full lockup: the lockup carries its own wordmark and tagline
-            and was built to be the loudest thing on the page, which is precisely what it should no
-            longer be. Both stay on the white half — the artwork was keyed off white, so its solid
-            areas are only ~90% opaque and it washes out on the navy panel rather than failing
-            obviously enough to notice.
+            The full lockup, which already carries its own wordmark — setting the emblem beside the
+            word "Klasio" said the name twice, once as artwork and once as text. Size is what makes
+            it a signature rather than a second brand: it led these pages at 56px and now sits at
+            24, under the school's 80px crest.
+
+            It stays on the white half. The artwork was keyed off a white background, so its solid
+            areas are only ~90% opaque; on the navy panel it washes out rather than failing
+            obviously enough for anyone to notice.
           */}
-          <p className="mt-10 flex items-center gap-2 text-[12px] text-oat/70">
+          <p className="mt-10 flex items-center gap-2.5 text-[12px] text-oat/70">
             <span>Powered by</span>
-            <img src="/brand/klasio-emblem.png" alt="Klasio" className="h-5 w-auto" />
-            <span className="font-medium text-oat">Klasio</span>
+            <img
+              src="/brand/klasio-lockup.png"
+              alt="Klasio — School Management System"
+              className="h-6 w-auto"
+            />
           </p>
         </section>
       </div>

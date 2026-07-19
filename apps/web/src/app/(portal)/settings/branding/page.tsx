@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, useAsyncAction } from '@/components/Button';
 import { SaveIcon, TrashIcon, UploadIcon } from '@/components/icons';
+import SignInPhotos from '@/components/SignInPhotos';
 
 interface Profile {
   name: string;
@@ -321,6 +322,13 @@ export default function BrandingPage() {
           {error && note && <span className="text-sm text-danger">{note}</span>}
         </div>
       </form>
+
+      {/*
+        Outside the form on purpose: a picture upload takes effect the moment it succeeds, so
+        putting it inside something with a Save button would promise a save that had already
+        happened.
+      */}
+      <SignInPhotos />
     </div>
   );
 }

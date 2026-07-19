@@ -26,6 +26,7 @@ import {
   Logger,
   Module,
   NotFoundException,
+  Param,
   OnModuleInit,
   Post,
   StreamableFile,
@@ -37,7 +38,7 @@ import { PrismaService, withTenant } from '../prisma/prisma.service';
 import { Public, signToken, type AuthUser } from '../common/auth';
 import { BCRYPT_ROUNDS, publicToken } from '../common/crypto';
 import { ROLE_PRESETS, sanitizePermissions } from '../common/permissions';
-import { rememberSchoolId, singletonSchool } from '../common/school-context';
+import { rememberSchoolId, singletonSchool, singletonSchoolId } from '../common/school-context';
 import { storage } from '../common/storage';
 import { LicenceService } from '../licence/licence.service';
 
@@ -233,6 +234,14 @@ export class PublicController {
   async branding() {
     const school = await singletonSchool(this.db);
     if (!school) return { configured: false, needsSetup: true, name: null };
+    // Which sign-in pages this school has put its own photograph on. Slots only: the pages need
+    // to know whether to ask for the school's picture or fall back to the one we ship, and that
+    // is the whole of it.
+    const photos = await this.db.system.brandPhoto.findMany({
+      where: { schoolId: school.id },
+      select: { slot: true },
+    });
+
     return {
       configured: true,
       needsSetup: false,
@@ -240,6 +249,7 @@ export class PublicController {
       motto: school.motto,
       brandColor: school.brandColor,
       hasLogo: school.hasLogo,
+      photoSlots: photos.map((p) => p.slot),
     };
   }
 
@@ -264,6 +274,25 @@ export class PublicController {
     // The stored type, not a guess. This route serves the open internet, where sniffing a jpeg
     // sent as image/png is the browser being forgiving rather than us being correct.
     return new StreamableFile(buf, { type: school.logoMimeType ?? 'image/png' });
+  }
+
+  /**
+   * A sign-in photograph, to anyone who asks.
+   *
+   * Same carve-out as the crest above, and the same narrowness: this is imagery the school
+   * deliberately chose to show the public on its own front door. A slot the school has not set
+   * 404s, and the page falls back to the picture the product ships with.
+   */
+  @Public()
+  @Get('branding/photo/:slot')
+  async photo(@Param('slot') slot: string) {
+    const schoolId = await singletonSchoolId(this.db);
+    if (!schoolId) throw new NotFoundException('Not found');
+    const photo = await this.db.system.brandPhoto.findFirst({
+      where: { schoolId, slot: slot.toUpperCase() as never },
+    });
+    if (!photo) throw new NotFoundException('Not found');
+    return new StreamableFile(await storage().get(photo.key), { type: photo.mimeType });
   }
 
   @Public()

@@ -1640,3 +1640,42 @@ model SocialPost {
   @@unique([broadcastId, accountId])
   @@index([schoolId, status])
 }
+
+/// Which sign-in page a photograph belongs to.
+///
+/// One per door, so a school can show guardians its gate at closing time and staff its office,
+/// rather than one picture doing for everybody. GENERAL covers the pages nobody arrives at on
+/// purpose — password reset, first-run setup — where a neutral image is right.
+enum BrandPhotoSlot {
+  STAFF
+  FAMILY
+  STUDENT
+  GENERAL
+}
+
+/// A photograph the school chose for one of its sign-in pages.
+///
+/// The product ships CC0 defaults (apps/web/public/photos) so a fresh install looks finished, but
+/// those are stock pictures of somebody else's school. Anything here overrides them, and a school
+/// removing its upload falls back to the default rather than to an empty panel.
+///
+/// Served unauthenticated by GET /public/branding/photo/:slot, alongside the crest and for the
+/// same reason: a sign-in page has to render before anyone has a session. See the carve-out note
+/// in common/storage.ts — this is institutional imagery the school chose to show the public, not
+/// anything about a child.
+model BrandPhoto {
+  id       String         @id @default(cuid())
+  schoolId String
+  slot     BrandPhotoSlot
+
+  key       String
+  filename  String
+  mimeType  String
+  sizeBytes Int
+
+  uploadedById String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([schoolId, slot])
+}

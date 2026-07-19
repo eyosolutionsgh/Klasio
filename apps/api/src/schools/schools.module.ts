@@ -27,7 +27,26 @@ import {
   Matches,
   MinLength,
 } from 'class-validator';
-import { LevelCategory, ReportTemplate } from '@prisma/client';
+import { BrandPhotoSlot, LevelCategory, ReportTemplate } from '@prisma/client';
+
+/**
+ * The sign-in pages a school may put its own photograph on.
+ *
+ * Validated here rather than with a DTO because the slot rides in the path, not the body — and an
+ * unchecked value would reach Prisma as an enum it does not know, producing a 500 where the honest
+ * answer is "that is not one of the pages".
+ */
+const PHOTO_SLOTS: BrandPhotoSlot[] = ['STAFF', 'FAMILY', 'STUDENT', 'GENERAL'];
+
+function assertSlot(raw: string): BrandPhotoSlot {
+  const slot = raw.toUpperCase() as BrandPhotoSlot;
+  if (!PHOTO_SLOTS.includes(slot)) {
+    throw new BadRequestException(
+      `Unknown page "${raw}" — expected one of ${PHOTO_SLOTS.join(', ')}`,
+    );
+  }
+  return slot;
+}
 import { FileInterceptor } from '@nestjs/platform-express';
 import { PrismaService } from '../prisma/prisma.service';
 import { checkTemplate, previewAdmissionNo } from '../common/admission-no';
@@ -288,6 +307,83 @@ export class SchoolsService {
       data: { logoUrl: null, logoMimeType: null },
     });
     await this.db.audit(auth.schoolId, auth.sub, 'school.logo.remove', 'School', auth.schoolId);
+    return { ok: true };
+  }
+
+  // ── Sign-in page photographs ───────────────────────────────────────
+
+  /**
+   * Which slots this school has replaced.
+   *
+   * Returns the slots only, never the keys: a storage key is not a secret but it is not the
+   * school's business either, and the settings screen only needs to know whether to say "Default"
+   * or "Yours".
+   */
+  async listPhotos(auth: AuthUser) {
+    const rows = await this.db.brandPhoto.findMany({
+      where: { schoolId: auth.schoolId },
+      select: { slot: true, filename: true, updatedAt: true },
+      orderBy: { slot: 'asc' },
+    });
+    return rows;
+  }
+
+  /**
+   * Replace the picture on one sign-in page.
+   *
+   * An upsert on `(schoolId, slot)`, and the old object is deleted after the new one is written —
+   * in that order, so a failed upload leaves the school with the picture it already had rather
+   * than with nothing.
+   */
+  async uploadPhoto(auth: AuthUser, slot: BrandPhotoSlot, file: UploadedFileLike) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    if (!IMAGE_TYPES.includes(file.mimetype)) {
+      throw new BadRequestException('The picture must be a JPEG, PNG or WebP image');
+    }
+    if (file.size > MAX_UPLOAD_BYTES) throw new BadRequestException('That image is too large');
+
+    const existing = await this.db.brandPhoto.findUnique({
+      where: { schoolId_slot: { schoolId: auth.schoolId, slot } },
+    });
+
+    const key = objectKey(auth.schoolId, 'brand-photo', slot, file.originalname);
+    await storage().put(key, file.buffer, file.mimetype);
+
+    const data = {
+      key,
+      filename: file.originalname,
+      mimeType: file.mimetype,
+      sizeBytes: file.size,
+      uploadedById: auth.sub,
+    };
+    await this.db.brandPhoto.upsert({
+      where: { schoolId_slot: { schoolId: auth.schoolId, slot } },
+      create: { schoolId: auth.schoolId, slot, ...data },
+      update: data,
+    });
+
+    // Only once the row points at the new object. A storage delete that fails is not worth
+    // failing the request over — it leaves an orphan, not a broken page.
+    if (existing)
+      await storage()
+        .delete(existing.key)
+        .catch(() => undefined);
+
+    await this.db.audit(auth.schoolId, auth.sub, 'school.photo.upload', 'BrandPhoto', slot);
+    return { ok: true, slot };
+  }
+
+  /** Put a slot back to the picture the product ships with. */
+  async removePhoto(auth: AuthUser, slot: BrandPhotoSlot) {
+    const existing = await this.db.brandPhoto.findUnique({
+      where: { schoolId_slot: { schoolId: auth.schoolId, slot } },
+    });
+    if (!existing) throw new NotFoundException('No picture set for that page');
+    await this.db.brandPhoto.delete({ where: { id: existing.id } });
+    await storage()
+      .delete(existing.key)
+      .catch(() => undefined);
+    await this.db.audit(auth.schoolId, auth.sub, 'school.photo.remove', 'BrandPhoto', slot);
     return { ok: true };
   }
 
@@ -586,6 +682,29 @@ export class SchoolsController {
   @RequirePermission('school.branding')
   removeLogo(@CurrentUser() user: AuthUser) {
     return this.svc.removeLogo(user);
+  }
+
+  @Get('photos')
+  @RequirePermission('school.branding')
+  listPhotos(@CurrentUser() user: AuthUser) {
+    return this.svc.listPhotos(user);
+  }
+
+  @Post('photos/:slot')
+  @RequirePermission('school.branding')
+  @UseInterceptors(FileInterceptor('file'))
+  uploadPhoto(
+    @CurrentUser() user: AuthUser,
+    @Param('slot') slot: string,
+    @UploadedFile() file: UploadedFileLike,
+  ) {
+    return this.svc.uploadPhoto(user, assertSlot(slot), file);
+  }
+
+  @Delete('photos/:slot')
+  @RequirePermission('school.branding')
+  removePhoto(@CurrentUser() user: AuthUser, @Param('slot') slot: string) {
+    return this.svc.removePhoto(user, assertSlot(slot));
   }
 
   @Post('years')
