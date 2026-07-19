@@ -342,7 +342,7 @@ export default function Sidebar({
       <div className="accent-rule-gold h-[3px]" />
       <div className="px-5 pt-6 pb-5 border-b border-paper/10 flex items-start justify-between gap-2">
         <div className="min-w-0 flex items-center gap-3">
-          <SchoolCrest name={school} hasLogo={hasLogo} size={38} onDark />
+          <SchoolCrest name={school} hasLogo={hasLogo} size={52} onDark />
           <div className="min-w-0">
             <p className="text-[13px] font-medium leading-tight">{school}</p>
             {/* Where you are, next to whose school it is. The vendor's mark has moved to the
