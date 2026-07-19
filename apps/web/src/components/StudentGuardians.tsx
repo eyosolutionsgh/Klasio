@@ -11,8 +11,17 @@ export interface GuardianLink {
   phone: string;
   relationship: string;
   isPrimary: boolean;
-  canPickup: boolean;
-  custodyFlag: string;
+  /**
+   * Custody and collection are permission-gated, so these are **absent** — not false, not "NONE" —
+   * for a caller without `students.guardians` or `pickup.view`. A bursar gets a guardian's name
+   * and relationship and nothing about who may collect the child.
+   *
+   * Optional in the type for that reason: read as required, `g.custodyFlag !== 'NONE'` is true for
+   * `undefined` and the next line calls `.toLowerCase()` on it, which took the whole student page
+   * down for every bursar.
+   */
+  canPickup?: boolean;
+  custodyFlag?: string;
   whatsappOptIn: boolean;
   /** Other students who share this guardian record. */
   alsoGuardianTo: number;
@@ -263,7 +272,7 @@ export default function StudentGuardians({
                 </div>
                 <select
                   name="custodyFlag"
-                  defaultValue={g.custodyFlag}
+                  defaultValue={g.custodyFlag ?? 'NONE'}
                   className={`${field} w-full`}
                 >
                   {CUSTODY.map((c) => (
@@ -274,8 +283,8 @@ export default function StudentGuardians({
                 </select>
                 <div className="flex flex-wrap gap-4 text-[13px]">
                   <label className="flex items-center gap-2">
-                    <input type="checkbox" name="canPickup" defaultChecked={g.canPickup} /> Can pick
-                    up
+                    <input type="checkbox" name="canPickup" defaultChecked={g.canPickup ?? false} />{' '}
+                    Can pick up
                   </label>
                   <label className="flex items-center gap-2">
                     <input type="checkbox" name="isPrimary" defaultChecked={g.isPrimary} /> Primary
@@ -340,30 +349,37 @@ export default function StudentGuardians({
                   Edit
                 </Button>
               </div>
-              <span
-                data-tip={
-                  g.custodyFlag === 'BLOCKED'
-                    ? 'Blocked — must not collect this child or see their records'
-                    : g.custodyFlag === 'RESTRICTED'
-                      ? 'Restricted — check with the head before release'
+              {/*
+                Nothing at all when the viewer may not see custody. Saying "Cannot collect" to
+                someone who simply has not been told would be worse than silence — it reads as a
+                fact about the guardian rather than about the reader's permissions.
+              */}
+              {g.custodyFlag !== undefined && (
+                <span
+                  data-tip={
+                    g.custodyFlag === 'BLOCKED'
+                      ? 'Blocked — must not collect this child or see their records'
+                      : g.custodyFlag === 'RESTRICTED'
+                        ? 'Restricted — check with the head before release'
+                        : g.canPickup
+                          ? 'Authorised to collect this child'
+                          : 'NOT authorised to collect'
+                  }
+                  className={`tip text-[10px] uppercase tracking-wider rounded-full px-2 py-1 shrink-0 ${
+                    g.custodyFlag !== 'NONE'
+                      ? 'bg-danger/10 text-danger'
                       : g.canPickup
-                        ? 'Authorised to collect this child'
-                        : 'NOT authorised to collect'
-                }
-                className={`tip text-[10px] uppercase tracking-wider rounded-full px-2 py-1 shrink-0 ${
-                  g.custodyFlag !== 'NONE'
-                    ? 'bg-danger/10 text-danger'
+                        ? 'bg-brand-mist text-brand'
+                        : 'bg-parchment text-oat'
+                  }`}
+                >
+                  {g.custodyFlag !== 'NONE'
+                    ? g.custodyFlag.toLowerCase()
                     : g.canPickup
-                      ? 'bg-brand-mist text-brand'
-                      : 'bg-parchment text-oat'
-                }`}
-              >
-                {g.custodyFlag !== 'NONE'
-                  ? g.custodyFlag.toLowerCase()
-                  : g.canPickup
-                    ? 'May collect ✓'
-                    : 'Cannot collect'}
-              </span>
+                      ? 'May collect ✓'
+                      : 'Cannot collect'}
+                </span>
+              )}
             </li>
           ),
         )}

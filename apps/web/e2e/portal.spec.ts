@@ -94,8 +94,10 @@ test.describe('EYO SMS portal — end-to-end', () => {
     const name = await firstStudent.textContent();
     await firstStudent.click();
     await expect(page.getByRole('heading', { name: name ?? '' })).toBeVisible();
-    await expect(page.getByText('Fee ledger')).toBeVisible();
-    await expect(page.getByText('Guardians')).toBeVisible();
+    // Headings, not free text: both phrases also appear in explanatory copy elsewhere on the
+    // page, and a bare getByText matches the prose as readily as the section it names.
+    await expect(page.getByRole('heading', { name: 'Fee ledger' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Guardians' })).toBeVisible();
     await page.screenshot({ path: `${SHOTS}/04-student-detail.png`, fullPage: true });
   });
 
@@ -108,7 +110,16 @@ test.describe('EYO SMS portal — end-to-end', () => {
     await page.locator('[role="radiogroup"]').first().getByRole('radio', { name: 'Late' }).click();
     await page.screenshot({ path: `${SHOTS}/05-attendance.png`, fullPage: true });
     await page.getByRole('button', { name: 'Save register' }).click();
-    await expect(page.getByRole('status')).toContainText('Register saved');
+    /*
+      The button carries the outcome now — `Save register → Saving… → Saved!` — and the note
+      beside it says where the register went rather than repeating that it saved. Asserting on a
+      bare getByRole('status') is ambiguous besides: every shared Button publishes its own live
+      region, so any page with two of them resolves to two.
+    */
+    await expect(page.getByRole('button', { name: 'Saved!' })).toBeVisible();
+    await expect(
+      page.getByText(/Guardians of absent children are texted|Held on this device/),
+    ).toBeVisible();
   });
 
   test('teacher edits a score and saves', async ({ page }) => {
@@ -121,21 +132,28 @@ test.describe('EYO SMS portal — end-to-end', () => {
     await page.screenshot({ path: `${SHOTS}/06-marks-entry.png`, fullPage: true });
     // Marks entry autosaves on a debounce now — there is no "Save scores" button to press, and
     // racing the debounce to click "Save now" would only be flaky.
-    await expect(page.getByRole('status')).toContainText('Scores saved', { timeout: 15_000 });
+    await expect(page.getByText(/Scores saved|Saved/).first()).toBeVisible({ timeout: 15_000 });
   });
 
   test('head generates terminal reports and views a GES terminal report', async ({ page }) => {
     await login(page, 'head@demo.school');
     await visit(page, '/reports');
-    // pick JHS 2 (has full scores) and wait for the class switch to take effect. The combobox
-    // holds the class name rather than its id, so the fetch itself is the signal.
-    await Promise.all([
-      page.waitForResponse((r) => /\/assessment\/reports\?classId=/.test(r.url())),
-      pickCombobox(page, 'Class', 'JHS 2'),
-    ]);
+    /*
+      Pick JHS 2 (it has full scores) and wait for the class switch to land.
+
+      The signal is the URL, not a response: this page is a server component, so choosing a class
+      pushes `?classId=` and the data is fetched on the server. Waiting for a browser request to
+      /assessment/reports waits for something that will never happen.
+    */
+    await pickCombobox(page, 'Class', 'JHS 2');
+    await page.waitForURL('**/reports?*classId=*');
     await page.getByRole('button', { name: 'Generate reports' }).click();
-    await expect(page.getByText(/Generated \d+ reports?/)).toBeVisible({ timeout: 20_000 });
-    await page.waitForSelector('tbody tr');
+    /*
+      The outcome is on the button now — `Generate reports → Generating… → Generated!` — since the
+      shared action labels landed. There is no longer a "Generated N reports" line to look for.
+    */
+    await expect(page.getByRole('button', { name: 'Generated!' })).toBeVisible({ timeout: 20_000 });
+    await page.waitForSelector('table tbody tr');
     await page.screenshot({ path: `${SHOTS}/07-reports-list.png`, fullPage: true });
 
     await page.getByRole('link', { name: 'View terminal report →' }).first().click();
@@ -154,13 +172,25 @@ test.describe('EYO SMS portal — end-to-end', () => {
     await page.getByRole('button', { name: 'Record payment' }).first().click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await page.getByLabel('Amount (GHS)').fill('100');
-    await page.getByRole('button', { name: 'Mobile Money' }).click();
+    /*
+      `force`, because ChoiceCards deliberately keeps the real <input type="radio"> `sr-only` —
+      present for the accessibility tree and the keyboard, but visually covered by its own label,
+      which intercepts the click. Checking the input is what the label would have done anyway.
+    */
+    await page.getByRole('radio', { name: 'Mobile Money' }).check({ force: true });
     await page.screenshot({ path: `${SHOTS}/10-payment-dialog.png` });
     await page.getByRole('button', { name: 'Record & issue receipt' }).click();
-    await expect(page.getByRole('status')).toContainText('receipt RCP-');
+    // Scoped by its text: every shared Button on the table publishes a live region of its own, so
+    // a bare getByRole('status') matches dozens. The toast is the one carrying the receipt number.
+    await expect(page.getByText(/Payment recorded — receipt RCP-/)).toBeVisible();
   });
 
-  test('head posts an announcement', async ({ page }) => {
+  /**
+   * Announcements is a broadcast composer now: one message, several channels. Only the notice
+   * board is exercised here — SMS spends real credits and social posts publicly, neither of which
+   * an automated run should do to a school's account.
+   */
+  test('head sends a broadcast to the notice board', async ({ page }) => {
     await login(page, 'head@demo.school');
     await visit(page, '/announcements');
     await page.getByLabel('Title').fill('Speech and Prize-Giving Day');
@@ -169,10 +199,14 @@ test.describe('EYO SMS portal — end-to-end', () => {
       .fill(
         'Our annual Speech Day holds on 15 August at 9am on the school park. All guardians are warmly invited.',
       );
-    await page.getByRole('button', { name: 'Post notice' }).click();
-    await expect(
-      page.getByRole('heading', { name: 'Speech and Prize-Giving Day' }).first(),
-    ).toBeVisible();
+    // "Notice board" is the only channel ticked by default; assert that rather than assume it.
+    await expect(page.getByRole('checkbox', { name: /Notice board/ })).toBeChecked();
+    await page.getByRole('button', { name: 'Send' }).click();
+
+    // The composer reports per channel, because channels genuinely succeed independently.
+    await expect(page.getByText('Posted to the notice board')).toBeVisible();
+    // And the message joins the history table below.
+    await expect(page.getByText('Speech and Prize-Giving Day').first()).toBeVisible();
     await page.screenshot({ path: `${SHOTS}/11-announcements.png`, fullPage: true });
   });
 

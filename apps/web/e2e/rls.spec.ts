@@ -70,7 +70,7 @@ test.describe('row-level security', () => {
     await expect(page.getByRole('heading', { name: 'Students' })).toBeVisible();
     await page.waitForSelector('tbody tr');
 
-    const aBody = (await page.locator('tbody').innerText()).trim();
+    const aBody = (await page.locator('table tbody').first().innerText()).trim();
     expect(aBody).toContain(A.admissionPrefix);
     // The decisive assertion: tenant B's admission numbers must not appear at all.
     expect(aBody).not.toContain(B.admissionPrefix);
@@ -81,7 +81,7 @@ test.describe('row-level security', () => {
     await login(page, B.owner);
     await page.goto('/students');
     await page.waitForSelector('tbody tr');
-    const bBody = (await page.locator('tbody').innerText()).trim();
+    const bBody = (await page.locator('table tbody').first().innerText()).trim();
     expect(bBody).toContain(B.admissionPrefix);
     expect(bBody).not.toContain(A.admissionPrefix);
     await page.screenshot({ path: `${SHOTS}/02-tenantB-students.png`, fullPage: true });
@@ -112,8 +112,10 @@ test.describe('row-level security', () => {
   test('a signed-in tenant cannot read another tenant’s records by id', async ({ page }) => {
     // Collect real tenant-A ids while signed in as tenant A.
     await login(page, A.owner);
+    // Lists return a `Page<T>` envelope — `{ rows, total, page, perPage, pageCount }`. This read
+    // `items`, which has never been a field on it, so it silently indexed the envelope itself.
     const aStudents = await (await page.request.get('/api/proxy/students')).json();
-    const aStudentId = (aStudents.items ?? aStudents)[0].id as string;
+    const aStudentId = aStudents.rows[0].id as string;
     expect(aStudentId).toBeTruthy();
 
     await logout(page);

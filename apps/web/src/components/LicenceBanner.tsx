@@ -31,13 +31,17 @@ export default function LicenceBanner({
   const danger = warning.tone === 'danger';
 
   return (
-    <div
+    <aside
       /*
-        `role="status"`, not `role="alert"`. This is present on arrival rather than raised in
-        response to something the user just did, and an alert would interrupt a screen reader on
-        every single navigation. Status puts it in the page to be read in turn.
+        A landmark, not a live region.
+
+        `role="status"` was wrong twice over: this banner is server-rendered and present on
+        arrival, so a screen reader reads it in document order anyway, and marking it live makes it
+        announce *again*, out of order, on every navigation. It also collided with the live regions
+        the shared Button already publishes — `getByRole('status')` on any page with two buttons is
+        ambiguous, which is a smell worth heeding rather than working around.
       */
-      role="status"
+      aria-label="Licence notice"
       className={`no-print mb-5 rounded-lg border px-4 py-3 flex gap-3 items-start text-sm ${
         danger ? 'border-danger/30 bg-danger/5 text-danger' : 'border-clay/30 bg-clay/5 text-clay'
       }`}
@@ -62,6 +66,6 @@ export default function LicenceBanner({
           </Link>
         )}
       </div>
-    </div>
+    </aside>
   );
 }
