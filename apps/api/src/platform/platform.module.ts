@@ -33,7 +33,7 @@ import * as bcrypt from 'bcryptjs';
 import type { NoticeLevel, Prisma, Tier } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, Public, isPublishedSecret } from '../common/auth';
-import { publicToken } from '../common/crypto';
+import { BCRYPT_ROUNDS, publicToken, tempPassword } from '../common/crypto';
 import { EmailModule, EmailService } from '../email/email.module';
 import { renderSchoolInvitation } from '../common/email-templates';
 
@@ -506,6 +506,103 @@ export class PlatformService {
    * them. Not SMS either — that spends the school's own credits, which is an indefensible way to
    * deliver a message about their bill.
    */
+  /**
+   * Issue a fresh password for a school's proprietor.
+   *
+   * The one lockout no self-service flow can reach. A teacher who forgets their password has a
+   * head to reset it; a head has the proprietor; the proprietor has nobody. Both reset channels
+   * assume the person still holds the mailbox or the handset on file, and when they do not — the
+   * number changed, the address was the departed IT contractor's — the account is simply gone,
+   * and with it the school's only route back into its own records.
+   *
+   * So this exists, and it is deliberately uncomfortable. It is the single place in the product
+   * where the vendor mints a credential for someone else's school, and it is guarded by being
+   * loud rather than by being clever:
+   *
+   * - it only ever touches the OWNER, never any other member of staff;
+   * - the school is told, in their own portal, that Klasio did this and when;
+   * - `PlatformAuditLog` records it whatever else happens.
+   *
+   * Verifying that the caller really is the proprietor happens out of band — a phone call to the
+   * number on the account — because there is no signal inside the system that could do it. That
+   * is a process control, not a technical one, and pretending otherwise would be worse.
+   */
+  async resetOwnerPassword(admin: PlatformUser, id: string) {
+    const school = await this.db.system.school.findUnique({
+      where: { id },
+      select: { id: true, name: true },
+    });
+    if (!school) throw new NotFoundException('No such school');
+
+    /**
+     * The proprietor, and only the proprietor.
+     *
+     * Scoped to OWNER rather than taking a user id from the caller. A vendor endpoint that could
+     * reset *any* named account would be a master key to every school on the platform, and the
+     * case this exists for — the sole owner locked out — needs nothing wider.
+     */
+    const owner = await this.db.system.user.findFirst({
+      where: { schoolId: id, role: 'OWNER', active: true },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, name: true, email: true },
+    });
+    if (!owner) {
+      throw new NotFoundException(
+        'That school has no active owner account, so there is nothing to reset.',
+      );
+    }
+
+    const plain = tempPassword();
+    await this.db.system.user.update({
+      where: { id: owner.id },
+      data: {
+        passwordHash: await bcrypt.hash(plain, BCRYPT_ROUNDS),
+        // Any session opened with the old password dies now. If the reason for this call is that
+        // somebody else got in, leaving those alive would defeat the whole exercise.
+        tokenVersion: { increment: 1 },
+      },
+    });
+
+    /**
+     * Outstanding reset links and codes stop working too.
+     *
+     * Otherwise a link requested minutes ago — possibly by whoever the school is trying to lock
+     * out — still opens the account after the vendor has just handed control back to the owner.
+     */
+    await this.db.system.passwordReset.updateMany({
+      where: { userId: owner.id, consumedAt: null, supersededAt: null },
+      data: { supersededAt: new Date() },
+    });
+
+    /**
+     * The school is told, in their own portal, and it is a WARNING rather than a notice.
+     *
+     * A vendor quietly changing the proprietor's password is indistinguishable, from inside the
+     * school, from the vendor being compromised. Saying so plainly is what makes the power
+     * accountable: if this appears and nobody at the school asked for it, they know to call.
+     */
+    await this.db.system.platformNotice.create({
+      data: {
+        schoolId: id,
+        subject: 'Your owner password was reset by Klasio',
+        body:
+          `At the request of your school, Klasio issued a new password for the owner account ` +
+          `(${owner.email}) and signed out any devices already using the old one. ` +
+          `If nobody at your school asked for this, contact Klasio immediately.`,
+        level: 'WARNING',
+        sentById: admin.sub,
+      },
+    });
+
+    await this.record(admin, 'school.reset_owner_password', school, {
+      ownerId: owner.id,
+      ownerEmail: owner.email,
+    });
+
+    // Shown once and never again — the same contract as an invitation token. Nothing stores it.
+    return { owner: { name: owner.name, email: owner.email }, temporaryPassword: plain };
+  }
+
   async contact(admin: PlatformUser, id: string, dto: ContactDto) {
     const school = await this.db.system.school.findUnique({
       where: { id },
@@ -591,6 +688,16 @@ export class PlatformController {
   @UseGuards(PlatformGuard)
   restore(@CurrentAdmin() admin: PlatformUser, @Param('id') id: string) {
     return this.svc.restore(admin, id);
+  }
+
+  /**
+   * Deliberately a POST with no body: there is nothing to configure, and nothing to get wrong.
+   * The temporary password comes back in the response and is never stored or re-shown.
+   */
+  @Post('schools/:id/reset-owner-password')
+  @UseGuards(PlatformGuard)
+  resetOwnerPassword(@CurrentAdmin() admin: PlatformUser, @Param('id') id: string) {
+    return this.svc.resetOwnerPassword(admin, id);
   }
 
   @Post('schools/:id/contact')

@@ -9,28 +9,35 @@ import {
   HttpStatus,
   Injectable,
   Ip,
+  Logger,
   Module,
   NotFoundException,
   Post,
   Query,
   UnauthorizedException,
 } from '@nestjs/common';
-import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { Prisma, Tier } from '@prisma/client';
+import { randomInt } from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService, withTenant } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, Public, signToken } from '../common/auth';
-import { BCRYPT_ROUNDS, publicToken } from '../common/crypto';
+import { BCRYPT_ROUNDS, publicToken, safeEqual } from '../common/crypto';
 import { lockRemainingMs, lockWaitMinutes, nextFailure } from '../common/login-throttle';
 import { entitlementsForTier } from '../common/entitlements';
 import { ROLE_PRESETS, sanitizePermissions } from '../common/permissions';
 import { hashInviteToken } from '../platform/platform.module';
 import { BillingModule, BillingService } from '../billing/billing.module';
 import { EmailModule, EmailService } from '../email/email.module';
+import { SmsModule, SmsService } from '../sms/sms.module';
 import { renderPasswordReset } from '../common/email-templates';
 import {
+  RESET_CODE_DIGITS,
+  RESET_MAX_CODE_ATTEMPTS,
   RESET_TTL_MINUTES,
+  hashResetCode,
   hashResetToken,
+  resetRequestAllowed,
   resetState,
   resetStateMessage,
 } from '../common/password-reset';
@@ -42,10 +49,29 @@ class LoginDto {
 
 class ForgotPasswordDto {
   @IsEmail() email: string;
+  /**
+   * Where to send it. Defaults to email, which is the address they signed in with and the only
+   * one every staff member is guaranteed to have — `User.phone` is optional.
+   */
+  @IsOptional() @IsIn(['email', 'sms']) channel?: 'email' | 'sms';
 }
 
 class ResetPasswordDto {
   @IsString() @MinLength(8) @MaxLength(200) token: string;
+  @IsString() @MinLength(8) @MaxLength(200) password: string;
+}
+
+/**
+ * Redeeming a texted code, kept apart from the link above.
+ *
+ * Deliberately a separate DTO and a separate route rather than one endpoint that takes either.
+ * A six-digit code and a 32-byte token are guessable to wildly different degrees, and the code
+ * path is the one that has to count attempts; merging them invites the bug where a code is
+ * accepted somewhere only a token was ever meant to go.
+ */
+class ResetPasswordByCodeDto {
+  @IsEmail() email: string;
+  @IsString() @MinLength(4) @MaxLength(12) code: string;
   @IsString() @MinLength(8) @MaxLength(200) password: string;
 }
 
@@ -87,10 +113,13 @@ function slugStem(name: string): string {
 
 @Injectable()
 export class AuthService {
+  private readonly log = new Logger(AuthService.name);
+
   constructor(
     private db: PrismaService,
     private billing: BillingService,
     private email: EmailService,
+    private sms: SmsService,
   ) {}
 
   /**
@@ -361,7 +390,16 @@ export class AuthService {
    */
   async forgotPassword(dto: ForgotPasswordDto, ip?: string) {
     const email = dto.email.toLowerCase();
-    const generic = { sent: true, expiresInMinutes: RESET_TTL_MINUTES };
+    const channel = dto.channel ?? 'email';
+    /**
+     * The same answer in every case, including the ones below where nothing is sent.
+     *
+     * `channel` is echoed so the page can say "check your phone" rather than guess, but it is the
+     * channel that was *asked for*, never the one that was used — saying "we sent an email
+     * instead" would report that no mobile number is on file, which is a fact about whether the
+     * account exists and what it holds.
+     */
+    const generic = { sent: true, channel, expiresInMinutes: RESET_TTL_MINUTES };
 
     // No tenant yet — the same deliberate use of the unscoped client as `login`.
     const user = await this.db.system.user.findUnique({ where: { email } });
@@ -369,6 +407,37 @@ export class AuthService {
 
     const school = await this.db.system.school.findUnique({ where: { id: user.schoolId } });
     if (!school || school.suspendedAt) return generic;
+
+    /**
+     * A number is required to text one, and many staff have none on file.
+     *
+     * Silently falling back to email would be friendlier but dishonest: the reply already says
+     * "check your phone", and a person who never gets a text would keep asking. Returning the
+     * generic answer without sending is the only option that neither lies to them nor tells an
+     * attacker which addresses have a mobile number recorded.
+     */
+    if (channel === 'sms' && !user.phone) return generic;
+
+    /**
+     * Both limits are new, and the SMS channel is why they had to be.
+     *
+     * This endpoint takes no authentication, and on the SMS path every call spends a credit the
+     * school paid for — so unthrottled it is a way to bill a stranger's school from a login page.
+     * The email path has the milder version of the same problem: fifty messages is where the one
+     * that matters goes to die.
+     */
+    const since = new Date(Date.now() - 60 * 60_000);
+    const [count, last] = await Promise.all([
+      this.db.system.passwordReset.count({ where: { userId: user.id, createdAt: { gte: since } } }),
+      this.db.system.passwordReset.findFirst({
+        where: { userId: user.id },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      }),
+    ]);
+    if (!resetRequestAllowed({ count, lastRequestedAt: last?.createdAt ?? null }, new Date())) {
+      return generic;
+    }
 
     /**
      * Every earlier outstanding link for this person stops working now.
@@ -382,13 +451,66 @@ export class AuthService {
       data: { supersededAt: new Date() },
     });
 
+    const expiresAt = new Date(Date.now() + RESET_TTL_MINUTES * 60_000);
+
+    if (channel === 'sms') {
+      // Six digits, from the same CSPRNG the guardian codes use. `randomInt` rather than
+      // `Math.random`, which is predictable enough to be worth guessing at.
+      const code = String(randomInt(0, 10 ** RESET_CODE_DIGITS)).padStart(RESET_CODE_DIGITS, '0');
+      const codeSalt = publicToken(16);
+      await this.db.system.passwordReset.create({
+        data: {
+          schoolId: user.schoolId,
+          userId: user.id,
+          channel: 'SMS',
+          codeSalt,
+          tokenHash: hashResetCode(codeSalt, code),
+          expiresAt,
+          requestedIp: ip ?? null,
+        },
+      });
+      // `sendOtp` reads the school through the tenant client, so it has to run in scope. The
+      // plaintext code goes no further than that call — see SmsService.sendOtp.
+      /**
+       * Swallowed towards the caller, logged towards us.
+       *
+       * The reply must not change shape when delivery fails — that would report whether an
+       * account exists just as surely as a different status code would. But a send that fails
+       * silently on both sides is a reset flow that is broken with nobody to notice: the person
+       * waits for a text that is never coming and the log says a code was issued.
+       *
+       * Note `sendOtp` *returns* `{ ok: false }` for a gateway rejection rather than throwing —
+       * an unreachable Nalo, a bad sender ID, an unknown MSISDN. Catching only the throw caught
+       * the rare case and missed every likely one, which is exactly how this went unnoticed the
+       * first time: the row said a code was issued, the gateway had rejected it, and nothing
+       * anywhere said so.
+       */
+      const sent = await withTenant(user.schoolId, () =>
+        this.sms.sendOtp({
+          schoolId: user.schoolId,
+          phone: user.phone!,
+          code,
+          ttlMinutes: RESET_TTL_MINUTES,
+          purpose: 'staff-reset',
+        }),
+      ).catch((e) => {
+        this.log.error(`Password reset SMS threw for user ${user.id}: ${(e as Error)?.message}`);
+        return { ok: false };
+      });
+      if (!sent.ok) {
+        this.log.error(`Password reset SMS was not delivered for user ${user.id}`);
+      }
+      return generic;
+    }
+
     const token = publicToken(32);
     await this.db.system.passwordReset.create({
       data: {
         schoolId: user.schoolId,
         userId: user.id,
+        channel: 'EMAIL',
         tokenHash: hashResetToken(token),
-        expiresAt: new Date(Date.now() + RESET_TTL_MINUTES * 60_000),
+        expiresAt,
         requestedIp: ip ?? null,
       },
     });
@@ -403,7 +525,7 @@ export class AuthService {
         schoolName: school.name,
         resetUrl: `${base}/reset-password?token=${encodeURIComponent(token)}`,
         expiresInMinutes: RESET_TTL_MINUTES,
-        // The school's own crest, not EYO's: a head teacher resetting at 7am should see their
+        // The school's own crest, not Klasio's: a head teacher resetting at 7am should see their
         // school, and a message that looked like vendor mail is easier to mistake for phishing.
         crest: await this.email.loadCrest(school.logoUrl),
       }),
@@ -430,6 +552,64 @@ export class AuthService {
 
     const state = resetState(row, new Date());
     if (state !== 'valid') throw new GoneException(resetStateMessage(state));
+    return this.applyReset(row, dto.password);
+  }
+
+  /**
+   * Redeem a texted code.
+   *
+   * The code is not unique on its own, so this finds the person's most recent live request and
+   * checks the code against that one row — the same shape as the guardian OTP. Only the newest
+   * counts: `forgotPassword` supersedes the rest, so an older code cannot be dredged up.
+   */
+  async resetPasswordByCode(dto: ResetPasswordByCodeDto) {
+    const email = dto.email.toLowerCase();
+    const bad = new NotFoundException('That code is not valid. Ask for a new one.');
+
+    const user = await this.db.system.user.findUnique({ where: { email } });
+    if (!user) throw bad;
+
+    const row = await this.db.system.passwordReset.findFirst({
+      where: { userId: user.id, channel: 'SMS', consumedAt: null, supersededAt: null },
+      orderBy: { createdAt: 'desc' },
+      include: { user: { select: { id: true, email: true, active: true, schoolId: true } } },
+    });
+    if (!row?.codeSalt) throw bad;
+
+    const state = resetState(row, new Date());
+    if (state !== 'valid') throw new GoneException(resetStateMessage(state));
+
+    /**
+     * A wrong guess costs an attempt, and the count is what makes six digits safe.
+     *
+     * Incremented before the comparison is answered so that a client which hangs up mid-request
+     * still pays for the guess — otherwise the ceiling is advisory and the million possibilities
+     * are back on the table.
+     */
+    if (!safeEqual(row.tokenHash, hashResetCode(row.codeSalt, dto.code.trim()))) {
+      const after = await this.db.system.passwordReset.update({
+        where: { id: row.id },
+        data: { attempts: { increment: 1 } },
+        select: { attempts: true },
+      });
+      if (after.attempts >= RESET_MAX_CODE_ATTEMPTS) {
+        throw new GoneException(resetStateMessage('exhausted'));
+      }
+      throw bad;
+    }
+
+    return this.applyReset(row, dto.password);
+  }
+
+  /**
+   * Spend the request and rotate the password. Shared by both channels, because everything from
+   * here down — the race, the session kill, the throttle clear, the audit row — is identical
+   * whether the person proved themselves with a link or with six digits.
+   */
+  private async applyReset(
+    row: { id: string; userId: string; user: { active: boolean; email: string; schoolId: string } },
+    password: string,
+  ) {
     if (!row.user.active) throw new ForbiddenException('That account is no longer active.');
 
     /**
@@ -450,7 +630,7 @@ export class AuthService {
     await this.db.system.user.update({
       where: { id: row.userId },
       data: {
-        passwordHash: await bcrypt.hash(dto.password, BCRYPT_ROUNDS),
+        passwordHash: await bcrypt.hash(password, BCRYPT_ROUNDS),
         tokenVersion: { increment: 1 },
       },
     });
@@ -554,6 +734,13 @@ export class PublicAuthController {
   resetPassword(@Body() dto: ResetPasswordDto) {
     return this.svc.resetPassword(dto);
   }
+
+  /** The texted-code counterpart of `reset-password`. Separate on purpose — see the DTO. */
+  @Public()
+  @Post('reset-password/code')
+  resetPasswordByCode(@Body() dto: ResetPasswordByCodeDto) {
+    return this.svc.resetPasswordByCode(dto);
+  }
 }
 
 @Controller()
@@ -567,7 +754,7 @@ export class AuthController {
 }
 
 @Module({
-  imports: [BillingModule, EmailModule],
+  imports: [BillingModule, EmailModule, SmsModule],
   controllers: [PublicAuthController, AuthController],
   providers: [AuthService],
 })

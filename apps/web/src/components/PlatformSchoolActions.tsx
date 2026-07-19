@@ -10,8 +10,8 @@ export interface ActionableSchool {
 }
 
 /**
- * The three things EYO can do to one school: close its doors, open them again, and say
- * something to it.
+ * The four things Klasio can do to one school: close its doors, open them again, say something to
+ * it, and — only when its proprietor is locked out with nobody left to help — hand back the keys.
  *
  * Shared by the school list and the school detail page so the two cannot drift — the wording of
  * a suspension warning is not something that should depend on which screen you happened to be
@@ -35,6 +35,8 @@ export default function PlatformSchoolActions({
   const [body, setBody] = useState('');
   const [level, setLevel] = useState<'INFO' | 'WARNING'>('INFO');
   const [busy, setBusy] = useState(false);
+  /** Shown once, never fetchable again — so it lives here until the page is left. */
+  const [issued, setIssued] = useState<{ email: string; password: string } | null>(null);
 
   const btn =
     'min-h-11 rounded-lg text-sm font-medium px-4 transition disabled:opacity-50 disabled:cursor-not-allowed';
@@ -77,6 +79,31 @@ export default function PlatformSchoolActions({
     );
   }
 
+  /**
+   * Hand a locked-out proprietor their school back.
+   *
+   * Gated behind typing the school's name rather than an "are you sure?", because this is the one
+   * button in the console that creates a working credential for someone else's school. The
+   * confirmation text says what the school will see, since they are told either way — a vendor
+   * that can quietly change a proprietor's password is indistinguishable from a compromised one.
+   */
+  function resetOwner() {
+    const typed = window.prompt(
+      `Reset the owner password for ${school.name}?\n\n` +
+        `Only do this once you have confirmed, by phone, that you are speaking to the proprietor.\n\n` +
+        `A new password is shown once. Every device signed in as the owner is signed out, any reset link they already asked for stops working, and the school is told in their portal that Klasio did this.\n\n` +
+        `Type the school's name to confirm:`,
+    );
+    if (typed?.trim().toLowerCase() !== school.name.trim().toLowerCase()) return;
+    run(async () => {
+      const res = await platformCall<{
+        owner: { name: string; email: string };
+        temporaryPassword: string;
+      }>(`schools/${school.id}/reset-owner-password`, { method: 'POST' });
+      setIssued({ email: res.owner.email, password: res.temporaryPassword });
+    }, `A new owner password was issued for ${school.name}.`);
+  }
+
   function send(e: React.FormEvent) {
     e.preventDefault();
     run(
@@ -104,6 +131,13 @@ export default function PlatformSchoolActions({
         >
           Contact
         </button>
+        <button
+          disabled={busy}
+          onClick={resetOwner}
+          className={`${btn} border border-mist bg-white hover:border-ink`}
+        >
+          Reset owner password
+        </button>
         {school.suspended ? (
           <button
             disabled={busy}
@@ -122,6 +156,24 @@ export default function PlatformSchoolActions({
           </button>
         )}
       </div>
+
+      {issued && (
+        <div className="card p-5 mt-3 border-danger/30">
+          <p className="text-[12.5px] text-oat leading-relaxed">
+            Read this to <span className="text-ink">{issued.email}</span> now. It is shown once and
+            cannot be retrieved — if it is lost, issue another.
+          </p>
+          <p className="mt-3 font-mono text-lg tracking-wider text-ink select-all">
+            {issued.password}
+          </p>
+          <button
+            onClick={() => setIssued(null)}
+            className={`${btn} border border-mist bg-white hover:border-ink mt-4`}
+          >
+            Done
+          </button>
+        </div>
+      )}
 
       {contacting && (
         <form onSubmit={send} className={compact ? 'card p-5 mt-3' : 'mt-4'}>

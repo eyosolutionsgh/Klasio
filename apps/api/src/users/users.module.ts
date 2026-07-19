@@ -15,12 +15,11 @@ import {
 import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
 import { Prisma, Role } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
-import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { canGrant } from '../common/permissions';
 import { AuthUser, CurrentUser, RequirePermission } from '../common/auth';
 import { canAssignRole, canManageUser, STAFF_ROLES } from '../common/roles';
-import { BCRYPT_ROUNDS } from '../common/crypto';
+import { BCRYPT_ROUNDS, tempPassword } from '../common/crypto';
 
 class CreateUserDto {
   @IsString() @MinLength(2) name: string;
@@ -55,14 +54,6 @@ class UpdateMeDto {
 class ChangePasswordDto {
   @IsString() currentPassword: string;
   @IsString() @MinLength(8) newPassword: string;
-}
-
-/** Readable one-time password an office can dictate over the phone. */
-function tempPassword(): string {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no look-alikes
-  const bytes = randomBytes(8);
-  const body = Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
-  return `Eyo-${body}`;
 }
 
 @Injectable()

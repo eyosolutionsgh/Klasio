@@ -10,9 +10,21 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
  * forward a cookie, and neither sets one. Redeeming a reset deliberately does *not* sign the
  * person in: they land back on /login and prove the new password works.
  */
+/**
+ * `redeem` carries a link token; `redeem-code` carries the six digits that arrived by SMS. They
+ * are different API routes because the API keeps them apart — a code has to be attempt-counted
+ * and a token does not, and one endpoint taking either is how a code ends up accepted where only
+ * a token belonged.
+ */
+const PATHS: Record<string, string> = {
+  request: 'forgot-password',
+  redeem: 'reset-password',
+  'redeem-code': 'reset-password/code',
+};
+
 export async function POST(req: NextRequest) {
   const { step, ...body } = await req.json();
-  const path = step === 'request' ? 'forgot-password' : 'reset-password';
+  const path = PATHS[step] ?? PATHS.redeem;
 
   const res = await fetch(`${API_URL}/auth/${path}`, {
     method: 'POST',

@@ -11,7 +11,18 @@ const MIN_LENGTH = 8;
 
 function ResetPasswordForm() {
   const router = useRouter();
-  const token = useSearchParams().get('token') ?? '';
+  const params = useSearchParams();
+  const token = params.get('token') ?? '';
+  /**
+   * Two ways in, told apart by which the link carries.
+   *
+   * `?token=` is the emailed link. `?email=` is the SMS path, where the person holds six digits
+   * instead and types them here. No token and no email means the link was truncated in transit,
+   * which is the case the guard below still catches.
+   */
+  const emailParam = params.get('email') ?? '';
+  const byCode = !token && !!emailParam;
+  const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -29,17 +40,27 @@ function ResetPasswordForm() {
     const res = await fetch('/api/password-reset', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ step: 'redeem', token, password }),
+      body: JSON.stringify(
+        byCode
+          ? { step: 'redeem-code', email: emailParam, code, password }
+          : { step: 'redeem', token, password },
+      ),
     });
     const data = await res.json().catch(() => ({}));
     setBusy(false);
     // The API's message is shown as-is: used, superseded and expired all call for different
     // actions, and a single "invalid link" would leave the person guessing which.
     if (res.ok) setDone(true);
-    else setError(data.error ?? 'That reset link is not valid. Ask for a new one.');
+    else
+      setError(
+        data.error ??
+          (byCode
+            ? 'That code is not valid. Ask for a new one.'
+            : 'That reset link is not valid. Ask for a new one.'),
+      );
   }
 
-  if (!token) {
+  if (!token && !byCode) {
     return (
       <AuthShell title="Reset your password">
         <p className="text-sm text-oat leading-relaxed">
@@ -81,15 +102,34 @@ function ResetPasswordForm() {
 
   return (
     <AuthShell title="Choose a new password">
+      {byCode && (
+        <p className="mb-5 text-sm text-oat leading-relaxed">
+          Enter the six-digit code sent to the mobile number on{' '}
+          <span className="text-ink">{emailParam}</span>, then choose a new password.
+        </p>
+      )}
       <form onSubmit={submit} aria-label="Choose a new password">
         <AuthFieldGroup>
+          {byCode && (
+            <AuthField
+              label="Six-digit code"
+              required
+              autoFocus
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+              placeholder="000000"
+            />
+          )}
           <AuthField
             label="New password"
             revealable
             required
             minLength={MIN_LENGTH}
             autoComplete="new-password"
-            autoFocus
+            autoFocus={!byCode}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"

@@ -22,6 +22,25 @@ const DEV_KEY = Buffer.alloc(32, 7); // deterministic, obviously-not-secret dev 
  */
 export const BCRYPT_ROUNDS = 10;
 
+/**
+ * A readable one-time password an office can dictate down a phone line.
+ *
+ * Lives here rather than in the module that first needed it, because two very different callers
+ * now issue one — a head resetting a member of staff, and the vendor console handing a locked-out
+ * proprietor their school back — and a second copy would be a second alphabet to keep in step.
+ *
+ * The alphabet omits look-alikes (no O/0, no I/1/l) for exactly the reason the function exists:
+ * these get read aloud, written on paper, and typed by someone who is already having a bad day.
+ */
+export function tempPassword(): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = randomBytes(8);
+  const body = Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
+  // Prefixed with the product name so a password found on a sticky note is at least identifiable.
+  // `Eyo-` until the rename; nothing keys off the value, so it moves with the product.
+  return `Klasio-${body}`;
+}
+
 export class MissingEncryptionKeyError extends Error {
   constructor() {
     super('PAYMENTS_ENCRYPTION_KEY must be set (32 bytes, hex or base64) to store live secrets');

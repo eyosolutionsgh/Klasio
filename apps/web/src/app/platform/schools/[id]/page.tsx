@@ -62,6 +62,7 @@ const ACTION_LABEL: Record<string, string> = {
   'school.suspend': 'Suspended the school',
   'school.restore': 'Restored access',
   'school.contact': 'Sent a notice',
+  'school.reset_owner_password': 'Reset the owner password',
   'invitation.issue': 'Issued an invitation',
   'invitation.revoke': 'Withdrew an invitation',
 };

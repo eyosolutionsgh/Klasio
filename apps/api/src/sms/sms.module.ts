@@ -189,9 +189,22 @@ export class SmsService {
    * code is not a message the school chose to send, and locking every parent out of the portal
    * because the balance hit zero would be a far worse failure than the fraction of a cedi.
    */
-  async sendOtp(opts: { schoolId: string; phone: string; code: string; ttlMinutes: number }) {
+  async sendOtp(opts: {
+    schoolId: string;
+    phone: string;
+    code: string;
+    ttlMinutes: number;
+    /**
+     * What the code is for. Staff resetting a password and a parent signing in both receive six
+     * digits, but a message that does not say which is a message the recipient cannot judge —
+     * and "never share it" only means something if they know what they are not sharing.
+     */
+    purpose?: 'guardian-signin' | 'staff-reset';
+  }) {
+    const staffReset = opts.purpose === 'staff-reset';
     const school = await this.db.school.findUniqueOrThrow({ where: { id: opts.schoolId } });
-    const body = `${opts.code} is your ${school.name} code. It expires in ${opts.ttlMinutes} minutes. Never share it.`;
+    const noun = staffReset ? 'password reset code' : 'code';
+    const body = `${opts.code} is your ${school.name} ${noun}. It expires in ${opts.ttlMinutes} minutes. Never share it.`;
     const result = await this.provider.send(opts.phone, body, school.smsSenderId ?? 'SCHOOL');
 
     await this.db.smsMessage.create({
@@ -199,7 +212,9 @@ export class SmsService {
         schoolId: opts.schoolId,
         to: opts.phone,
         // Never the code. This column is readable by any role holding `comms.sms`.
-        body: 'Guardian portal sign-in code (not stored)',
+        body: staffReset
+          ? 'Staff password reset code (not stored)'
+          : 'Guardian portal sign-in code (not stored)',
         status: result.ok ? 'SENT' : 'FAILED',
         provider: this.provider.name,
         providerRef: result.ref ?? null,

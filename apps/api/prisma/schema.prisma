@@ -242,15 +242,37 @@ model User {
 /// Deliberately a table rather than a signed stateless token: a reset link must stop working the
 /// moment it is used or superseded, and a JWT cannot be withdrawn. `consumedAt` and the
 /// supersede-on-issue rule below both need somewhere to write.
+/// How a reset token was delivered, and therefore what shape it takes.
+enum PasswordResetChannel {
+  EMAIL
+  SMS
+}
+
 model PasswordReset {
   id       String @id @default(cuid())
   schoolId String
   school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   userId   String
   user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  /// SHA-256 of the token that was emailed. The token itself is never stored, so a leaked
+  /// SHA-256 of the token that was sent. The token itself is never stored, so a leaked
   /// database yields no working reset links — the same rule SchoolInvitation follows.
+  ///
+  /// For EMAIL this is the hash of a 32-byte link token. For SMS it is the hash of `codeSalt`
+  /// plus a six-digit code, which is what makes this column unique for codes too: without the
+  /// salt, one person asking twice could draw the same six digits and collide on the constraint,
+  /// turning a reset request into a 500.
   tokenHash String @unique
+  /// Random per row, and only for SMS. Never sent anywhere — it exists to keep `tokenHash`
+  /// unique and to stop a leaked table from being a million-entry rainbow lookup.
+  codeSalt  String?
+  /// How the token reached the person, and so what shape it is: a link for EMAIL, a code for SMS.
+  channel   PasswordResetChannel @default(EMAIL)
+  /// Wrong codes tried against this row.
+  ///
+  /// Only SMS can meaningfully be guessed — six digits is a million possibilities, which is
+  /// nothing at network speed without a ceiling. A link token is 32 random bytes and needs no
+  /// such counter.
+  attempts  Int      @default(0)
   expiresAt DateTime
   consumedAt DateTime?
   /// Set when a newer request replaces this one, so only the most recent email works.
@@ -260,6 +282,8 @@ model PasswordReset {
   createdAt   DateTime @default(now())
 
   @@index([userId, createdAt])
+  /// The code path finds a person's most recent live SMS request rather than hashing to a row.
+  @@index([userId, channel, createdAt])
   @@index([expiresAt])
 }
 

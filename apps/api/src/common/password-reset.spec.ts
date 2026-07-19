@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { RESET_TTL_MINUTES, hashResetToken, resetState, resetStateMessage } from './password-reset';
+import {
+  RESET_MAX_CODE_ATTEMPTS,
+  RESET_MAX_PER_HOUR,
+  RESET_RESEND_COOLDOWN_SECONDS,
+  RESET_TTL_MINUTES,
+  hashResetCode,
+  hashResetToken,
+  resetRequestAllowed,
+  resetState,
+  resetStateMessage,
+} from './password-reset';
 
 const NOW = new Date('2026-07-19T12:00:00Z');
 const later = (mins: number) => new Date(NOW.getTime() + mins * 60_000);
@@ -83,5 +93,71 @@ describe('resetStateMessage', () => {
       expect(resetStateMessage(state).toLowerCase()).not.toContain('no such');
       expect(resetStateMessage(state).toLowerCase()).not.toContain('not found');
     }
+  });
+});
+
+describe('hashResetCode', () => {
+  it('is deterministic for the same salt and code', () => {
+    expect(hashResetCode('s1', '123456')).toBe(hashResetCode('s1', '123456'));
+  });
+
+  it('gives the same code a different hash under a different salt', () => {
+    // This is what keeps `tokenHash` unique when one person asks twice and draws the same six
+    // digits — without it, the second request collides on the constraint and 500s.
+    expect(hashResetCode('s1', '123456')).not.toBe(hashResetCode('s2', '123456'));
+  });
+
+  it('never returns the code itself', () => {
+    expect(hashResetCode('s1', '123456')).not.toContain('123456');
+  });
+});
+
+describe('resetState — attempts', () => {
+  it('burns the request once the ceiling is reached', () => {
+    expect(resetState(row({ attempts: RESET_MAX_CODE_ATTEMPTS }), NOW)).toBe('exhausted');
+  });
+
+  it('still accepts a request one attempt below the ceiling', () => {
+    expect(resetState(row({ attempts: RESET_MAX_CODE_ATTEMPTS - 1 }), NOW)).toBe('valid');
+  });
+
+  it('treats a link row with no counter as unexhausted', () => {
+    expect(resetState(row(), NOW)).toBe('valid');
+  });
+
+  it('reports a spent request as spent, whatever its attempt count', () => {
+    // Consumed and superseded are terminal: a wrong guess afterwards must not relabel them.
+    expect(resetState(row({ consumedAt: NOW, attempts: 99 }), NOW)).toBe('consumed');
+    expect(resetState(row({ supersededAt: NOW, attempts: 99 }), NOW)).toBe('superseded');
+  });
+
+  it('has a message for every non-valid state', () => {
+    for (const state of ['consumed', 'superseded', 'expired', 'exhausted'] as const) {
+      expect(resetStateMessage(state)).toMatch(/\S/);
+    }
+  });
+});
+
+describe('resetRequestAllowed', () => {
+  it('allows a first request', () => {
+    expect(resetRequestAllowed({ count: 0, lastRequestedAt: null }, NOW)).toBe(true);
+  });
+
+  it('refuses once the hourly ceiling is reached', () => {
+    // Unauthenticated and it spends the school's SMS credits, so the ceiling is the whole
+    // defence against using this endpoint to bill a school.
+    expect(resetRequestAllowed({ count: RESET_MAX_PER_HOUR, lastRequestedAt: null }, NOW)).toBe(
+      false,
+    );
+  });
+
+  it('refuses a second request inside the cooldown', () => {
+    const justNow = new Date(NOW.getTime() - 5_000);
+    expect(resetRequestAllowed({ count: 1, lastRequestedAt: justNow }, NOW)).toBe(false);
+  });
+
+  it('allows again once the cooldown has passed', () => {
+    const earlier = new Date(NOW.getTime() - (RESET_RESEND_COOLDOWN_SECONDS + 1) * 1000);
+    expect(resetRequestAllowed({ count: 1, lastRequestedAt: earlier }, NOW)).toBe(true);
   });
 });
