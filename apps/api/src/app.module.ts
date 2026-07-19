@@ -31,10 +31,14 @@ import { ReturnsModule } from './returns/returns.module';
 import { BillingModule } from './billing/billing.module';
 import { PlatformModule } from './platform/platform.module';
 import { RolesModule } from './roles/roles.module';
+import { LicenceModule } from './licence/licence.module';
 
 @Module({
   imports: [
     PrismaModule,
+    // Before AuthModule: signing in reports what the school is entitled to, and that is
+    // whatever the licence says at boot.
+    LicenceModule,
     AuthModule,
     SchoolsModule,
     StudentsModule,

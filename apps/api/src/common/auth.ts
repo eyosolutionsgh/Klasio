@@ -10,7 +10,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import * as jwt from 'jsonwebtoken';
 import type { Role, Tier } from '@prisma/client';
-import { hasEntitlement } from './entitlements';
+import { LicenceService } from '../licence/licence.service';
 import { effectivePermissions } from './effective-permissions';
 import { PERMISSIONS } from './permissions';
 import { PrismaService, withTenant } from '../prisma/prisma.service';
@@ -125,6 +125,7 @@ export class AuthGuard implements CanActivate {
   constructor(
     private reflector: Reflector,
     private db: PrismaService,
+    private licence: LicenceService,
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
@@ -257,7 +258,16 @@ export class AuthGuard implements CanActivate {
       ctx.getHandler(),
       ctx.getClass(),
     ]);
-    if (entitlement && !hasEntitlement(user.tier, entitlement)) {
+    /**
+     * Asked of the licence, not of the tier alone.
+     *
+     * `hasEntitlement(user.tier, code)` would miss `extraEntitlements` — the codes a licence
+     * grants on top of its bundle so the vendor can sell one Advanced feature to a Medium school.
+     * The /me payload already reports those, so a tier-only check here would light the feature up
+     * in the UI and then refuse it at the API: the "button that always fails" this codebase
+     * fixed once already, reintroduced one layer down.
+     */
+    if (entitlement && !this.licence.entitlements().includes(entitlement)) {
       throw new ForbiddenException(`This feature is not included in your school's package`);
     }
     return true;

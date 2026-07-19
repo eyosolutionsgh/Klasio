@@ -226,6 +226,16 @@ const NAV: NavItem[] = [
     group: 'Finance',
   },
   {
+    href: '/settings/licence',
+    label: 'Licence',
+    icon: 'M12 1L3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5l-9-4zm0 10.9h7c-.5 4-3.1 7.6-7 8.9V12H5V6.3l7-3.1v8.7z',
+    // Deliberately no `needs`: the page that says what this school is entitled to cannot itself
+    // be gated on an entitlement, or a lapsed school loses the screen it needs to fix the lapse.
+    tip: 'What this school is licensed for, and how to renew',
+    roles: ADMIN,
+    group: 'Setup',
+  },
+  {
     href: '/audit',
     label: 'Audit Log',
     icon: 'M12 1L3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5l-9-4zm-2 16l-4-4 1.4-1.4L10 14.2l6.6-6.6L18 9l-8 8z',

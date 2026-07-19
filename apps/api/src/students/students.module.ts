@@ -23,7 +23,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { checkTemplate, DEFAULT_TEMPLATE, formatAdmissionNo } from '../common/admission-no';
 import { studentIdCardSheet, type StudentIdCardData } from '../common/pdf';
 import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
-import { enrolmentHeadroom, studentCapFor } from '../common/entitlements';
+import { headroomFor } from '../common/entitlements';
+import { LicenceService } from '../licence/licence.module';
 import { demoteOthers, reconcileLink, successorPrimary } from '../common/guardianship';
 import { normalizeMsisdn } from '../common/phone';
 import { toCsv, toXlsx, Cell } from '../common/export';
@@ -149,7 +150,10 @@ class ReinstateDto {
 
 @Injectable()
 export class StudentsService {
-  constructor(private db: PrismaService) {}
+  constructor(
+    private db: PrismaService,
+    private licence: LicenceService,
+  ) {}
 
   /**
    * The register, paged.
@@ -365,11 +369,13 @@ export class StudentsService {
     const active = await this.db.student.count({
       where: { schoolId: auth.schoolId, status: 'ACTIVE' },
     });
-    const cap = studentCapFor(auth.tier);
+    // The cap comes from the licence, not from the tier's default: a licence may raise or lower
+    // it for one school without inventing a new tier.
+    const cap = this.licence.studentCap();
     return {
       active,
       cap,
-      headroom: enrolmentHeadroom(auth.tier, active),
+      headroom: headroomFor(cap, active),
       atCap: cap !== null && active >= cap,
     };
   }

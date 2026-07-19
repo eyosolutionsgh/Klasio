@@ -52,6 +52,10 @@ model School {
   tier      Tier     @default(BASIC)
   /// Storage key for the school crest. Bytes are served by GET /school/logo, never a public URL.
   logoUrl   String?
+  /// What the crest actually is. Without it every crest was served as image/png, including the
+  /// jpeg and webp ones — browsers sniff and cope, but the login page now serves this to the
+  /// whole internet and guessing a content type there is not on.
+  logoMimeType String?
   /// Hex brand colour applied to primary surfaces (sidebar, top bar, primary buttons).
   brandColor String? @db.VarChar(7)
   smsSenderId String? // registered SMS sender ID (e.g. "BRIGHTON")
@@ -1625,4 +1629,30 @@ model ConcessionAward {
 
   @@unique([ruleId, studentId])
   @@index([schoolId, studentId])
+}
+
+/// The licence installed on this box.
+///
+/// At most one row, because there is at most one deployment — this is a property of the server,
+/// not of the school on it, which is why it carries no schoolId. Row-level security is enabled
+/// with no policy at all, so the app role cannot read it: every access goes through
+/// LicenceService on the owner connection, the same shape as any other deployment-level secret.
+///
+/// The raw text is the source of truth. The parsed columns beside it exist so the settings screen
+/// and the boot log can say something useful without re-verifying a signature on every read.
+model Licence {
+  /// Always "singleton". A fixed id makes install an upsert and makes a second row impossible.
+  id            String   @id @default("singleton")
+  /// The licence exactly as the vendor issued it, re-verified hourly and on boot.
+  raw           String
+  licenceId     String
+  schoolSlug    String
+  tier          Tier
+  studentCap    Int?
+  expiresAt     DateTime
+  issuedAt      DateTime
+  installedAt   DateTime @default(now())
+  /// Null when the licence came from LICENCE_FILE or LICENCE rather than the settings screen.
+  installedById String?
+  updatedAt     DateTime @updatedAt
 }

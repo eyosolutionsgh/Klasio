@@ -24,7 +24,7 @@ import { PrismaService, withTenant } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, Public, signToken } from '../common/auth';
 import { BCRYPT_ROUNDS, publicToken, safeEqual } from '../common/crypto';
 import { lockRemainingMs, lockWaitMinutes, nextFailure } from '../common/login-throttle';
-import { entitlementsForTier } from '../common/entitlements';
+import { LicenceService } from '../licence/licence.module';
 import { ROLE_PRESETS, sanitizePermissions } from '../common/permissions';
 import { hashInviteToken } from '../platform/platform.module';
 import { BillingModule, BillingService } from '../billing/billing.module';
@@ -117,6 +117,7 @@ export class AuthService {
 
   constructor(
     private db: PrismaService,
+    private licence: LicenceService,
     private billing: BillingService,
     private email: EmailService,
     private sms: SmsService,
@@ -679,7 +680,12 @@ export class AuthService {
         hasLogo: !!school.logoUrl,
       },
       currentTerm,
-      entitlements: entitlementsForTier(school.tier),
+      /**
+       * From the licence, not from the tier alone: a licence may grant individual codes on top of
+       * its bundle, and those have to reach the web app or it will hide a feature the school paid
+       * for. The API guard reads the same source.
+       */
+      entitlements: this.licence.entitlements(),
       /**
        * What this person may actually do.
        *

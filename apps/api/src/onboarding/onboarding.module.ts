@@ -15,7 +15,8 @@ import { Gender, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StudentsModule, StudentsService } from '../students/students.module';
 import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
-import { enrolmentHeadroom, studentCapFor } from '../common/entitlements';
+import { headroomFor } from '../common/entitlements';
+import { LicenceService } from '../licence/licence.module';
 import { parseXlsx, templateXlsx, TemplateSpec } from '../common/export';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -109,6 +110,7 @@ export class OnboardingService {
   constructor(
     private db: PrismaService,
     private students: StudentsService,
+    private licence: LicenceService,
   ) {}
 
   template(kind: Kind) {
@@ -158,7 +160,8 @@ export class OnboardingService {
     const activeCount = await this.db.student.count({
       where: { schoolId: auth.schoolId, status: 'ACTIVE' },
     });
-    let headroom = enrolmentHeadroom(auth.tier, activeCount);
+    const cap = this.licence.studentCap();
+    let headroom = headroomFor(cap, activeCount);
 
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
@@ -197,7 +200,7 @@ export class OnboardingService {
       if (headroom <= 0) {
         errors.push({
           row: line,
-          message: `Package student limit (${studentCapFor(auth.tier)}) reached — not enrolled`,
+          message: `Package student limit (${cap}) reached — not enrolled`,
         });
         continue;
       }

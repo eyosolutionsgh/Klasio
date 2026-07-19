@@ -1,7 +1,9 @@
 /**
  * Entitlement engine (docs/03 §3.5, docs/04 §4.3).
- * Feature code checks entitlements — NEVER tier names. Tiers are bundles of entitlements;
- * on standalone installs the same entitlement set comes from a vendor-signed license file.
+ *
+ * Feature code checks entitlements — NEVER tier names. Tiers are bundles of entitlements, and the
+ * bundle in force comes from the vendor-signed licence file this box was installed with; see
+ * `licence/licence.module.ts`, which is the only thing that writes `School.tier`.
  */
 import type { Tier } from '@prisma/client';
 
@@ -67,6 +69,18 @@ export function entitlementsForTier(tier: Tier): string[] {
   return base;
 }
 
+/**
+ * The tier bundle plus any individual codes the licence granted on top.
+ *
+ * `extraEntitlements` exists so the vendor can sell one Advanced feature to a Medium school —
+ * a school that wants AI remarks and nothing else in Advanced — by reissuing a licence, rather
+ * than by cutting a release with a new tier in it. Deduped, because a code that is already in the
+ * bundle being listed again should be a no-op, not a double entry in the /me payload.
+ */
+export function entitlementsFor(tier: Tier, extra: readonly string[] = []): string[] {
+  return [...new Set([...entitlementsForTier(tier), ...extra])];
+}
+
 export function hasEntitlement(tier: Tier, code: string): boolean {
   return entitlementsForTier(tier).includes(code);
 }
@@ -87,9 +101,18 @@ export function studentCapFor(tier: Tier): number | null {
   return STUDENT_CAPS[tier];
 }
 
-/** Remaining enrolment headroom; Infinity when the package is uncapped. */
-export function enrolmentHeadroom(tier: Tier, currentCount: number): number {
-  const cap = studentCapFor(tier);
+/**
+ * Remaining headroom against an explicit cap; Infinity when uncapped.
+ *
+ * Takes the cap rather than the tier because the cap in force comes from the licence, which may
+ * raise or lower it for one school without inventing a tier to hold the difference.
+ */
+export function headroomFor(cap: number | null, currentCount: number): number {
   if (cap === null) return Infinity;
   return Math.max(0, cap - currentCount);
+}
+
+/** Remaining enrolment headroom at a tier's default cap; Infinity when the package is uncapped. */
+export function enrolmentHeadroom(tier: Tier, currentCount: number): number {
+  return headroomFor(studentCapFor(tier), currentCount);
 }
