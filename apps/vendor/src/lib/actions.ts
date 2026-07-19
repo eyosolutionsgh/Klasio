@@ -54,7 +54,7 @@ export async function addClient(_prev: string | null, form: FormData): Promise<s
     invented will not install, and the school is the one who finds out.
   */
   if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)) {
-    return 'The slug must be lowercase letters, numbers and single hyphens — and must match exactly what the school’s own server uses.';
+    return 'Use lowercase letters, numbers and single hyphens, exactly as the school’s own server has it.';
   }
   if (await db.client.findUnique({ where: { slug } })) {
     return 'A client already uses that slug.';
@@ -104,10 +104,9 @@ export async function issue(_prev: string | null, form: FormData): Promise<strin
       // the two must stay distinguishable — null in a payload means unlimited, not unspecified.
       studentCap:
         capRaw === '' ? undefined : capRaw.toLowerCase() === 'unlimited' ? null : Number(capRaw),
-      extraEntitlements: String(form.get('extras') ?? '')
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean),
+      // getAll: the form posts one entry per ticked box now, rather than one comma-separated
+      // string. Reading it with `get` would silently keep only the first feature sold.
+      extraEntitlements: form.getAll('extras').map(String).filter(Boolean),
       graceDays: Number(form.get('graceDays') ?? 30),
       issuedById: user.id,
     });

@@ -70,8 +70,8 @@ export function assessClient(input: {
       health: 'ATTENTION',
       note:
         lastBeat.verifiedWith === 'development'
-          ? 'Reporting that it verifies licences with the development key — this server can issue itself anything'
-          : 'Reporting that it has no verification key configured',
+          ? 'Verifying licences with the development key — this server can issue itself any package'
+          : 'Running without a vendor key, so its licences go unverified',
       daysRemaining,
     };
   }

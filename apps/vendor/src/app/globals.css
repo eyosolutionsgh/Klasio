@@ -1,30 +1,141 @@
 @import 'tailwindcss';
 
+/*
+  The licensing portal's own surface.
+
+  It borrows Klasio's navy and teal so it reads as the same company, and stays cooler and denser
+  than the school product: this is a tool two or three people keep open all day, where scanning
+  forty rows quickly matters more than warmth. Looking distinct also means anyone can tell at a
+  glance which of the two they are typing into.
+*/
 @theme {
-  --color-ink: #10202e;
-  --color-paper: #f4f7fa;
-  --color-mist: #dbe3ec;
-  --color-oat: #55697e;
+  --color-ink: #0e1b28;
+  --color-slate: #46586c;
+  --color-oat: #6b7d92;
+  --color-mist: #e2e8f0;
+  --color-hush: #f1f5f9;
+  --color-paper: #f7f9fb;
+
   --color-navy: #002b5b;
   --color-navy-deep: #001d40;
   --color-teal: #00797d;
+  --color-teal-bright: #00979c;
+
   --color-leaf: #17734a;
   --color-clay: #a4622a;
   --color-danger: #b3261e;
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
 }
 
-/*
-  The portal is deliberately plainer than the school product. It is an internal tool used by a
-  handful of people who look at it every day, so density and legibility beat warmth — and looking
-  visibly different from a school's own portal is a feature, not an oversight: nobody should ever
-  be unsure which of the two they are typing into.
-*/
 body {
-  background: var(--color-paper);
+  background:
+    radial-gradient(60rem 30rem at 15% -10%, #eaf1f8 0%, transparent 60%),
+    radial-gradient(50rem 26rem at 95% 0%, #e9f4f4 0%, transparent 55%), var(--color-paper);
   color: var(--color-ink);
+  font-family: var(--font-sans);
 }
-.card {
-  background: #fff;
-  border: 1px solid var(--color-mist);
-  border-radius: 0.6rem;
+
+@layer components {
+  .card {
+    background: #fff;
+    border: 1px solid var(--color-mist);
+    border-radius: 0.75rem;
+    box-shadow: 0 1px 2px rgb(14 27 40 / 0.04);
+  }
+
+  /* One height for every control, so a text input and a select sit on the same baseline. */
+  .field {
+    display: block;
+    width: 100%;
+    height: 2.5rem;
+    border: 1px solid var(--color-mist);
+    border-radius: 0.5rem;
+    background: #fff;
+    padding: 0 0.75rem;
+    font-size: 0.875rem;
+    color: var(--color-ink);
+    outline: none;
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
+  }
+  .field:focus {
+    border-color: var(--color-teal);
+    box-shadow: 0 0 0 3px rgb(0 121 125 / 0.12);
+  }
+  .field::placeholder {
+    color: color-mix(in srgb, var(--color-oat) 70%, transparent);
+  }
+
+  .label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-slate);
+    margin-bottom: 0.375rem;
+  }
+
+  /*
+    Hints occupy a reserved row under the field rather than growing it.
+
+    One field carrying a hint used to make its whole column taller than its neighbours, which
+    dropped that control below the others and left the labels on different lines. Reserving the
+    row keeps every field in a grid on the same two baselines whether it has a hint or not.
+  */
+  .hint {
+    display: block;
+    font-size: 0.6875rem;
+    line-height: 1rem;
+    color: var(--color-oat);
+    margin-top: 0.375rem;
+    min-height: 1rem;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    height: 2.5rem;
+    padding: 0 1.125rem;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition:
+      background 0.15s,
+      opacity 0.15s;
+  }
+  .btn-primary {
+    background: var(--color-navy);
+    color: #fff;
+  }
+  .btn-primary:hover {
+    background: var(--color-navy-deep);
+  }
+  .btn-primary:disabled {
+    opacity: 0.55;
+  }
+  .btn-quiet {
+    border: 1px solid var(--color-mist);
+    background: #fff;
+    color: var(--color-slate);
+  }
+  .btn-quiet:hover {
+    background: var(--color-hush);
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
 }
