@@ -18,12 +18,18 @@ export default function Pagination({
   base,
   params,
   label = 'records',
+  ns,
 }: {
   page: Pick<Page<unknown>, 'total' | 'page' | 'perPage' | 'pageCount'>;
   base: string;
   params: ListSearchParams;
   /** Plural noun for the count — "students", "payments". */
   label?: string;
+  /**
+   * URL-key namespace, for the second paged table on a route. Without one both tables read
+   * `?page=` and turn together. See `nsKey` in `@/lib/list`.
+   */
+  ns?: string;
 }) {
   const { total, pageCount } = page;
   const current = Math.min(page.page, pageCount);
@@ -51,11 +57,18 @@ export default function Pagination({
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2 text-oat">
           <span className="hidden sm:inline">Rows</span>
-          <PerPageSelect base={base} params={params} perPage={page.perPage} />
+          <PerPageSelect base={base} params={params} perPage={page.perPage} ns={ns} />
         </div>
 
         <div className="flex items-center gap-1">
-          <PageLink base={base} params={params} to={current - 1} disabled={current <= 1} rel="prev">
+          <PageLink
+            base={base}
+            params={params}
+            to={current - 1}
+            disabled={current <= 1}
+            rel="prev"
+            ns={ns}
+          >
             <span aria-hidden>‹</span>
             <span className="sr-only">Previous page</span>
           </PageLink>
@@ -73,6 +86,7 @@ export default function Pagination({
                 to={n}
                 current={n === current}
                 disabled={false}
+                ns={ns}
               >
                 <span className="tabular">{n}</span>
                 <span className="sr-only"> page {n}</span>
@@ -86,6 +100,7 @@ export default function Pagination({
             to={current + 1}
             disabled={current >= pageCount}
             rel="next"
+            ns={ns}
           >
             <span aria-hidden>›</span>
             <span className="sr-only">Next page</span>
@@ -119,6 +134,7 @@ function PageLink({
   disabled,
   current,
   rel,
+  ns,
   children,
 }: {
   base: string;
@@ -127,6 +143,7 @@ function PageLink({
   disabled: boolean;
   current?: boolean;
   rel?: string;
+  ns?: string;
   children: React.ReactNode;
 }) {
   const cls =
@@ -142,7 +159,7 @@ function PageLink({
   }
   return (
     <Link
-      href={listHref(base, params, { page: to === 1 ? undefined : to })}
+      href={listHref(base, params, { page: to === 1 ? undefined : to }, ns)}
       rel={rel}
       aria-current={current ? 'page' : undefined}
       className={

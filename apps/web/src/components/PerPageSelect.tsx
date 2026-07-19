@@ -14,17 +14,20 @@ export default function PerPageSelect({
   base,
   params,
   perPage,
+  ns,
 }: {
   base: string;
   params: ListSearchParams;
   perPage: number;
+  /** URL-key namespace, when this is the second paged table on a route. */
+  ns?: string;
 }) {
   const router = useRouter();
   return (
     <select
       value={String(perPage)}
       aria-label="Rows per page"
-      onChange={(e) => router.push(listHref(base, params, { perPage: e.target.value }))}
+      onChange={(e) => router.push(listHref(base, params, { perPage: e.target.value }, ns))}
       className="rounded-md border border-mist bg-white px-2 py-1 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
     >
       {PER_PAGE_CHOICES.map((n) => (

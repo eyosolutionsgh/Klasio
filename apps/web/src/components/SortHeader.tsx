@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { listHref, one, type ListSearchParams } from '@/lib/list';
+import { listHref, nsParam, type ListSearchParams } from '@/lib/list';
 
 /**
  * A sortable column heading.
@@ -21,6 +21,7 @@ export default function SortHeader({
   defaultOrder = 'asc',
   align = 'left',
   className = '',
+  ns,
 }: {
   /** The `sort` value this column sends — must be on the endpoint's allowlist. */
   column: string;
@@ -30,9 +31,14 @@ export default function SortHeader({
   defaultOrder?: 'asc' | 'desc';
   align?: 'left' | 'right' | 'center';
   className?: string;
+  /**
+   * URL-key namespace, when this heading belongs to the second paged table on a route. Without
+   * one both tables read `?sort=`, and sorting either would reorder both.
+   */
+  ns?: string;
 }) {
-  const active = one(params.sort) === column;
-  const order = (one(params.order) as 'asc' | 'desc' | undefined) ?? 'asc';
+  const active = nsParam(params, 'sort', ns) === column;
+  const order = (nsParam(params, 'order', ns) as 'asc' | 'desc' | undefined) ?? 'asc';
   const next = active ? (order === 'asc' ? 'desc' : 'asc') : defaultOrder;
   const alignCls =
     align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left';
@@ -44,7 +50,7 @@ export default function SortHeader({
       className={`px-5 py-3 font-medium ${alignCls} ${className}`}
     >
       <Link
-        href={listHref(base, params, { sort: column, order: next })}
+        href={listHref(base, params, { sort: column, order: next }, ns)}
         className={`group inline-flex items-center gap-1 rounded transition hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 ${
           align === 'right' ? 'flex-row-reverse' : ''
         } ${active ? 'text-brand' : ''}`}

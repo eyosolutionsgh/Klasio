@@ -4,13 +4,24 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import PlatformSchoolActions from '@/components/PlatformSchoolActions';
+import Combobox from '@/components/Combobox';
 import Pagination from '@/components/Pagination';
 import SortHeader from '@/components/SortHeader';
 import { TableSkeleton } from '@/components/Loading';
 import { Button, useAsyncAction } from '@/components/Button';
 import { MailIcon, PlusIcon, SearchIcon, TrashIcon } from '@/components/icons';
 import { day, isSignedOut, platformCall } from '@/lib/platform-client';
+
 import { apiQuery, listHref, one, type ListSearchParams, type Page } from '@/lib/list';
+
+/**
+ * URL-key namespace for the invitations list.
+ *
+ * Two paged tables live on this route. Without a namespace both would read `?page=`, so turning
+ * to page 2 of the schools list would turn the invitations list with it — and its rows would be
+ * as unreachable as they were under the old hard cap.
+ */
+const INV_NS = 'inv';
 
 /**
  * The vendor console.
@@ -73,10 +84,28 @@ function PlatformSchoolsConsole() {
     [search],
   );
   const qs = apiQuery(params, ['q', 'status', 'tier']);
+  /**
+   * The invitations table is the second paged list on this route, so its paging rides namespaced
+   * URL keys (`invPage`, `invSort`…) — sharing `?page=` would turn both tables at once.
+   *
+   * Its *filters* are namespaced in the URL too, for the same reason (`q` already belongs to the
+   * schools search), but the endpoint knows nothing about that: it serves one table and expects
+   * plain `q`/`state`. So they are read under the namespaced names and sent under the plain ones.
+   */
+  const inviteQs = apiQuery(
+    params,
+    [],
+    { q: one(params.invQ), state: one(params.invState) },
+    INV_NS,
+  );
 
   const [tab, setTab] = useState<'schools' | 'invitations'>('schools');
   const [schools, setSchools] = useState<Page<School> | null>(null);
-  const [invitations, setInvitations] = useState<Invitation[]>([]);
+  // `openCount` rides in the envelope: the tab badge is a claim about every invitation on file,
+  // and counting the fetched page would have made it a function of which page was open.
+  const [invitations, setInvitations] = useState<(Page<Invitation> & { openCount: number }) | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,7 +123,9 @@ function PlatformSchoolsConsole() {
     try {
       const [s, i] = await Promise.all([
         platformCall<Page<School>>(`schools${qs ? `?${qs}` : ''}`),
-        platformCall<Invitation[]>('invitations'),
+        platformCall<Page<Invitation> & { openCount: number }>(
+          `invitations${inviteQs ? `?${inviteQs}` : ''}`,
+        ),
       ]);
       setSchools(s);
       setInvitations(i);
@@ -104,7 +135,7 @@ function PlatformSchoolsConsole() {
     } finally {
       setLoading(false);
     }
-  }, [qs]);
+  }, [qs, inviteQs]);
 
   useEffect(() => {
     load();
@@ -199,9 +230,9 @@ function PlatformSchoolsConsole() {
               }`}
             >
               {t}
-              {t === 'invitations' && invitations.some((i) => i.state === 'OPEN') && (
+              {t === 'invitations' && !!invitations?.openCount && (
                 <span className="ml-2 text-[11px] rounded-full px-1.5 py-0.5 bg-brand-mist text-brand">
-                  {invitations.filter((i) => i.state === 'OPEN').length}
+                  {invitations.openCount}
                 </span>
               )}
             </button>
@@ -267,7 +298,7 @@ function PlatformSchoolsConsole() {
             </div>
 
             <div className="card mt-4 overflow-x-auto table-stack-wrap">
-              <table className="w-full text-sm min-w-[760px] table-stack">
+              <table className="w-full text-sm sm:min-w-[760px] table-stack">
                 <thead>
                   <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
                     <SortHeader column="name" base="/platform/schools" params={params}>
@@ -375,7 +406,7 @@ function PlatformSchoolsConsole() {
           </>
         )}
 
-        {!loading && tab === 'invitations' && (
+        {!loading && tab === 'invitations' && invitations && (
           <>
             <form onSubmit={invite.run} className="card p-6 mt-6">
               <h2 className="font-display text-xl">Invite a school</h2>
@@ -450,27 +481,87 @@ function PlatformSchoolsConsole() {
               </div>
             )}
 
-            <div className="card mt-5 overflow-x-auto">
-              <table className="w-full text-sm min-w-[680px]">
+            {/*
+              The state filter writes `invState`, not `state`. Every one of this list's URL keys is
+              namespaced, filters included — `q` already belongs to the schools search above, and
+              two lists cannot share one address bar otherwise.
+            */}
+            <div className="mt-6 flex flex-wrap items-end gap-3">
+              <Combobox
+                label="State"
+                className="w-full sm:w-52"
+                clearLabel="Any state"
+                placeholder="Search states…"
+                options={[
+                  { value: 'OPEN', label: 'Open', hint: 'Not yet used' },
+                  { value: 'ACCEPTED', label: 'Accepted', hint: 'The school signed up' },
+                  { value: 'REVOKED', label: 'Withdrawn' },
+                  { value: 'EXPIRED', label: 'Expired', hint: 'Ran out of time unused' },
+                ]}
+                value={one(params.invState) ?? ''}
+                onChange={(v) =>
+                  router.push(
+                    listHref('/platform/schools', params, { invState: v || undefined }, INV_NS),
+                  )
+                }
+              />
+            </div>
+
+            {/* `sm:`-scoped floor: an unconditional one survives the stacking rules and forces
+                the cards wider than the handset they exist for. */}
+            <div className="card mt-5 overflow-x-auto table-stack-wrap">
+              <table className="w-full text-sm sm:min-w-[680px] table-stack">
                 <thead>
                   <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
-                    <th className="px-5 py-2.5 font-medium">School</th>
-                    <th className="px-3 py-2.5 font-medium">Invited</th>
-                    <th className="px-3 py-2.5 font-medium">Package</th>
-                    <th className="px-3 py-2.5 font-medium">Expires</th>
-                    <th className="px-5 py-2.5 font-medium">State</th>
+                    <SortHeader
+                      column="schoolName"
+                      base="/platform/schools"
+                      params={params}
+                      ns={INV_NS}
+                    >
+                      School
+                    </SortHeader>
+                    <SortHeader column="email" base="/platform/schools" params={params} ns={INV_NS}>
+                      Invited
+                    </SortHeader>
+                    <SortHeader column="tier" base="/platform/schools" params={params} ns={INV_NS}>
+                      Package
+                    </SortHeader>
+                    <SortHeader
+                      column="expiresAt"
+                      base="/platform/schools"
+                      params={params}
+                      ns={INV_NS}
+                      defaultOrder="desc"
+                    >
+                      Expires
+                    </SortHeader>
+                    {/* Not sortable: `state` is derived from three nullable timestamps rather
+                        than stored, so there is no column for Postgres to order by. */}
+                    <th scope="col" className="px-5 py-2.5 font-medium">
+                      State
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {invitations.map((i) => (
+                  {invitations.rows.map((i) => (
                     <tr key={i.id} className="border-b border-mist/60 last:border-0">
-                      <td className="px-5 py-3 font-medium">{i.schoolName}</td>
-                      <td className="px-3 py-3 text-oat text-[12.5px]">{i.email}</td>
-                      <td className="px-3 py-3">{i.tier}</td>
-                      <td className="px-3 py-3 text-oat text-[12.5px] whitespace-nowrap">
+                      <td data-label="School" className="px-5 py-3 font-medium">
+                        {i.schoolName}
+                      </td>
+                      <td data-label="Invited" className="px-3 py-3 text-oat text-[12.5px]">
+                        {i.email}
+                      </td>
+                      <td data-label="Package" className="px-3 py-3">
+                        {i.tier}
+                      </td>
+                      <td
+                        data-label="Expires"
+                        className="px-3 py-3 text-oat text-[12.5px] whitespace-nowrap"
+                      >
                         {day(i.expiresAt)}
                       </td>
-                      <td className="px-5 py-3">
+                      <td data-label="State" className="px-5 py-3">
                         <span
                           className={`text-[10px] uppercase tracking-wider rounded-full px-2 py-0.5 ${STATE_TONE[i.state]}`}
                         >
@@ -507,15 +598,22 @@ function PlatformSchoolsConsole() {
                       </td>
                     </tr>
                   ))}
-                  {invitations.length === 0 && (
+                  {invitations.rows.length === 0 && (
                     <tr>
                       <td colSpan={5} className="px-5 py-10 text-center text-oat">
-                        No invitations yet.
+                        No invitations match.
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
+              <Pagination
+                page={invitations}
+                base="/platform/schools"
+                params={params}
+                label="invitations"
+                ns={INV_NS}
+              />
             </div>
           </>
         )}

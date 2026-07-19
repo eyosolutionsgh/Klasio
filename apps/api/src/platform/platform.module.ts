@@ -185,6 +185,24 @@ class SchoolQueryDto extends PageQuery {
   @IsOptional() @IsIn(['BASIC', 'MEDIUM', 'ADVANCED']) tier?: Tier;
 }
 
+/**
+ * Sortable columns on the invitations list. `state` is absent because it is derived from three
+ * nullable timestamps rather than stored — see `invitations`.
+ */
+const INVITATION_SORTS: Record<string, string | string[]> = {
+  schoolName: 'schoolName',
+  email: 'email',
+  tier: 'tier',
+  createdAt: 'createdAt',
+  expiresAt: 'expiresAt',
+};
+
+/** Filters for the invitations list. `from`/`to` bound when the invitation was issued. */
+class ListInvitationsDto extends PageQuery {
+  @IsOptional() @IsString() @MaxLength(80) q?: string;
+  @IsOptional() @IsIn(['OPEN', 'ACCEPTED', 'REVOKED', 'EXPIRED']) state?: string;
+}
+
 @Injectable()
 export class PlatformService {
   constructor(
@@ -455,34 +473,78 @@ export class PlatformService {
     return { ...invitation, token, acceptUrl, delivered: sent.ok };
   }
 
-  async invitations() {
-    const rows = await this.db.system.schoolInvitation.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-      select: {
-        id: true,
-        schoolName: true,
-        email: true,
-        tier: true,
-        expiresAt: true,
-        acceptedAt: true,
-        revokedAt: true,
-        createdAt: true,
-        createdBy: { select: { name: true } },
-        school: { select: { id: true, name: true } },
-      },
-    });
-    const now = Date.now();
-    return rows.map((r) => ({
+  /**
+   * The invitations tab, paged.
+   *
+   * `state` is derived rather than stored — an invitation is OPEN until it is accepted, revoked,
+   * or simply runs out of time — so filtering by it means expressing each state as a where clause
+   * rather than a column comparison. Sorting by it is deliberately not offered for the same
+   * reason: there is nothing for Postgres to order by, and folding the whole table into memory to
+   * sort a derived label is not worth it here.
+   *
+   * `openCount` rides along because the tab's badge is a claim about every invitation on file, not
+   * about the page in front of you. Counting the fetched rows made it a function of which page was
+   * open — and this badge is precisely what tells the vendor there is outstanding work.
+   */
+  async invitations(q: ListInvitationsDto) {
+    const { skip, take, page, perPage } = pageArgs(q);
+    const now = new Date();
+    const OPEN = { acceptedAt: null, revokedAt: null, expiresAt: { gte: now } };
+    const byState: Record<string, Prisma.SchoolInvitationWhereInput> = {
+      OPEN,
+      ACCEPTED: { acceptedAt: { not: null } },
+      REVOKED: { acceptedAt: null, revokedAt: { not: null } },
+      EXPIRED: { acceptedAt: null, revokedAt: null, expiresAt: { lt: now } },
+    };
+    const where: Prisma.SchoolInvitationWhereInput = {
+      ...(q.state ? byState[q.state] : {}),
+      ...(q.q
+        ? {
+            OR: [
+              { schoolName: { contains: q.q, mode: 'insensitive' as const } },
+              { email: { contains: q.q, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
+      ...(dateWindow(q) ? { createdAt: dateWindow(q) } : {}),
+    };
+
+    const [total, openCount, rows] = await Promise.all([
+      this.db.system.schoolInvitation.count({ where }),
+      this.db.system.schoolInvitation.count({ where: OPEN }),
+      this.db.system.schoolInvitation.findMany({
+        where,
+        orderBy: orderBy<Prisma.SchoolInvitationOrderByWithRelationInput>(q, INVITATION_SORTS, {
+          createdAt: 'desc',
+        }),
+        skip,
+        take,
+        select: {
+          id: true,
+          schoolName: true,
+          email: true,
+          tier: true,
+          expiresAt: true,
+          acceptedAt: true,
+          revokedAt: true,
+          createdAt: true,
+          createdBy: { select: { name: true } },
+          school: { select: { id: true, name: true } },
+        },
+      }),
+    ]);
+
+    const stamped = rows.map((r) => ({
       ...r,
       state: r.acceptedAt
         ? ('ACCEPTED' as const)
         : r.revokedAt
           ? ('REVOKED' as const)
-          : r.expiresAt.getTime() < now
+          : r.expiresAt.getTime() < now.getTime()
             ? ('EXPIRED' as const)
             : ('OPEN' as const),
     }));
+    return { ...toPage(stamped, total, { page, perPage }), openCount };
   }
 
   async revokeInvitation(admin: PlatformUser, id: string) {
@@ -753,8 +815,8 @@ export class PlatformController {
 
   @Get('invitations')
   @UseGuards(PlatformGuard)
-  invitations() {
-    return this.svc.invitations();
+  invitations(@Query() query: ListInvitationsDto) {
+    return this.svc.invitations(query);
   }
 
   @Post('invitations')
