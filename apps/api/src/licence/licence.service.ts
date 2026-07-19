@@ -314,7 +314,6 @@ export class LicenceService implements OnModuleInit, OnModuleDestroy {
        */
       reporting: {
         enabled: !!this.heartbeatUrl(),
-        url: this.heartbeatUrl() ?? null,
         lastAt: this.lastHeartbeat?.at.toISOString() ?? null,
         lastOk: this.lastHeartbeat?.ok ?? null,
         lastDetail: this.lastHeartbeat?.detail ?? null,

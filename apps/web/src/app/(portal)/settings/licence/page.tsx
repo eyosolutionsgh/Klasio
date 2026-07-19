@@ -14,7 +14,6 @@ interface LicenceView {
   usingDevKey: boolean;
   reporting: {
     enabled: boolean;
-    url: string | null;
     lastAt: string | null;
     lastOk: boolean | null;
     lastDetail: string | null;
@@ -202,7 +201,7 @@ export default function LicencePage() {
               sends anything about a student, a guardian or a member of staff, and it has no say in
               what the school can do — if it never gets through, nothing changes.
             </p>
-            <dl className="mt-4 grid sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+            <dl className="mt-4 text-sm">
               <div>
                 <dt className="text-oat text-xs uppercase tracking-widest">Last reported</dt>
                 <dd className="mt-0.5 font-medium">
@@ -212,12 +211,6 @@ export default function LicencePage() {
                   {view.reporting.lastOk === false && (
                     <span className="text-oat font-normal"> · did not get through</span>
                   )}
-                </dd>
-              </div>
-              <div className="min-w-0">
-                <dt className="text-oat text-xs uppercase tracking-widest">Sent to</dt>
-                <dd className="mt-0.5 font-medium truncate" title={view.reporting.url ?? ''}>
-                  {view.reporting.url}
                 </dd>
               </div>
             </dl>
