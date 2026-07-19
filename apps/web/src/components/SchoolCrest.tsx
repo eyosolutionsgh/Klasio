@@ -34,7 +34,12 @@ export default function SchoolCrest({
         width={size}
         height={size}
         onError={() => setFailed(true)}
-        className="rounded-md object-contain shrink-0 bg-white/90"
+        // No plate behind the crest: a school's mark is usually cut out to sit on whatever is
+        // under it, and the white rounded tile this used to add read as part of the logo.
+        // Trade-off worth knowing — a school whose crest is itself dark now has less contrast
+        // against the dark sidebar. The initials fallback below still keeps its tile, because
+        // letters need one.
+        className="object-contain shrink-0"
         style={{ width: size, height: size }}
       />
     );

@@ -345,18 +345,9 @@ export default function Sidebar({
           <SchoolCrest name={school} hasLogo={hasLogo} size={38} onDark />
           <div className="min-w-0">
             <p className="text-[13px] font-medium leading-tight">{school}</p>
-            {/*
-              The vendor mark, under the school's own crest and name — this is Klasio's line, not
-              the school's. The emblem sits on a light chip because its navy is nearly invisible
-              against the dark sidebar, and tinting the logo itself is not ours to do.
-            */}
-            <span className="mt-1 flex items-center gap-1.5">
-              <span className="grid place-items-center w-[18px] h-[18px] rounded bg-paper/95 shrink-0">
-                {/* Plain <img>: a static brand asset, no optimiser round-trip worth the weight. */}
-                <img src="/brand/klasio-emblem.png" alt="" aria-hidden className="w-3.5 h-3.5" />
-              </span>
-              <span className="font-display text-[13px] text-gold leading-none">Klasio</span>
-            </span>
+            {/* Where you are, next to whose school it is. The vendor's mark has moved to the
+                foot — this corner belongs to the school. */}
+            <p className="mt-1 text-[11.5px] text-paper/55 leading-none truncate">{termLabel}</p>
           </div>
         </div>
         <button
@@ -418,15 +409,26 @@ export default function Sidebar({
       </nav>
 
       {/*
-        Standing context — which year and term you are working in, and what the school pays for.
-        Both used to sit in the top bar: the term beside the school name, the package as a filled
-        pill. Neither is something you act on, and a pill reads as a live status you might need to
-        respond to. Down here, quiet and unstyled, they answer a question without asking for
-        attention. `mt-auto` is what pins this below a nav short enough not to fill the column.
+        Whose software this is, and what the school pays for. `mt-auto` pins it below a nav short
+        enough not to fill the column.
+
+        The lockup sits on a light panel. It was cut from artwork on a white background, so its
+        solid areas are about 90% opaque — dropped straight onto the dark green it would look
+        faded rather than obviously wrong, which is the harder kind of wrong to notice. Recolouring
+        someone's logo to suit our palette is not ours to do, so the surface changes instead.
       */}
-      <div className="mt-auto shrink-0 px-5 py-4 border-t border-paper/10 text-[11px] leading-relaxed">
-        <p className="text-paper/55">{termLabel}</p>
-        <p className="text-paper/35">
+      <div className="mt-auto shrink-0 px-5 py-4 border-t border-paper/10">
+        <div className="rounded-lg bg-paper/95 px-3 py-2.5 grid place-items-center">
+          {/* Sized by width, not height. At a fixed 24px tall the mark floated in a mostly empty
+              panel and the strapline collapsed into a smudge; filling the column's width gives
+              both room to be read. */}
+          <img
+            src="/brand/klasio-lockup.png"
+            alt="Klasio — School Management System"
+            className="w-full max-w-[150px] h-auto"
+          />
+        </div>
+        <p className="mt-2 text-[11px] text-paper/40 leading-relaxed">
           {/* Sentence case, not the shouted uppercase of the old badge. */}
           {tier.charAt(0) + tier.slice(1).toLowerCase()} plan
         </p>
