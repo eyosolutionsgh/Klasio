@@ -29,7 +29,9 @@ export default function SchoolCrest({
   // Scaled from `size` rather than fixed: this renders at 34px in the top bar and 76px in the
   // sidebar, and a radius that looks right at one is wrong at the other.
   const radius = Math.round(size * 0.22);
-  const pad = Math.round(size * 0.12);
+  // Just enough to keep the artwork off the rounded corners — the crest should read as filling
+  // the tile, not sitting in the middle of one.
+  const pad = Math.max(1, Math.round(size * 0.05));
 
   if (hasLogo && !failed) {
     return (
