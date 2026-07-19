@@ -211,8 +211,14 @@ export default function AssessmentSettingsPage() {
           marked, so a part-marked term still reads sensibly — you do not need to add them all up
           front, and there is no limit on how many exams or tests you keep.
         </p>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-sm min-w-[520px]">
+        {/*
+          Not paged. A school's assessments are bounded config — a handful per subject, all of them
+          read together when deciding what the term is made of — and a pager over six rows would be
+          chrome pretending there is more to find. The floor only applies where this is still a
+          table; below `sm` each assessment is its own card.
+        */}
+        <div className="mt-4 overflow-x-auto table-stack-wrap">
+          <table className="w-full text-sm sm:min-w-[520px] table-stack">
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist">
                 <th className="py-2 font-medium">Assessment</th>
@@ -225,9 +231,13 @@ export default function AssessmentSettingsPage() {
             <tbody>
               {components.map((c) => (
                 <tr key={c.id} className="border-b border-mist/50 last:border-0">
-                  <td className="py-2.5 font-medium">{c.name}</td>
-                  <td className="py-2.5 pr-6 text-right tabular">{c.maxScore}</td>
-                  <td className="py-2.5 pr-6">
+                  <td data-label="Assessment" className="py-2.5 font-medium">
+                    {c.name}
+                  </td>
+                  <td data-label="Out of" className="py-2.5 pr-6 text-right tabular">
+                    {c.maxScore}
+                  </td>
+                  <td data-label="Counts as" className="py-2.5 pr-6">
                     {c.category === 'EXAM' ? (
                       <span className="text-[10px] uppercase tracking-wider bg-gold-soft text-ink rounded-full px-2 py-0.5">
                         Exam
@@ -236,7 +246,10 @@ export default function AssessmentSettingsPage() {
                       <span className="text-oat text-xs">Continuous</span>
                     )}
                   </td>
-                  <td className="py-2.5 pr-6 text-xs text-oat">{scopeLabel(c)}</td>
+                  <td data-label="Applies to" className="py-2.5 pr-6 text-xs text-oat">
+                    {scopeLabel(c)}
+                  </td>
+                  {/* No data-label: an actions cell labelled "Remove: Remove" reads as a stutter. */}
                   <td className="py-2.5 text-right">
                     <RemoveComponentButton
                       onRemove={async () => {
@@ -386,14 +399,16 @@ export default function AssessmentSettingsPage() {
         <h2 className="font-display text-xl">Which scheme each level uses</h2>
         <ul className="mt-4 space-y-2">
           {levels.map((l) => (
-            <li key={l.id} className="flex items-center gap-3 text-sm">
-              <span className="w-32">{l.name}</span>
+            // Wraps rather than squeezing: a fixed 8rem label beside a select left the dropdown
+            // about two characters wide on a handset, so no scheme name was readable.
+            <li key={l.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+              <span className="w-32 shrink-0">{l.name}</span>
               <select
                 value={l.gradingSchemeId ?? ''}
                 onChange={(e) =>
                   send(`school/levels/${l.id}`, { gradingSchemeId: e.target.value }, 'PATCH')
                 }
-                className={field}
+                className={`${field} min-w-0 flex-1`}
               >
                 <option value="">— default (GES) —</option>
                 {schemes.map((s) => (

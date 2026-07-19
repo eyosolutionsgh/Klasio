@@ -77,9 +77,11 @@ export default function PickupPage() {
   const [log, setLog] = useState<ReleaseRow[]>([]);
 
   useEffect(() => {
-    fetch('/api/proxy/students?status=ACTIVE')
+    // `perPage=all` on purpose: this is the dismissal desk's picker, not a browsable list, and a
+    // child who fell on page 2 could not be released at all.
+    fetch('/api/proxy/students?status=ACTIVE&perPage=all')
       .then((r) => r.json())
-      .then((d) => setStudents(Array.isArray(d) ? d : (d.students ?? [])));
+      .then((d) => setStudents(Array.isArray(d) ? d : (d.rows ?? [])));
   }, []);
 
   const loadLog = useCallback(async () => {

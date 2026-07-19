@@ -2,37 +2,36 @@
 
 import { useRouter } from 'next/navigation';
 import Combobox from './Combobox';
+import DateRangeFilter from './DateRangeFilter';
+import { listHref, one, type ListSearchParams } from '@/lib/list';
 
 /**
- * Status and class filters for the students register. The page itself is a server component, so
- * changing a filter navigates rather than mutating client state.
+ * Status, class, gender and enrolment-date filters for the students register. The page itself is
+ * a server component, so changing a filter navigates rather than mutating client state.
+ *
+ * Every control routes through `listHref`, which preserves the parameters it is not changing and
+ * drops `page`. Narrowing a filter while holding page 4 would otherwise land on an empty table
+ * that reads as "no matches" rather than "you were on a page that no longer exists".
  */
 export default function StudentFilters({
-  status,
-  classId,
-  q,
   statuses,
   classes,
+  params,
 }: {
-  status: string;
-  classId?: string;
-  q?: string;
   statuses: { key: string; label: string }[];
   classes: { id: string; name: string; level?: string; studentCount: number }[];
+  params: ListSearchParams;
 }) {
   const router = useRouter();
+  const go = (changes: Record<string, string | undefined>) =>
+    router.push(listHref('/students', params, changes));
 
-  function go(next: Record<string, string | undefined>) {
-    const p = new URLSearchParams();
-    const merged = { status, classId, q, ...next };
-    if (merged.classId) p.set('classId', merged.classId);
-    if (merged.q) p.set('q', merged.q);
-    p.set('status', merged.status ?? 'ACTIVE');
-    router.push(`/students?${p}`);
-  }
+  const status = one(params.status) ?? 'ACTIVE';
+  const classId = one(params.classId) ?? '';
+  const gender = one(params.gender) ?? '';
 
   return (
-    <div className="flex flex-wrap gap-3">
+    <div className="flex flex-wrap items-end gap-3">
       <Combobox
         label="Status"
         className="w-full sm:w-52"
@@ -56,9 +55,22 @@ export default function StudentFilters({
             c.level && c.level !== c.name ? ` · ${c.level}` : ''
           }`,
         }))}
-        value={classId ?? ''}
+        value={classId}
         onChange={(v) => go({ classId: v || undefined })}
       />
+      <Combobox
+        label="Gender"
+        className="w-full sm:w-40"
+        clearLabel="All"
+        placeholder="Search…"
+        options={[
+          { value: 'MALE', label: 'Boys' },
+          { value: 'FEMALE', label: 'Girls' },
+        ]}
+        value={gender}
+        onChange={(v) => go({ gender: v || undefined })}
+      />
+      <DateRangeFilter base="/students" params={params} label="Enrolled between" />
     </div>
   );
 }

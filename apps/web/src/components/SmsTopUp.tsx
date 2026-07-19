@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button, useAsyncAction } from './Button';
 import { CashIcon, PlusIcon } from './icons';
 
@@ -12,7 +13,13 @@ import { CashIcon, PlusIcon } from './icons';
  * payment. Wording matters — a bursar who reads this as "buy now" will expect a debit that never
  * comes, or worse, expect credits they have not paid for.
  */
-export default function SmsTopUp({ onDone }: { onDone: () => void }) {
+/**
+ * `onDone` is optional because the messaging page is a server component: it cannot hand a callback
+ * across the boundary, and what it wants after a top-up — the credit balance re-read on the server
+ * — is exactly `router.refresh()`.
+ */
+export default function SmsTopUp({ onDone }: { onDone?: () => void }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [credits, setCredits] = useState('');
   const [reference, setReference] = useState('');
@@ -40,7 +47,8 @@ export default function SmsTopUp({ onDone }: { onDone: () => void }) {
     setOpen(false);
     setCredits('');
     setReference('');
-    onDone();
+    if (onDone) onDone();
+    else router.refresh();
   });
 
   if (!open) {

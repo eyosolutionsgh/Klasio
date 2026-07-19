@@ -41,8 +41,26 @@ import { hasEntitlement } from '../common/entitlements';
 import { AuthUser, CurrentUser, RequireAnyPermission, RequirePermission } from '../common/auth';
 import { reportCardPdf, ReportCardData, broadsheetPdf, BroadsheetData } from '../common/pdf';
 import { toCsv, toXlsx } from '../common/export';
+import { PageQuery, dateWindow, orderBy, pageArgs, toPage } from '../common/list-query';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+/**
+ * Which columns a class's terminal reports may be ordered by.
+ *
+ * An allowlist, because `sort` is a query-string value spread into `orderBy` — anything else would
+ * let a caller reach through TermReport's relations. `overallTotal` and `classPosition` are the two
+ * that carry the GES computation's output; they are only ever *read* here. Nothing on this list
+ * changes how a position is calculated, which stays standard competition ranking on subject average
+ * inside `computeClassResults`.
+ */
+const REPORT_SORTS: Record<string, string | string[]> = {
+  classPosition: 'classPosition',
+  name: ['student.lastName', 'student.firstName'],
+  admissionNo: 'student.admissionNo',
+  overallTotal: 'overallTotal',
+  publishedAt: 'publishedAt',
+};
 
 class ScoreEntryDto {
   @IsString() studentId: string;
@@ -108,6 +126,21 @@ class PublishReportsDto {
   @IsString() termId: string;
   /** false un-publishes (e.g. a mistake spotted after release). */
   @IsOptional() @IsBoolean() published?: boolean;
+}
+
+/**
+ * The filters on a class's terminal reports. `from`/`to` filter the publication date — see
+ * `listReports` — which is the only date on a report that a reader ever asks about ("what went home
+ * before the holidays"); the term already fixes when the work was done.
+ */
+class ListReportsDto extends PageQuery {
+  @IsString() classId: string;
+  @IsString() termId: string;
+  /**
+   * PUBLISHED / UNPUBLISHED, which is a state rather than a column: `publishedAt` is a nullable
+   * timestamp, so filtering on it means asking whether it is set, not comparing it.
+   */
+  @IsOptional() @IsIn(['PUBLISHED', 'UNPUBLISHED']) status?: 'PUBLISHED' | 'UNPUBLISHED';
 }
 
 /** Fallbacks when a school has not set its own; the GES convention. */
@@ -730,13 +763,36 @@ export class AssessmentService {
     return { generated, classSize: students.length };
   }
 
-  async listReports(auth: AuthUser, classId: string, termId: string) {
-    const reports = await this.db.termReport.findMany({
-      where: { schoolId: auth.schoolId, classId, termId },
-      include: { student: { select: { firstName: true, lastName: true, admissionNo: true } } },
-      orderBy: { classPosition: 'asc' },
-    });
-    return reports.map((r) => ({
+  async listReports(auth: AuthUser, q: ListReportsDto) {
+    const { skip, take, page, perPage } = pageArgs(q);
+    const published = dateWindow(q);
+    const where: Prisma.TermReportWhereInput = {
+      schoolId: auth.schoolId,
+      classId: q.classId,
+      termId: q.termId,
+      ...(q.status === 'PUBLISHED' ? { publishedAt: { not: null } } : {}),
+      ...(q.status === 'UNPUBLISHED' ? { publishedAt: null } : {}),
+      // Asking for a publication window implies the report was published at all, so `not: null` is
+      // redundant here — a range comparison already excludes the nulls.
+      ...(published ? { publishedAt: published } : {}),
+    };
+
+    const [total, reports] = await Promise.all([
+      this.db.termReport.count({ where }),
+      this.db.termReport.findMany({
+        where,
+        include: { student: { select: { firstName: true, lastName: true, admissionNo: true } } },
+        // Position first by default: a class's reports are read as a ranking, and that is the
+        // order the printed broadsheet puts them in.
+        orderBy: orderBy<Prisma.TermReportOrderByWithRelationInput>(q, REPORT_SORTS, {
+          classPosition: 'asc',
+        }),
+        skip,
+        take,
+      }),
+    ]);
+
+    const rows = reports.map((r) => ({
       studentId: r.studentId,
       name: `${r.student.firstName} ${r.student.lastName}`,
       admissionNo: r.student.admissionNo,
@@ -745,6 +801,7 @@ export class AssessmentService {
       classSize: r.classSize,
       publishedAt: r.publishedAt,
     }));
+    return toPage(rows, total, { page, perPage });
   }
 
   /**
@@ -1195,12 +1252,8 @@ export class AssessmentController {
 
   @Get('reports')
   @RequirePermission('reports.view')
-  list(
-    @CurrentUser() user: AuthUser,
-    @Query('classId') classId: string,
-    @Query('termId') termId: string,
-  ) {
-    return this.svc.listReports(user, classId, termId);
+  list(@CurrentUser() user: AuthUser, @Query() query: ListReportsDto) {
+    return this.svc.listReports(user, query);
   }
 
   @Get('reports/:studentId/:termId')

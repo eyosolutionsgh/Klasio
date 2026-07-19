@@ -1,10 +1,10 @@
-'use client';
-
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
-import Combobox from '@/components/Combobox';
-import { Button, useAsyncAction } from '@/components/Button';
-import { RefreshIcon } from '@/components/icons';
+import { api, getMe } from '@/lib/api';
+import Pagination from '@/components/Pagination';
+import SortHeader from '@/components/SortHeader';
+import ReportsFilters from '@/components/ReportsFilters';
+import ReportActions from '@/components/ReportActions';
+import { apiQuery, listHref, one, type ListSearchParams, type Page } from '@/lib/list';
 
 interface ReportRow {
   studentId: string;
@@ -15,10 +15,8 @@ interface ReportRow {
   classSize: number | null;
   publishedAt: string | null;
 }
-interface ClassOpt {
-  id: string;
-  name: string;
-  studentCount: number;
+interface Structure {
+  classes: { id: string; name: string; level: string; studentCount: number }[];
 }
 interface Broadsheet {
   className: string;
@@ -40,87 +38,52 @@ const ordinal = (n: number) => {
   return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
 };
 
-export default function ReportsPage() {
-  const [classes, setClasses] = useState<ClassOpt[]>([]);
-  const [classId, setClassId] = useState('');
-  const [termId, setTermId] = useState('');
-  const [rows, setRows] = useState<ReportRow[]>([]);
-  // Failures only — the buttons now report their own success.
-  const [error, setError] = useState<string | null>(null);
-  const [broadsheet, setBroadsheet] = useState<Broadsheet | null>(null);
+export default async function ReportsPage({
+  searchParams,
+}: {
+  searchParams: Promise<ListSearchParams>;
+}) {
+  const params = await searchParams;
+  const [me, structure] = await Promise.all([getMe(), api<Structure>('/school/structure')]);
 
-  useEffect(() => {
-    Promise.all([
-      fetch('/api/proxy/school/structure').then((r) => r.json()),
-      fetch('/api/proxy/me').then((r) => r.json()),
-    ]).then(([s, me]) => {
-      const withStudents = s.classes.filter((c: ClassOpt) => c.studentCount > 0);
-      setClasses(withStudents);
-      if (withStudents[0]) setClassId(withStudents[0].id);
-      if (me.currentTerm) setTermId(me.currentTerm.id);
-    });
-  }, []);
+  // A class with nobody in it has no reports to compute, and offering it only produces an empty
+  // table that reads as a failure to generate.
+  const classes = structure.classes.filter((c) => c.studentCount > 0);
+  const classId = one(params.classId) ?? classes[0]?.id;
+  const termId = me.currentTerm?.id;
+  const showBroadsheet = one(params.broadsheet) === '1';
 
-  const load = useCallback(async () => {
-    if (!classId || !termId) return;
-    const res = await fetch(`/api/proxy/assessment/reports?classId=${classId}&termId=${termId}`);
-    setRows(await res.json());
-  }, [classId, termId]);
-
-  useEffect(() => {
-    load();
-    setBroadsheet(null);
-  }, [load]);
-
-  async function toggleBroadsheet() {
-    if (broadsheet) {
-      setBroadsheet(null);
-      return;
-    }
-    const res = await fetch(`/api/proxy/assessment/broadsheet?classId=${classId}&termId=${termId}`);
-    if (res.ok) setBroadsheet(await res.json());
+  if (!classId || !termId) {
+    return (
+      <div>
+        <div className="rise rise-1">
+          <h1 className="font-display text-3xl">Terminal reports</h1>
+        </div>
+        <p className="card p-6 mt-6 text-sm text-oat rise rise-2">
+          {termId
+            ? 'No class has any students enrolled yet. Add students to a class, then come back to generate their reports.'
+            : 'No term is running. Set the current term in School Setup before generating terminal reports.'}
+        </p>
+      </div>
+    );
   }
 
-  /** Publishing is what makes a report visible to guardians — and freezes its remarks. */
-  async function setPublished(published: boolean) {
-    setError(null);
-    const res = await fetch('/api/proxy/assessment/reports/publish', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ classId, termId, published }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setError(body.message ?? 'Could not change publication state.');
-      throw new Error('rejected');
-    }
-    await load();
-  }
-
-  /*
-    Two hooks rather than one with an argument: a successful publish swaps this button for its
-    opposite as soon as the rows reload, and a shared state would leave the newcomer wearing the
-    outcome of an action it did not perform.
-  */
-  const publish = useAsyncAction(() => setPublished(true));
-  const unpublish = useAsyncAction(() => setPublished(false));
-
-  const generate = useAsyncAction(async () => {
-    setError(null);
-    const res = await fetch('/api/proxy/assessment/reports/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ classId, termId }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setError(body.message ?? 'Could not generate reports.');
-      throw new Error('rejected');
-    }
-    await load();
-  });
-
-  const allPublished = rows.length > 0 && rows.every((r) => r.publishedAt);
+  const qs = apiQuery(params, ['status'], { classId, termId });
+  const [reports, unpublished, broadsheet] = await Promise.all([
+    api<Page<ReportRow>>(`/assessment/reports?${qs}`),
+    /**
+     * How many reports in the whole class are still unreleased, not how many on this page.
+     *
+     * Publishing acts on the class and term, so the button has to be decided from the class and
+     * term. `perPage=1` because only `total` is read — this asks a count, not a list.
+     */
+    api<Page<ReportRow>>(
+      `/assessment/reports?classId=${classId}&termId=${termId}&status=UNPUBLISHED&perPage=1`,
+    ),
+    showBroadsheet
+      ? api<Broadsheet>(`/assessment/broadsheet?classId=${classId}&termId=${termId}`)
+      : Promise.resolve(null),
+  ]);
 
   return (
     <div>
@@ -133,79 +96,47 @@ export default function ReportsPage() {
       </div>
 
       <div className="mt-6 flex flex-wrap items-end gap-3 rise rise-2">
-        <Combobox
-          label="Class"
-          className="w-full sm:w-56"
-          allowClear={false}
-          placeholder="Search classes…"
-          options={classes.map((c) => ({ value: c.id, label: c.name }))}
-          value={classId}
-          onChange={setClassId}
+        <ReportsFilters classes={classes} params={params} />
+        <ReportActions
+          classId={classId}
+          termId={termId}
+          total={reports.total}
+          unpublishedCount={unpublished.total}
         />
-        <Button
-          onClick={generate.run}
-          state={generate.state}
-          disabled={!classId}
-          icon={<RefreshIcon />}
-          data-tip="Recomputes every report in this class from the latest scores"
-          className="tip"
+        {/* A disclosure rather than an action, so it is a link and survives a refresh. */}
+        <Link
+          href={listHref('/reports', params, { broadsheet: showBroadsheet ? undefined : '1' })}
+          className="rounded-lg border border-mist px-4 py-2 text-sm font-medium text-brand transition hover:bg-brand-mist"
         >
-          Generate reports
-        </Button>
-        {/* A disclosure rather than an action, so it carries no outcome state — the label toggles. */}
-        <Button onClick={toggleBroadsheet} variant="secondary" disabled={!classId || !termId}>
-          {broadsheet ? 'Hide broadsheet' : 'View broadsheet'}
-        </Button>
-        {rows.length > 0 &&
-          (allPublished ? (
-            /* Secondary, not danger: retracting is reversible and re-opens the remarks. */
-            <Button
-              onClick={unpublish.run}
-              state={unpublish.state}
-              variant="secondary"
-              pendingLabel="Unpublishing…"
-              doneLabel="Unpublished!"
-              failedLabel="Couldn't unpublish"
-              data-tip="Retract from guardians and re-open remarks for editing"
-              className="tip"
+          {showBroadsheet ? 'Hide broadsheet' : 'View broadsheet'}
+        </Link>
+        <span className="flex items-center gap-1 text-[13px]">
+          <span className="text-oat">Export:</span>
+          {(['csv', 'xlsx', 'pdf'] as const).map((f) => (
+            <a
+              key={f}
+              href={`/api/proxy/assessment/broadsheet/export?classId=${classId}&termId=${termId}&format=${f}`}
+              className="rounded-md border border-mist px-2.5 py-1 text-brand hover:bg-brand-mist transition uppercase"
             >
-              Unpublish
-            </Button>
-          ) : (
-            <Button
-              onClick={publish.run}
-              state={publish.state}
-              data-tip="Release these reports to guardians"
-              className="tip"
-            >
-              Publish reports
-            </Button>
+              {f}
+            </a>
           ))}
-        {classId && termId && (
-          <span className="flex items-center gap-1 text-[13px]">
-            <span className="text-oat">Export:</span>
-            {(['csv', 'xlsx', 'pdf'] as const).map((f) => (
-              <a
-                key={f}
-                href={`/api/proxy/assessment/broadsheet/export?classId=${classId}&termId=${termId}&format=${f}`}
-                className="rounded-md border border-mist px-2.5 py-1 text-brand hover:bg-brand-mist transition uppercase"
-              >
-                {f}
-              </a>
-            ))}
-          </span>
-        )}
-        {/* Kept: the button can only say it failed, the server says why. */}
-        {error && (
-          <p role="alert" className="text-sm text-danger">
-            {error}
-          </p>
-        )}
+        </span>
       </div>
 
       {broadsheet && (
+        /*
+          Deliberately not `table-stack`: a broadsheet is one row per child against one column per
+          subject, and stacking it would turn each pupil into a list of twelve subject names — the
+          comparison down a column is the entire point of the document. It scrolls sideways on a
+          phone instead, which is how the paper version is read too.
+        */
         <div className="card mt-6 overflow-x-auto rise rise-2">
           <table className="w-full text-[13px] border-collapse">
+            <caption className="sr-only">
+              Broadsheet for {broadsheet.className}
+              {broadsheet.termName ? `, ${broadsheet.termName}` : ''}
+            </caption>
             <thead>
               <tr className="text-[10.5px] uppercase tracking-wider bg-parchment/60">
                 <th className="border border-mist px-2 py-2 text-left font-medium">Adm.</th>
@@ -262,23 +193,43 @@ export default function ReportsPage() {
         </div>
       )}
 
-      <div className="card mt-6 overflow-x-auto rise rise-3">
-        <table className="w-full text-sm">
+      <div className="card mt-6 overflow-x-auto rise rise-3 table-stack-wrap">
+        <table className="w-full text-sm table-stack">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
-              <th className="px-5 py-3 font-medium">Position</th>
-              <th className="px-5 py-3 font-medium">Student</th>
-              <th className="px-5 py-3 font-medium text-right">Overall total</th>
-              <th className="px-5 py-3 font-medium text-right">Report</th>
+              <SortHeader column="classPosition" base="/reports" params={params}>
+                Position
+              </SortHeader>
+              <SortHeader column="name" base="/reports" params={params}>
+                Student
+              </SortHeader>
+              <SortHeader
+                column="overallTotal"
+                base="/reports"
+                params={params}
+                align="right"
+                defaultOrder="desc"
+              >
+                Overall total
+              </SortHeader>
+              <SortHeader
+                column="publishedAt"
+                base="/reports"
+                params={params}
+                align="right"
+                defaultOrder="desc"
+              >
+                Report
+              </SortHeader>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {reports.rows.map((r) => (
               <tr
                 key={r.studentId}
                 className="border-b border-mist/60 last:border-0 hover:bg-parchment/40 transition"
               >
-                <td className="px-5 py-3">
+                <td data-label="Position" className="px-5 py-3">
                   <span
                     className={`font-display text-lg tabular ${r.classPosition === 1 ? 'text-gold' : 'text-ink'}`}
                   >
@@ -286,7 +237,7 @@ export default function ReportsPage() {
                   </span>
                   <span className="text-oat text-xs"> / {r.classSize}</span>
                 </td>
-                <td className="px-5 py-3">
+                <td data-label="Student" className="px-5 py-3">
                   <p className="font-medium">
                     {r.name}
                     {r.publishedAt && (
@@ -297,9 +248,11 @@ export default function ReportsPage() {
                   </p>
                   <p className="text-[11px] text-oat tabular">{r.admissionNo}</p>
                 </td>
-                <td className="px-5 py-3 text-right tabular font-medium">
+                <td data-label="Overall total" className="px-5 py-3 text-right tabular font-medium">
                   {r.overallTotal.toFixed(1)}
                 </td>
+                {/* No data-label: this is the row's action, and "Report: View terminal report" on
+                    a phone would label a link with its own words. */}
                 <td className="px-5 py-3 text-right">
                   <Link
                     href={`/reports/${r.studentId}/${termId}`}
@@ -310,15 +263,17 @@ export default function ReportsPage() {
                 </td>
               </tr>
             ))}
-            {rows.length === 0 && (
+            {reports.rows.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-5 py-10 text-center text-oat">
-                  No reports yet for this class — enter scores, then press “Generate reports”.
+                  No reports match — enter scores, then press “Generate reports”. If you have
+                  filtered by publication or a date range, try clearing that first.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        <Pagination page={reports} base="/reports" params={params} label="reports" />
       </div>
     </div>
   );

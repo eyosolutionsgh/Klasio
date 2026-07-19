@@ -14,10 +14,49 @@ import { isStaleReplay, parseRecordedAt } from '../common/replay';
 import { hasEntitlement } from '../common/entitlements';
 import { SmsModule, SmsService } from '../sms/sms.module';
 import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
+import { PageQuery, dateWindow, pageArgs, toPage } from '../common/list-query';
 
 class AttendanceEntryDto {
   @IsString() studentId: string;
   @IsEnum(AttendanceStatus) status: AttendanceStatus;
+}
+
+/** One row of the chronic-absence list, before it is paged. */
+interface ChronicRow {
+  studentId: string;
+  name: string;
+  admissionNo: string;
+  className: string;
+  absent: number;
+  total: number;
+  rate: number;
+}
+
+/**
+ * How the chronic-absence list may be ordered.
+ *
+ * Comparators rather than a Prisma `orderBy`, because this list has no table behind it. Chronic
+ * absence is a ratio of two counts across a term, and neither `absent / total >= 0.1` nor the
+ * resulting rate is a column the database can filter or sort on — the aggregation has to happen in
+ * memory first, so the sort does too. It is still an allowlist for the same reason the Prisma ones
+ * are: `sort` arrives off a query string, and an unchecked value would index into this object.
+ */
+const CHRONIC_SORTS: Record<string, (a: ChronicRow, b: ChronicRow) => number> = {
+  name: (a, b) => a.name.localeCompare(b.name),
+  admissionNo: (a, b) => a.admissionNo.localeCompare(b.admissionNo),
+  className: (a, b) => a.className.localeCompare(b.className),
+  absent: (a, b) => a.absent - b.absent,
+  total: (a, b) => a.total - b.total,
+  rate: (a, b) => a.rate - b.rate,
+};
+
+/**
+ * Filters for the term's attendance patterns. `from`/`to` narrow which marked days are counted —
+ * see `trends`, where the window applies to the register's own date.
+ */
+class TrendsDto extends PageQuery {
+  @IsString() termId: string;
+  @IsOptional() @IsString() classId?: string;
 }
 
 class MarkAttendanceDto {
@@ -167,9 +206,18 @@ export class AttendanceService {
    * Term-wide attendance, by class and by child. Chronic absence is what a daily register cannot
    * show: a child missing one day a week looks unremarkable every single morning.
    */
-  async trends(auth: AuthUser, termId: string) {
+  async trends(auth: AuthUser, q: TrendsDto) {
+    const { skip, take, page, perPage } = pageArgs(q);
+    // The window narrows which registers are counted, not which children are listed: "how did
+    // attendance look in the fortnight after half term" is the question this answers.
+    const marked_on = dateWindow(q);
     const records = await this.db.attendanceRecord.findMany({
-      where: { schoolId: auth.schoolId, termId },
+      where: {
+        schoolId: auth.schoolId,
+        termId: q.termId,
+        ...(marked_on ? { date: marked_on } : {}),
+        ...(q.classId ? { student: { classId: q.classId } } : {}),
+      },
       include: {
         student: {
           select: {
@@ -217,14 +265,22 @@ export class AttendanceService {
     // so a child with three marked days cannot be flagged on one absence.
     const CHRONIC_RATE = 0.1;
     const MIN_DAYS = 10;
-    const chronic = [...byStudent.entries()]
+    const chronic: ChronicRow[] = [...byStudent.entries()]
       .filter(([, v]) => v.total >= MIN_DAYS && v.absent / v.total >= CHRONIC_RATE)
       .map(([studentId, v]) => ({
         studentId,
         ...v,
         rate: Math.round((v.absent / v.total) * 1000) / 10,
-      }))
-      .sort((a, b) => b.rate - a.rate);
+      }));
+
+    // Worst first by default: this list exists to be acted on from the top, and a page of it
+    // ordered by name would bury the child in most trouble somewhere in the middle.
+    const asked = q.sort ? CHRONIC_SORTS[q.sort] : undefined;
+    // An unrecognised `sort` falls back to the endpoint's own order rather than throwing, exactly
+    // as `orderBy` does for the Prisma-backed lists — a stale bookmark should show the list.
+    const compare = asked ?? CHRONIC_SORTS.rate;
+    const direction = asked ? (q.order === 'desc' ? -1 : 1) : -1;
+    chronic.sort((a, b) => compare(a, b) * direction);
 
     return {
       markedRecords: marked,
@@ -238,7 +294,16 @@ export class AttendanceService {
           marked: v.total,
         }))
         .sort((a, b) => a.rate - b.rate),
-      chronic,
+      /**
+       * Paged, unlike the class summary above it.
+       *
+       * The by-class breakdown is bounded by how many classes a school has and is read whole; the
+       * chronic list is a roll of children and in a large school runs to hundreds. It used to be
+       * returned entire, so the page rendered every row — and a reader had no count to check the
+       * table against. The envelope carries the total, so "17 children" is now stated rather than
+       * inferred from how far the table scrolls.
+       */
+      chronic: toPage(chronic.slice(skip, skip + take), chronic.length, { page, perPage }),
     };
   }
 
@@ -279,8 +344,8 @@ export class AttendanceController {
   @Get('trends')
   @RequireEntitlement('attendance.dashboards')
   @RequirePermission('attendance.dashboards')
-  trends(@CurrentUser() user: AuthUser, @Query('termId') termId: string) {
-    return this.svc.trends(user, termId);
+  trends(@CurrentUser() user: AuthUser, @Query() query: TrendsDto) {
+    return this.svc.trends(user, query);
   }
 
   @Get('summary')

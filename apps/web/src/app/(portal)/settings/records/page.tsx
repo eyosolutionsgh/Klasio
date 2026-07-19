@@ -238,8 +238,14 @@ export default function RecordsSettingsPage() {
           level only appear on children in that level. Removing a field also removes everything
           recorded in it.
         </p>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-sm min-w-[520px]">
+        {/*
+          Neither table on this page is paged. These are the school's own definitions — a dozen
+          extra fields and a handful of required documents is a full setup — so they are read as a
+          list to check, not searched. A pager under six rows would be chrome standing in for
+          nothing.
+        */}
+        <div className="mt-4 overflow-x-auto table-stack-wrap">
+          <table className="w-full text-sm sm:min-w-[520px] table-stack">
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist">
                 <th className="py-2 font-medium">Field</th>
@@ -350,7 +356,7 @@ export default function RecordsSettingsPage() {
                   </tr>
                 ) : (
                   <tr key={f.id} className="border-b border-mist/50 last:border-0">
-                    <td className="py-2.5 font-medium">
+                    <td data-label="Field" className="py-2.5 font-medium">
                       {f.label}
                       {f.kind === 'CHOICE' && f.options.length > 0 && (
                         <span className="block text-[11px] text-oat font-normal">
@@ -358,9 +364,15 @@ export default function RecordsSettingsPage() {
                         </span>
                       )}
                     </td>
-                    <td className="py-2.5 pr-6 text-xs text-oat">{kindLabel[f.kind] ?? f.kind}</td>
-                    <td className="py-2.5 pr-6 text-xs text-oat">{scopeLabel(f.levelId)}</td>
-                    <td className="py-2.5 pr-6 text-xs">{f.required ? 'Yes' : '—'}</td>
+                    <td data-label="Type" className="py-2.5 pr-6 text-xs text-oat">
+                      {kindLabel[f.kind] ?? f.kind}
+                    </td>
+                    <td data-label="Applies to" className="py-2.5 pr-6 text-xs text-oat">
+                      {scopeLabel(f.levelId)}
+                    </td>
+                    <td data-label="Required" className="py-2.5 pr-6 text-xs">
+                      {f.required ? 'Yes' : '—'}
+                    </td>
                     <td className="py-2.5 text-right whitespace-nowrap">
                       {canConfigureRecords && (
                         <button
@@ -460,8 +472,8 @@ export default function RecordsSettingsPage() {
           that kind has been uploaded to the student — so the kind here must match the kind chosen
           when uploading.
         </p>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-sm min-w-[520px]">
+        <div className="mt-4 overflow-x-auto table-stack-wrap">
+          <table className="w-full text-sm sm:min-w-[520px] table-stack">
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist">
                 <th className="py-2 font-medium">Document</th>
@@ -542,10 +554,18 @@ export default function RecordsSettingsPage() {
                   </tr>
                 ) : (
                   <tr key={r.id} className="border-b border-mist/50 last:border-0">
-                    <td className="py-2.5 font-medium">{r.label}</td>
-                    <td className="py-2.5 pr-6 text-xs text-oat tabular">{r.kind}</td>
-                    <td className="py-2.5 pr-6 text-xs text-oat">{scopeLabel(r.levelId)}</td>
-                    <td className="py-2.5 pr-6 text-xs">{r.required ? 'Yes' : 'Optional'}</td>
+                    <td data-label="Document" className="py-2.5 font-medium">
+                      {r.label}
+                    </td>
+                    <td data-label="Kind" className="py-2.5 pr-6 text-xs text-oat tabular">
+                      {r.kind}
+                    </td>
+                    <td data-label="Applies to" className="py-2.5 pr-6 text-xs text-oat">
+                      {scopeLabel(r.levelId)}
+                    </td>
+                    <td data-label="Required" className="py-2.5 pr-6 text-xs">
+                      {r.required ? 'Yes' : 'Optional'}
+                    </td>
                     <td className="py-2.5 text-right whitespace-nowrap">
                       {canConfigureRecords && (
                         <button

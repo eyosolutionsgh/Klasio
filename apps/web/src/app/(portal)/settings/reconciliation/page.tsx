@@ -1,7 +1,10 @@
 import { api, getMe, money } from '@/lib/api';
 import ImportSettlement from '@/components/ImportSettlement';
+import Pagination from '@/components/Pagination';
 import ReconciliationFilters from '@/components/ReconciliationFilters';
 import ResolveException from '@/components/ResolveException';
+import SortHeader from '@/components/SortHeader';
+import { apiQuery, type ListSearchParams, type Page } from '@/lib/list';
 
 interface Batch {
   id: string;
@@ -26,11 +29,21 @@ interface ExceptionRow {
   weCharged: number | null;
   createdAt: string;
 }
+/** The headline figures, counted over everything on file rather than over the page below them. */
+interface Summary {
+  unmatched: number;
+  disputed: number;
+  charges: number;
+  batchCount: number;
+}
 
 const STATES = [
   { key: 'UNMATCHED', label: 'Not recognised' },
   { key: 'DISPUTED', label: 'Amount disagrees' },
   { key: 'MATCHED', label: 'Matched' },
+  // A repeated reference in one file. The importer has always been able to record it, but with no
+  // way to filter to it these rows could only be reached by scrolling the whole matched list.
+  { key: 'DUPLICATE', label: 'Repeated in file' },
   { key: 'IGNORED', label: 'Set aside' },
 ];
 
@@ -39,6 +52,7 @@ const TONE: Record<string, string> = {
   UNMATCHED: 'bg-danger/10 text-danger',
   DISPUTED: 'bg-clay/10 text-clay',
   MATCHED: 'bg-leaf/10 text-leaf',
+  DUPLICATE: 'bg-clay/10 text-clay',
   IGNORED: 'bg-parchment text-oat',
 };
 const LABEL: Record<string, string> = Object.fromEntries(STATES.map((s) => [s.key, s.label]));
@@ -49,25 +63,26 @@ const day = (d: string) =>
 export default async function ReconciliationPage({
   searchParams,
 }: {
-  searchParams: Promise<{ batchId?: string; status?: string }>;
+  searchParams: Promise<ListSearchParams>;
 }) {
-  const { batchId, status } = await searchParams;
-  const qs = new URLSearchParams();
-  if (batchId) qs.set('batchId', batchId);
-  if (status) qs.set('status', status);
+  const params = await searchParams;
+  const qs = apiQuery(params, ['batchId', 'status']);
 
-  const [batches, rows, me] = await Promise.all([
-    api<Batch[]>('/reconciliation/batches'),
-    api<ExceptionRow[]>(`/reconciliation/exceptions?${qs}`),
+  const [batches, exceptions, summary, me] = await Promise.all([
+    /**
+     * Every import, not a page of them.
+     *
+     * The file filter is a picker: a bursar chasing a line from March needs March's file in the
+     * list, and a picker that only offers the most recent page is a filter that cannot reach the
+     * rows it is meant to narrow. The sidebar shows the newest few and says how many there are.
+     */
+    api<Page<Batch>>('/reconciliation/batches?perPage=all'),
+    api<Page<ExceptionRow>>(`/reconciliation/exceptions?${qs}`),
+    api<Summary>('/reconciliation/summary'),
     getMe(),
   ]);
   const cur = me.school.currency;
-
-  // With no status filter the API returns the open items only, which is the queue as a bursar
-  // thinks of it: unrecognised money, and money whose amount we disagree with.
-  const unrecognised = rows.filter((r) => r.status === 'UNMATCHED');
-  const disputed = rows.filter((r) => r.status === 'DISPUTED');
-  const charges = batches.reduce((a, b) => a + b.charges, 0);
+  const rows = exceptions.rows;
 
   return (
     <div>
@@ -80,31 +95,38 @@ export default async function ReconciliationPage({
         </p>
       </div>
 
+      {/*
+        Every tile reads from /reconciliation/summary, which counts and sums over the whole school.
+        These used to be derived from the rows the page had fetched, so filtering the queue to one
+        file — or, once it was paged, simply turning a page — moved the "not recognised" count and
+        the gateway's total take. Those are statements about the school's money, and the table
+        underneath them is not allowed to change them.
+      */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
         {[
           {
             label: 'Not recognised',
-            value: String(unrecognised.length),
+            value: String(summary.unmatched),
             tip: 'Money arrived under a reference we hold no payment for',
             cls: 'rise-1',
-            tone: unrecognised.length ? 'text-danger' : undefined,
+            tone: summary.unmatched ? 'text-danger' : undefined,
           },
           {
             label: 'Amount disagrees',
-            value: String(disputed.length),
+            value: String(summary.disputed),
             tip: 'We know the payment, but the gateway reports a different amount',
             cls: 'rise-2',
-            tone: disputed.length ? 'text-clay' : undefined,
+            tone: summary.disputed ? 'text-clay' : undefined,
           },
           {
             label: 'Gateway charges',
-            value: money(charges, cur),
+            value: money(summary.charges, cur),
             tip: 'Kept by the gateway across every file imported',
             cls: 'rise-3',
           },
           {
             label: 'Files imported',
-            value: String(batches.length),
+            value: String(summary.batchCount),
             tip: 'Settlement files reconciled so far',
             cls: 'rise-4',
           },
@@ -131,9 +153,8 @@ export default async function ReconciliationPage({
 
           <div className="px-6 pb-4">
             <ReconciliationFilters
-              batchId={batchId}
-              status={status}
-              batches={batches.map((b) => ({
+              params={params}
+              batches={batches.rows.map((b) => ({
                 id: b.id,
                 label: `${b.provider} · ${b.filename}`,
                 hint: `${day(b.createdAt)} · ${b.rowCount} rows`,
@@ -142,26 +163,56 @@ export default async function ReconciliationPage({
             />
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[640px]">
+          <div className="overflow-x-auto table-stack-wrap">
+            {/* `sm:` scoped: an unconditional floor survives the stacking media query and would
+                hold the page at 640px on exactly the screens the stacking exists for. */}
+            <table className="w-full text-sm sm:min-w-[640px] table-stack">
               <thead>
                 <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
-                  <th className="px-6 py-2.5 font-medium">Reference</th>
+                  <SortHeader
+                    column="reference"
+                    base="/settings/reconciliation"
+                    params={params}
+                    className="px-6 py-2.5"
+                  >
+                    Reference
+                  </SortHeader>
+                  {/*
+                    "Against" is not sortable: the student and the amount we charged both come off
+                    a PaymentIntent, and an unrecognised row — the whole reason this queue exists —
+                    has no intent at all. Sorting by it would order the queue by a blank.
+                  */}
                   <th className="px-3 py-2.5 font-medium">Against</th>
-                  <th className="px-3 py-2.5 font-medium text-right">Gateway</th>
+                  <SortHeader
+                    column="gross"
+                    base="/settings/reconciliation"
+                    params={params}
+                    align="right"
+                    defaultOrder="desc"
+                    className="px-3 py-2.5"
+                  >
+                    Gateway
+                  </SortHeader>
                   <th className="px-3 py-2.5 font-medium text-right">We charged</th>
-                  <th className="px-3 py-2.5 font-medium">State</th>
+                  <SortHeader
+                    column="status"
+                    base="/settings/reconciliation"
+                    params={params}
+                    className="px-3 py-2.5"
+                  >
+                    State
+                  </SortHeader>
                   <th className="px-6 py-2.5" />
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id} className="border-b border-mist/60 last:border-0 align-top">
-                    <td className="px-6 py-3">
+                    <td data-label="Reference" className="px-6 py-3">
                       <p className="font-medium tabular">{r.reference}</p>
                       {r.note && <p className="text-[11.5px] text-oat mt-0.5">{r.note}</p>}
                     </td>
-                    <td className="px-3 py-3">
+                    <td data-label="Against" className="px-3 py-3">
                       {r.student ? (
                         <span className="text-[12.5px]">{r.student}</span>
                       ) : (
@@ -169,18 +220,24 @@ export default async function ReconciliationPage({
                       )}
                       <span className="block text-[11px] text-oat">{day(r.createdAt)}</span>
                     </td>
-                    <td className="px-3 py-3 text-right tabular whitespace-nowrap">
+                    <td
+                      data-label="Gateway"
+                      className="px-3 py-3 text-right tabular whitespace-nowrap"
+                    >
                       {money(r.gross, cur)}
                       <span className="block text-[11px] text-oat">
                         {money(r.net, cur)} remitted
                       </span>
                     </td>
-                    <td className="px-3 py-3 text-right tabular whitespace-nowrap">
+                    <td
+                      data-label="We charged"
+                      className="px-3 py-3 text-right tabular whitespace-nowrap"
+                    >
                       {r.weCharged === null ? (
                         <span className="text-oat">—</span>
                       ) : (
                         <>
-                          {money(r.weCharged, cur)}
+                          <span>{money(r.weCharged, cur)}</span>
                           {Math.abs(r.weCharged - r.gross) > 0.02 && (
                             <span className="block text-[11px] text-clay">
                               {r.gross > r.weCharged ? '+' : '−'}
@@ -190,9 +247,9 @@ export default async function ReconciliationPage({
                         </>
                       )}
                     </td>
-                    <td className="px-3 py-3">
+                    <td data-label="State" className="px-3 py-3">
                       <span
-                        className={`text-[10px] uppercase tracking-wider rounded-full px-2 py-0.5 whitespace-nowrap ${TONE[r.status]}`}
+                        className={`inline-block text-[10px] uppercase tracking-wider rounded-full px-2 py-0.5 whitespace-nowrap ${TONE[r.status]}`}
                       >
                         {LABEL[r.status] ?? r.status}
                       </span>
@@ -211,7 +268,7 @@ export default async function ReconciliationPage({
                 {rows.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-6 py-10 text-center text-oat">
-                      {batches.length === 0 ? (
+                      {batches.total === 0 ? (
                         <>
                           Nothing to reconcile yet. Download a settlement file from Hubtel or
                           Paystack and import it on the right — every line that does not match a
@@ -225,6 +282,12 @@ export default async function ReconciliationPage({
                 )}
               </tbody>
             </table>
+            <Pagination
+              page={exceptions}
+              base="/settings/reconciliation"
+              params={params}
+              label="exceptions"
+            />
           </div>
         </section>
 
@@ -232,9 +295,17 @@ export default async function ReconciliationPage({
           <ImportSettlement currency={cur} />
 
           <section className="card p-6 rise rise-4">
-            <h2 className="font-display text-xl">Past imports</h2>
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+              <h2 className="font-display text-xl">Past imports</h2>
+              {/* Say what is being shown of what, rather than letting eight look like all of them. */}
+              {batches.total > 8 && (
+                <p className="text-[12px] text-oat">
+                  8 most recent of <span className="tabular">{batches.total}</span>
+                </p>
+              )}
+            </div>
             <ul className="mt-4 space-y-3">
-              {batches.map((b) => (
+              {batches.rows.slice(0, 8).map((b) => (
                 <li key={b.id} className="border-b border-mist/50 last:border-0 pb-3 last:pb-0">
                   <div className="flex justify-between gap-3">
                     <span className="text-sm font-medium truncate">{b.filename}</span>
@@ -249,7 +320,7 @@ export default async function ReconciliationPage({
                   </p>
                 </li>
               ))}
-              {batches.length === 0 && (
+              {batches.total === 0 && (
                 <li className="text-sm text-oat">No settlement file has been imported yet.</li>
               )}
             </ul>

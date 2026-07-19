@@ -210,9 +210,12 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
         </p>
       </div>
 
-      {/* The table scrolls inside its own card on narrow screens rather than widening the page. */}
-      <div className="overflow-x-auto mt-5">
-        <table className="w-full text-sm min-w-[620px]">
+      {/* From `sm` up the table scrolls inside its own card rather than widening the page; below
+          it, each rule becomes a card. The floor is `sm:min-w-` and not `min-w-` on purpose — an
+          unconditional 620px floor survives the stacking rules and puts the horizontal scrollbar
+          straight back on a handset. */}
+      <div className="overflow-x-auto mt-5 table-stack-wrap">
+        <table className="w-full text-sm sm:min-w-[620px] table-stack">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-y border-mist bg-parchment/50">
               <th className="px-5 py-3 font-medium">Rule</th>
@@ -480,7 +483,7 @@ function RuleRow({
 
   return (
     <tr className="border-b border-mist/60 last:border-0">
-      <td className="px-5 py-3">
+      <td data-label="Rule" className="px-5 py-3">
         <p className={`font-medium ${r.active ? '' : 'text-oat'}`}>{r.name}</p>
         <p className="text-[11px] text-oat">
           {/* Schools name rules after what they are ("Sibling discount"), so repeating
@@ -493,7 +496,7 @@ function RuleRow({
             .join(' · ')}
         </p>
       </td>
-      <td className="px-5 py-3 text-oat">
+      <td data-label="Reaches" className="px-5 py-3 text-oat">
         {r.kind === 'SIBLING'
           ? `${ordinal(r.fromSibling ?? 2)} child onward`
           : 'Children awarded it'}
@@ -503,13 +506,13 @@ function RuleRow({
           {r.endsOn && ` · until ${fmtDate(r.endsOn)}`}
         </span>
       </td>
-      <td className="px-5 py-3 text-right tabular font-medium">
+      <td data-label="Worth" className="px-5 py-3 text-right tabular font-medium">
         {r.basis === 'PERCENT' ? `${r.value}%` : money(r.value)}
         {r.basis === 'PERCENT' && (
           <span className="block text-[11px] font-normal text-oat">of the bill</span>
         )}
       </td>
-      <td className="px-5 py-3 text-right">
+      <td data-label="Held by" className="px-5 py-3 text-right">
         {r.kind === 'SCHOLARSHIP' ? (
           <span className="tabular">
             {r.awardCount} {r.awardCount === 1 ? 'child' : 'children'}

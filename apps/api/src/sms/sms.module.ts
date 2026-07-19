@@ -6,14 +6,42 @@ import {
   Injectable,
   Module,
   Post,
+  Query,
   Logger,
 } from '@nestjs/common';
-import { IsArray, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsArray, IsEnum, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { Prisma, SmsStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
 import { normalizeMsisdn } from '../common/phone';
+import { PageQuery, dateWindow, orderBy, pageArgs, toPage } from '../common/list-query';
 
 type Audience = 'ALL' | 'CLASS' | 'LEVEL' | 'CUSTOM';
+
+/**
+ * Which columns the send log may be sorted by.
+ *
+ * An allowlist rather than a passthrough — `sort` arrives on a query string and is spread straight
+ * into `orderBy`. `body` is absent on purpose: alphabetising a broadcast by its own text answers
+ * no question a school asks, and it would scatter the recipients of one send across the list.
+ */
+const MESSAGE_SORTS: Record<string, string | string[]> = {
+  createdAt: 'createdAt',
+  to: 'to',
+  status: 'status',
+};
+
+/**
+ * The send log's filters. Extends the shared paging/sorting/date-window base.
+ *
+ * `from`/`to` filter `createdAt`, which on SmsMessage is when the row was written — the moment the
+ * provider was called. There is no separate `sentAt`: the send is synchronous, so the two would
+ * always be the same instant.
+ */
+class ListMessagesDto extends PageQuery {
+  @IsOptional() @IsEnum(SmsStatus) status?: SmsStatus;
+  @IsOptional() @IsString() q?: string;
+}
 
 class SendSmsDto {
   @IsString() @MinLength(1) @MaxLength(640) body: string;
@@ -343,13 +371,47 @@ export class SmsService {
     };
   }
 
-  async messages(auth: AuthUser) {
-    const messages = await this.db.smsMessage.findMany({
-      where: { schoolId: auth.schoolId },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    });
-    return messages.map((m) => ({
+  /**
+   * The send log, paged.
+   *
+   * This used to be the newest 100 rows, full stop. A school that sends one fee reminder to 300
+   * guardians filled that in a single afternoon, so "did Ama's mother get the message?" was
+   * unanswerable the following morning — the row existed and the screen could not reach it.
+   * Searching by number is the same question asked directly.
+   */
+  async messages(auth: AuthUser, q: ListMessagesDto) {
+    const { skip, take, page, perPage } = pageArgs(q);
+    const sent = dateWindow(q);
+    const where: Prisma.SmsMessageWhereInput = {
+      schoolId: auth.schoolId,
+      ...(q.status ? { status: q.status } : {}),
+      // The window filters when the provider was called — see the note on ListMessagesDto.
+      ...(sent ? { createdAt: sent } : {}),
+      ...(q.q
+        ? {
+            // Recipient or text: a bursar chasing a delivery has the number, a head checking what
+            // went out has a phrase from the message. Both are the same box.
+            OR: [
+              { to: { contains: q.q, mode: 'insensitive' as const } },
+              { body: { contains: q.q, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
+    };
+
+    const [total, messages] = await Promise.all([
+      this.db.smsMessage.count({ where }),
+      this.db.smsMessage.findMany({
+        where,
+        orderBy: orderBy<Prisma.SmsMessageOrderByWithRelationInput>(q, MESSAGE_SORTS, {
+          createdAt: 'desc',
+        }),
+        skip,
+        take,
+      }),
+    ]);
+
+    const rows = messages.map((m) => ({
       id: m.id,
       to: m.to,
       body: m.body,
@@ -359,6 +421,7 @@ export class SmsService {
       error: m.error,
       createdAt: m.createdAt,
     }));
+    return toPage(rows, total, { page, perPage });
   }
 
   async balance(auth: AuthUser) {
@@ -385,8 +448,8 @@ export class SmsController {
   @Get('messages')
   @RequireEntitlement('comms.sms')
   @RequirePermission('comms.sms')
-  messages(@CurrentUser() user: AuthUser) {
-    return this.svc.messages(user);
+  messages(@CurrentUser() user: AuthUser, @Query() query: ListMessagesDto) {
+    return this.svc.messages(user, query);
   }
 
   @Post('send')

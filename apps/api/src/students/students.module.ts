@@ -18,7 +18,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { IsBoolean, IsDateString, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
-import { CustodyFlag, Gender, StudentStatus } from '@prisma/client';
+import { CustodyFlag, Gender, Prisma, StudentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { checkTemplate, DEFAULT_TEMPLATE, formatAdmissionNo } from '../common/admission-no';
 import { studentIdCardSheet, type StudentIdCardData } from '../common/pdf';
@@ -35,8 +35,27 @@ import {
   storage,
 } from '../common/storage';
 import { balanceOf, reversedIds } from '../common/ledger';
+import { PageQuery, dateWindow, orderBy, pageArgs, toPage } from '../common/list-query';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+/**
+ * Which columns the register may be sorted by, and what each maps to in Prisma.
+ *
+ * An allowlist rather than a passthrough — `sort` comes off a query string, so an unchecked value
+ * would let a caller order by a relation this endpoint never meant to reach through. Name sorts on
+ * the surname because that is what a register is alphabetised by; `guardians` is absent on purpose,
+ * since sorting by a related collection would mean sorting by whichever guardian Prisma picked.
+ */
+const STUDENT_SORTS: Record<string, string | string[]> = {
+  admissionNo: 'admissionNo',
+  name: ['lastName', 'firstName'],
+  className: 'classRoom.name',
+  gender: 'gender',
+  enrolledAt: 'enrolledAt',
+  dateOfBirth: 'dateOfBirth',
+  status: 'status',
+};
 
 /** Minimal shape of a Multer upload — avoids depending on @types/multer. */
 interface UploadedFileLike {
@@ -44,6 +63,17 @@ interface UploadedFileLike {
   originalname: string;
   mimetype: string;
   size: number;
+}
+
+/**
+ * The register's filters. Extends the shared paging/sorting/date-window base; `from`/`to` filter
+ * the enrolment date (see `list`).
+ */
+class ListStudentsDto extends PageQuery {
+  @IsOptional() @IsString() classId?: string;
+  @IsOptional() @IsString() q?: string;
+  @IsOptional() @IsEnum(StudentStatus) status?: StudentStatus;
+  @IsOptional() @IsEnum(Gender) gender?: Gender;
 }
 
 class CreateStudentDto {
@@ -121,48 +151,72 @@ class ReinstateDto {
 export class StudentsService {
   constructor(private db: PrismaService) {}
 
-  async list(auth: AuthUser, classId?: string, q?: string, status: StudentStatus = 'ACTIVE') {
+  /**
+   * The register, paged.
+   *
+   * This used to return a bare array capped at `take: 200`. A school with more than 200 children
+   * on the roll saw 200 of them and was told nothing about the rest — the cap was invisible, so
+   * "my child isn't in the system" was indistinguishable from "your child is on page 3". The
+   * envelope carries the total precisely so the screen can say which.
+   */
+  async list(auth: AuthUser, q: ListStudentsDto) {
     // Same gate detail() applies; see the note on primaryGuardian below.
     const mayReadGuardians =
       (auth.permissions?.includes('students.guardians') ||
         auth.permissions?.includes('pickup.view')) ??
       false;
-    const students = await this.db.student.findMany({
-      where: {
-        schoolId: auth.schoolId,
-        status,
-        ...(classId ? { classId } : {}),
-        ...(q
-          ? {
-              OR: [
-                { firstName: { contains: q, mode: 'insensitive' } },
-                { lastName: { contains: q, mode: 'insensitive' } },
-                { admissionNo: { contains: q, mode: 'insensitive' } },
-              ],
-            }
-          : {}),
-      },
-      include: {
-        classRoom: { select: { name: true } },
-        /**
-         * Every guardian, not only the primary one.
-         *
-         * The list used to fetch `where: { isPrimary: true }`, so it could not tell a child with
-         * one guardian from a child with four — and a record with guardians but none flagged
-         * primary read as having none at all. Ordering by isPrimary means the lead is the primary
-         * where there is one, and the first guardian otherwise, rather than silently nothing.
-         */
-        guardians: {
-          include: { guardian: true },
-          // StudentGuardian carries no timestamp, so the secondary sort is the guardian's own
-          // name — stable, and alphabetical is what a reader expects when nothing is primary.
-          orderBy: [{ isPrimary: 'desc' }, { guardian: { lastName: 'asc' } }],
+    const { skip, take, page, perPage } = pageArgs(q);
+    const enrolled = dateWindow(q);
+    const where = {
+      schoolId: auth.schoolId,
+      status: q.status ?? 'ACTIVE',
+      ...(q.classId ? { classId: q.classId } : {}),
+      ...(q.gender ? { gender: q.gender } : {}),
+      // The window filters when the child joined the roll, which is what an admissions officer
+      // means by "students added this term" — not their birthday.
+      ...(enrolled ? { enrolledAt: enrolled } : {}),
+      ...(q.q
+        ? {
+            OR: [
+              { firstName: { contains: q.q, mode: 'insensitive' as const } },
+              { lastName: { contains: q.q, mode: 'insensitive' as const } },
+              { admissionNo: { contains: q.q, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
+    };
+
+    const [total, students] = await Promise.all([
+      this.db.student.count({ where }),
+      this.db.student.findMany({
+        where,
+        include: {
+          classRoom: { select: { name: true } },
+          /**
+           * Every guardian, not only the primary one.
+           *
+           * The list used to fetch `where: { isPrimary: true }`, so it could not tell a child with
+           * one guardian from a child with four — and a record with guardians but none flagged
+           * primary read as having none at all. Ordering by isPrimary means the lead is the primary
+           * where there is one, and the first guardian otherwise, rather than silently nothing.
+           */
+          guardians: {
+            include: { guardian: true },
+            // StudentGuardian carries no timestamp, so the secondary sort is the guardian's own
+            // name — stable, and alphabetical is what a reader expects when nothing is primary.
+            orderBy: [{ isPrimary: 'desc' }, { guardian: { lastName: 'asc' } }],
+          },
         },
-      },
-      orderBy: [{ classRoom: { name: 'asc' } }, { lastName: 'asc' }],
-      take: 200,
-    });
-    return students.map((s) => ({
+        orderBy: orderBy<Prisma.StudentOrderByWithRelationInput>(q, STUDENT_SORTS, [
+          { classRoom: { name: 'asc' } },
+          { lastName: 'asc' },
+        ]),
+        skip,
+        take,
+      }),
+    ]);
+
+    const rows = students.map((s) => ({
       id: s.id,
       admissionNo: s.admissionNo,
       name: `${s.firstName} ${s.lastName}`,
@@ -194,6 +248,7 @@ export class StudentsService {
           : null,
       },
     }));
+    return toPage(rows, total, { page, perPage });
   }
 
   async detail(auth: AuthUser, id: string) {
@@ -1027,13 +1082,8 @@ export class StudentsController {
 
   @Get()
   @RequirePermission('students.view')
-  list(
-    @CurrentUser() user: AuthUser,
-    @Query('classId') classId?: string,
-    @Query('q') q?: string,
-    @Query('status') status?: StudentStatus,
-  ) {
-    return this.svc.list(user, classId, q, status ?? 'ACTIVE');
+  list(@CurrentUser() user: AuthUser, @Query() query: ListStudentsDto) {
+    return this.svc.list(user, query);
   }
 
   @Post('promote')

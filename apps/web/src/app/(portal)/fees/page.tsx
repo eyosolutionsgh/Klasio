@@ -1,12 +1,12 @@
-'use client';
-
-import { useCallback, useEffect, useState } from 'react';
+import { api, getMe, money as fmtMoney } from '@/lib/api';
+import DefaultersTable, { type Defaulter } from '@/components/DefaultersTable';
 import DepositQueue from '@/components/DepositQueue';
-import FileField from '@/components/FileField';
+import FeeFilters from '@/components/FeeFilters';
+import Pagination from '@/components/Pagination';
 import SendReminders from '@/components/SendReminders';
-import { Button, useAsyncAction } from '@/components/Button';
-import { ChoiceCards } from '@/components/ChoiceCards';
-import { CalendarIcon, CashIcon, UploadIcon } from '@/components/icons';
+import { Button } from '@/components/Button';
+import { SearchIcon } from '@/components/icons';
+import { apiQuery, one, type ListSearchParams, type Page } from '@/lib/list';
 
 interface Overview {
   invoiced: number;
@@ -25,13 +25,8 @@ interface Overview {
   }[];
   defaulterCount: number;
 }
-interface Defaulter {
-  studentId: string;
-  name: string;
-  admissionNo: string;
-  className: string;
-  phone: string | null;
-  balance: number;
+interface Structure {
+  classes: { id: string; name: string; level: string; studentCount: number }[];
 }
 
 const METHOD_LABEL: Record<string, string> = {
@@ -41,122 +36,49 @@ const METHOD_LABEL: Record<string, string> = {
   CARD: 'Card',
 };
 
-export default function FeesPage() {
-  const [termId, setTermId] = useState('');
-  const [ov, setOv] = useState<Overview | null>(null);
-  const [defaulters, setDefaulters] = useState<Defaulter[]>([]);
-  const [payFor, setPayFor] = useState<Defaulter | null>(null);
-  const [amount, setAmount] = useState('');
-  const [method, setMethod] = useState('CASH');
-  const [note, setNote] = useState('');
-  const [toast, setToast] = useState<string | null>(null);
-  const [depositFor, setDepositFor] = useState<Defaulter | null>(null);
-  const [proof, setProof] = useState<File | null>(null);
+/**
+ * Fees: what was billed, what came in, and who still owes.
+ *
+ * Server-rendered, like the rest of the portal's lists. It used to fetch everything in the browser
+ * and render `defaulters.slice(0, 12)`, which meant the list on screen was a twelve-row sample of
+ * an uncapped array sitting directly beneath an "Outstanding" tile counting every family. The
+ * filters, the sort and the page are now the URL, and the tiles read figures the API computes over
+ * the whole school — see the note on them below.
+ */
+export default async function FeesPage({
+  searchParams,
+}: {
+  searchParams: Promise<ListSearchParams>;
+}) {
+  const params = await searchParams;
+  const me = await getMe();
+  const termId = one(params.termId) ?? me.currentTerm?.id;
+  const cur = me.school.currency;
 
-  // One dialog serves every defaulter, so the attachment has to be dropped when it switches
-  // student. Keyed on depositFor rather than cleared at each open/close site: a teller slip
-  // submitted against the wrong child is a real accounting error, and this cannot be forgotten
-  // the next time someone adds a way to close the dialog.
-  useEffect(() => {
-    setProof(null);
-  }, [depositFor]);
-  const [payLink, setPayLink] = useState<{ student: string; url: string } | null>(null);
-  // Defaults to GHS so the first paint never shows a currency this school does not use.
-  const [currency, setCurrency] = useState('GHS');
-
-  const money = (n: number) =>
-    `${currency} ${n.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-  useEffect(() => {
-    fetch('/api/proxy/me')
-      .then((r) => r.json())
-      .then((me) => {
-        if (me.currentTerm) setTermId(me.currentTerm.id);
-        if (me.school?.currency) setCurrency(me.school.currency);
-      });
-  }, []);
-
-  const load = useCallback(async () => {
-    if (!termId) return;
-    const [o, d] = await Promise.all([
-      fetch(`/api/proxy/fees/overview?termId=${termId}`).then((r) => r.json()),
-      fetch(`/api/proxy/fees/defaulters?termId=${termId}`).then((r) => r.json()),
-    ]);
-    setOv(o);
-    setDefaulters(d);
-  }, [termId]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const recordPayment = useAsyncAction(async () => {
-    if (!payFor) return;
-    const res = await fetch('/api/proxy/fees/payments', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        studentId: payFor.studentId,
-        amount: Number(amount),
-        method,
-        note: note || undefined,
-      }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setToast(body.message ?? 'Could not record payment.');
-      // Thrown so the button settles on "Couldn't record" — nothing reached the ledger.
-      throw new Error('payment rejected');
-    }
-    // Kept even though the button says "Recorded!": the receipt number is what the bursar
-    // reads back to the payer, and the button cannot carry it.
-    setToast(`Payment recorded — receipt ${body.receiptNumber} for ${body.student}.`);
-    setPayFor(null);
-    setAmount('');
-    setNote('');
-    load();
-  });
-
-  const submitDeposit = useAsyncAction(async (e: React.FormEvent<HTMLFormElement>) => {
-    if (!depositFor) return;
-    const fd = new FormData(e.currentTarget);
-    fd.append('studentId', depositFor.studentId);
-    const res = await fetch('/api/proxy/fees/deposits', { method: 'POST', body: fd });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      // The server's reason (the 8MB cap, an unreadable file) is the useful half of this.
-      setToast(body.message ?? 'Could not record that deposit.');
-      throw new Error('deposit rejected');
-    }
-    // The reference and the "nothing credited yet" caveat are both news the button cannot give.
-    setToast(
-      `Deposit ${body.reference} recorded — awaiting bursar confirmation. Nothing has been credited yet.`,
+  if (!termId) {
+    return (
+      <div>
+        <div className="rise rise-1">
+          <h1 className="font-display text-3xl">Fees</h1>
+          <p className="text-sm text-oat mt-1.5">
+            No term is marked current, so there is nothing to bill against yet. Set one in School
+            Setup and this page will fill itself in.
+          </p>
+        </div>
+      </div>
     );
-    setDepositFor(null);
-    load();
-  });
-
-  const copyPayLink = useAsyncAction(async () => {
-    // Clipboard access is absent on insecure origins; without this the button would tick for a
-    // copy that never happened.
-    if (!payLink || !navigator.clipboard) throw new Error('clipboard unavailable');
-    await navigator.clipboard.writeText(payLink.url);
-  });
-
-  /** Mint a public pay link the bursar can send to the guardian (guardians have no login). */
-  async function createPayLink(d: Defaulter) {
-    setToast(null);
-    const res = await fetch('/api/proxy/payments/link', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ studentId: d.studentId, channel: 'MOMO', amount: d.balance }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (res.ok) setPayLink({ student: d.name, url: body.payUrl });
-    else setToast(body.message ?? 'Could not create a payment link.');
   }
 
-  const collectedPct = ov && ov.invoiced > 0 ? Math.round((ov.collected / ov.invoiced) * 100) : 0;
+  const qs = apiQuery(params, ['classId', 'q'], { termId });
+  const [ov, defaulters, structure] = await Promise.all([
+    api<Overview>(`/fees/overview?termId=${termId}`),
+    api<Page<Defaulter>>(`/fees/defaulters?${qs}`),
+    api<Structure>('/school/structure'),
+  ]);
+
+  const collectedPct = ov.invoiced > 0 ? Math.round((ov.collected / ov.invoiced) * 100) : 0;
+  const money = (n: number) => fmtMoney(n, cur);
+  const filtered = !!(one(params.classId) || one(params.q));
 
   return (
     <div>
@@ -167,431 +89,181 @@ export default function FeesPage() {
         </p>
       </div>
 
-      {toast && (
-        <p
-          role="status"
-          className="mt-4 text-sm text-leaf bg-leaf/10 border border-leaf/20 rounded-lg px-3 py-2 rise"
-        >
-          {toast}
-        </p>
-      )}
+      {/*
+        Every figure here comes from /fees/overview, which sums the whole school's ledger and the
+        whole defaulter set. None of it is derived from the rows below — filtering the list to one
+        class, or turning to page 2, must never move the school's outstanding total. That total is
+        the number a head reads out at a board meeting.
+      */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
+        {[
+          {
+            label: 'Billed',
+            value: money(ov.invoiced),
+            tip: 'Total billed this term',
+            cls: 'rise-1',
+          },
+          {
+            label: 'Collected',
+            value: money(ov.collected),
+            tip: `${collectedPct}% of billed`,
+            cls: 'rise-2',
+            tone: 'text-leaf',
+          },
+          {
+            label: 'Outstanding',
+            value: money(ov.outstanding),
+            tip: 'Still to be collected, across every family',
+            cls: 'rise-3',
+            tone: 'text-clay',
+          },
+          {
+            label: 'Defaulters',
+            value: String(ov.defaulterCount),
+            tip: 'Students with a balance owing',
+            cls: 'rise-4',
+          },
+        ].map((s) => (
+          <div key={s.label} data-tip={s.tip} className={`tip card card-accent p-5 rise ${s.cls}`}>
+            <p className="text-[11px] uppercase tracking-widest text-oat">{s.label}</p>
+            <p className={`font-display text-2xl mt-2 tabular ${s.tone ?? 'text-ink'}`}>
+              {s.value}
+            </p>
+          </div>
+        ))}
+      </div>
 
-      {ov && (
-        <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
-            {[
-              {
-                label: 'Billed',
-                value: money(ov.invoiced),
-                tip: 'Total billed this term',
-                cls: 'rise-1',
-              },
-              {
-                label: 'Collected',
-                value: money(ov.collected),
-                tip: `${collectedPct}% of billed`,
-                cls: 'rise-2',
-                tone: 'text-leaf',
-              },
-              {
-                label: 'Outstanding',
-                value: money(ov.outstanding),
-                tip: 'Still to be collected',
-                cls: 'rise-3',
-                tone: 'text-clay',
-              },
-              {
-                label: 'Defaulters',
-                value: String(ov.defaulterCount),
-                tip: 'Students with a balance owing',
-                cls: 'rise-4',
-              },
-            ].map((s) => (
-              <div
-                key={s.label}
-                data-tip={s.tip}
-                className={`tip card card-accent p-5 rise ${s.cls}`}
-              >
-                <p className="text-[11px] uppercase tracking-widest text-oat">{s.label}</p>
-                <p className={`font-display text-2xl mt-2 tabular ${s.tone ?? 'text-ink'}`}>
-                  {s.value}
-                </p>
-              </div>
-            ))}
+      <DepositQueue currency={cur} />
+
+      <div className="grid lg:grid-cols-[1.3fr_1fr] gap-6 mt-8">
+        {/* Defaulters */}
+        <section className="card overflow-hidden rise rise-3">
+          <div className="px-6 pt-5 pb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+            <h2 className="font-display text-xl">Defaulters</h2>
+            <span className="flex items-center gap-1 text-[12px]">
+              <span className="text-oat">Export:</span>
+              {(['csv', 'xlsx'] as const).map((f) => (
+                <a
+                  key={f}
+                  href={`/api/proxy/fees/defaulters/export?termId=${termId}&format=${f}`}
+                  className="rounded-md border border-mist px-2 py-0.5 text-brand hover:bg-brand-mist transition uppercase"
+                >
+                  {f}
+                </a>
+              ))}
+            </span>
           </div>
 
-          <DepositQueue onSettled={load} />
-
-          <div className="grid lg:grid-cols-[1.3fr_1fr] gap-6 mt-8">
-            {/* Defaulters */}
-            <section className="card overflow-hidden rise rise-3">
-              <div className="px-6 pt-5 pb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-                <h2 className="font-display text-xl">Defaulters</h2>
-                <span className="flex items-center gap-1 text-[12px]">
-                  <span className="text-oat">Export:</span>
-                  {(['csv', 'xlsx'] as const).map((f) => (
-                    <a
-                      key={f}
-                      href={`/api/proxy/fees/defaulters/export?termId=${termId}&format=${f}`}
-                      className="rounded-md border border-mist px-2 py-0.5 text-brand hover:bg-brand-mist transition uppercase"
-                    >
-                      {f}
-                    </a>
-                  ))}
-                </span>
-              </div>
-              <div className="px-6 pb-1">
-                <SendReminders termId={termId} currency={currency} />
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[380px]">
-                  <thead>
-                    <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
-                      <th className="px-6 py-2.5 font-medium">Student</th>
-                      <th className="px-3 py-2.5 font-medium">Class</th>
-                      <th className="px-3 py-2.5 font-medium text-right">Balance</th>
-                      <th className="px-6 py-2.5" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {defaulters.slice(0, 12).map((d) => (
-                      <tr key={d.studentId} className="border-b border-mist/60 last:border-0">
-                        <td className="px-6 py-2.5">
-                          <p className="font-medium">{d.name}</p>
-                          <p className="text-[11px] text-oat tabular">{d.admissionNo}</p>
-                        </td>
-                        <td className="px-3 py-2.5">{d.className}</td>
-                        <td className="px-3 py-2.5 text-right tabular font-medium text-clay">
-                          {money(d.balance)}
-                        </td>
-                        <td className="px-6 py-2.5 text-right whitespace-nowrap">
-                          {/*
-                            No `state` on any of these: the three sit once per row, so a single
-                            hook would light every row's button at once. Two only open a dialog,
-                            and the pay link reports through the toast as it always did.
-                          */}
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => setDepositFor(d)}
-                            data-tip="Record a bank deposit with proof for a bursar to confirm"
-                            className="tip mr-1.5"
-                          >
-                            Bank deposit
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => createPayLink(d)}
-                            data-tip="Create a pay-online link to send to the guardian"
-                            className="tip mr-1.5"
-                          >
-                            Pay link
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => {
-                              setPayFor(d);
-                              setAmount(String(d.balance));
-                            }}
-                          >
-                            Record payment
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                    {defaulters.length === 0 && (
-                      <tr>
-                        <td colSpan={4} className="px-6 py-10 text-center text-oat">
-                          No outstanding balances — every bill is settled. 🎉
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            {/* Recent payments + methods */}
-            <div className="space-y-6">
-              <section className="card p-6 rise rise-4">
-                <h2 className="font-display text-xl">Collection by method</h2>
-                <ul className="mt-4 space-y-3">
-                  {ov.byMethod.map((m) => {
-                    const pct = ov.collected > 0 ? Math.round((m.amount / ov.collected) * 100) : 0;
-                    return (
-                      <li key={m.method ?? 'other'}>
-                        <div className="flex justify-between text-sm">
-                          <span>{METHOD_LABEL[m.method] ?? m.method}</span>
-                          <span className="tabular font-medium">
-                            {money(m.amount)} <span className="text-oat">({pct}%)</span>
-                          </span>
-                        </div>
-                        <div className="h-2 rounded-full bg-parchment mt-1.5 overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-brand"
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
-
-              <section className="card p-6 rise rise-4">
-                <h2 className="font-display text-xl">Recent payments</h2>
-                <ul className="mt-4 space-y-3">
-                  {ov.recentPayments.slice(0, 6).map((p) => (
-                    <li
-                      key={p.id}
-                      className="flex justify-between gap-3 text-sm border-b border-mist/50 last:border-0 pb-2.5 last:pb-0"
-                    >
-                      <div className="min-w-0">
-                        <p className="font-medium truncate">{p.student}</p>
-                        <p className="text-[11px] text-oat tabular">
-                          {p.receiptNumber} · {METHOD_LABEL[p.method] ?? p.method}
-                        </p>
-                      </div>
-                      <p className="tabular font-medium text-leaf shrink-0">{money(p.amount)}</p>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Bank-deposit submission — records a claim + proof; nothing hits the ledger yet */}
-      {depositFor && (
-        <div
-          className="fixed inset-0 z-50 bg-ink/40 flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal
-        >
-          <form className="card w-full max-w-md p-7 rise" onSubmit={submitDeposit.run}>
-            <div className="accent-rule h-[2px] -mt-7 -mx-7 mb-6 rounded-t-[10px]" />
-            <h2 className="font-display text-2xl">Record bank deposit</h2>
-            <p className="text-sm text-oat mt-1">
-              {depositFor.name} · owes{' '}
-              <span className="tabular font-medium text-clay">{money(depositFor.balance)}</span>
-            </p>
-
-            <label className="block text-sm font-medium mt-6 mb-1.5">Amount ({currency})</label>
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
-                <CashIcon />
-              </span>
-              <input
-                name="amount"
-                type="number"
-                min="0.01"
-                step="0.01"
-                required
-                defaultValue={depositFor.balance}
-                className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 pl-10 tabular outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
-              />
-            </div>
-
-            <label className="block text-sm font-medium mt-4 mb-1.5">Date deposited</label>
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
-                <CalendarIcon />
-              </span>
-              <input
-                name="depositedAt"
-                type="date"
-                required
-                defaultValue={new Date().toISOString().slice(0, 10)}
-                className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 pl-10 text-sm outline-none focus:border-brand"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 mt-4">
-              <div>
-                <label className="block text-sm font-medium mb-1.5">Bank</label>
-                <input
-                  name="bankName"
-                  placeholder="GCB"
-                  className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1.5">Teller / ref</label>
-                <input
-                  name="bankRef"
-                  className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand"
-                />
-              </div>
-            </div>
-
-            <label className="block text-sm font-medium mt-4 mb-1.5">
-              Proof of payment <span className="text-oat font-normal">(photo or PDF)</span>
-            </label>
-            <FileField
-              id="deposit-proof"
-              name="proof"
-              accept="image/jpeg,image/png,image/webp,application/pdf"
-              value={proof}
-              onChange={setProof}
-              disabled={submitDeposit.state === 'pending'}
-              hint="A photo of the teller or the bank's PDF receipt, up to 8MB."
-            />
-
-            <div className="flex gap-3 mt-7">
-              <Button
-                type="button"
-                variant="secondary"
-                className="flex-1"
-                onClick={() => setDepositFor(null)}
-              >
-                Cancel
-              </Button>
-              {/* "Submit" is not one of the conjugated verbs, so the wording is spelled out. */}
-              <Button
-                type="submit"
-                className="flex-1"
-                state={submitDeposit.state}
-                icon={<UploadIcon />}
-                pendingLabel="Submitting…"
-                doneLabel="Submitted!"
-                failedLabel="Couldn't submit"
-              >
-                Submit for confirmation
-              </Button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* Pay-link dialog — the bursar copies this to the guardian (SMS/WhatsApp) */}
-      {payLink && (
-        <div
-          className="fixed inset-0 z-50 bg-ink/40 flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal
-        >
-          <div className="card w-full max-w-lg p-7 rise">
-            <h2 className="font-display text-2xl">Payment link</h2>
-            <p className="text-sm text-oat mt-1">
-              Send this to {payLink.student}&apos;s guardian — they can pay by mobile money without
-              needing an account.
-            </p>
-            <input
-              readOnly
-              value={payLink.url}
-              onFocus={(e) => e.currentTarget.select()}
-              className="w-full mt-5 rounded-lg border border-mist bg-parchment/50 px-3.5 py-2.5 text-sm tabular outline-none"
-            />
-            <div className="flex gap-3 mt-6">
-              <Button
-                type="button"
-                className="flex-1"
-                onClick={copyPayLink.run}
-                state={copyPayLink.state}
-                pendingLabel="Copying…"
-                doneLabel="Copied!"
-                failedLabel="Couldn't copy"
-              >
-                Copy link
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                className="flex-1"
-                onClick={() => setPayLink(null)}
-              >
-                Done
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Record payment dialog */}
-      {payFor && (
-        <div
-          className="fixed inset-0 z-50 bg-ink/40 flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal
-        >
-          <form onSubmit={recordPayment.run} className="card w-full max-w-md p-7 rise">
-            <div className="accent-rule h-[2px] -mt-7 -mx-7 mb-6 rounded-t-[10px]" />
-            <h2 className="font-display text-2xl">Record payment</h2>
-            <p className="text-sm text-oat mt-1">
-              {payFor.name} · {payFor.className} · owes{' '}
-              <span className="tabular font-medium text-clay">{money(payFor.balance)}</span>
-            </p>
-
-            <label className="block text-sm font-medium mt-6 mb-1.5" htmlFor="amount">
-              Amount ({currency})
-            </label>
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
-                <CashIcon />
-              </span>
-              <input
-                id="amount"
-                type="number"
-                min="0.01"
-                step="0.01"
-                required
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 pl-10 tabular outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
-              />
-            </div>
-
+          <div className="px-6 pb-1">
             {/*
-              No icons on the cards: only "Cash" has an obvious one, and a set where two of three
-              options carry a glyph reads as a rendering fault rather than a distinction.
+              Reminders go to everyone who owes, not to the page on screen. The button says so, and
+              the API's own reminder run works off the full defaulter set for the same reason the
+              export does — a filtered view is a way of reading the list, not a way of choosing who
+              gets texted.
             */}
-            <ChoiceCards
-              className="mt-4"
-              legend="Payment method"
-              name="method"
-              value={method}
-              onChange={setMethod}
-              options={['CASH', 'MOMO', 'BANK'].map((m) => ({ value: m, label: METHOD_LABEL[m] }))}
-            />
+            <SendReminders termId={termId} currency={cur} />
+          </div>
 
-            <label className="block text-sm font-medium mt-4 mb-1.5" htmlFor="note">
-              Note <span className="text-oat font-normal">(optional)</span>
-            </label>
-            <input
-              id="note"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="e.g. MoMo from 024 xxx, part payment"
-              className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
-            />
+          <div className="px-6 pb-4 pt-4 flex flex-wrap items-end gap-3">
+            <FeeFilters classes={structure.classes} params={params} />
+            <form className="flex gap-2 flex-1 min-w-[13rem]" action="/fees" method="get">
+              {/*
+                A GET form submits only its own fields, so every filter not represented here is
+                dropped on search. Carrying them as hidden inputs keeps "search within this class"
+                from silently becoming "search the whole school". `page` is deliberately not
+                carried — a new search starts at the beginning.
+              */}
+              {(['classId', 'termId', 'sort', 'order', 'perPage'] as const).map((k) => {
+                const v = one(params[k]);
+                return v ? <input key={k} type="hidden" name={k} value={v} /> : null;
+              })}
+              <div className="relative flex-1 min-w-0">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                  <SearchIcon />
+                </span>
+                <input
+                  type="search"
+                  name="q"
+                  defaultValue={one(params.q)}
+                  placeholder="Search name or admission no."
+                  className="w-full rounded-lg border border-mist bg-white pl-10 pr-3.5 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+                />
+              </div>
+              <Button type="submit">Search</Button>
+            </form>
+          </div>
 
-            <div className="flex gap-3 mt-7">
-              <Button
-                type="button"
-                variant="secondary"
-                className="flex-1"
-                onClick={() => setPayFor(null)}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                className="flex-1"
-                state={recordPayment.state}
-                icon={<CashIcon />}
-              >
-                Record &amp; issue receipt
-              </Button>
-            </div>
-          </form>
+          {/*
+            The count under a filter is the filtered count, and it is labelled as such. The
+            unfiltered total is the "Defaulters" tile above, which never moves.
+          */}
+          {filtered && (
+            <p className="px-6 pb-2 text-[12px] text-oat">
+              <span className="tabular">{defaulters.total}</span> of{' '}
+              <span className="tabular">{ov.defaulterCount}</span> defaulters match this filter
+            </p>
+          )}
+
+          <DefaultersTable rows={defaulters.rows} currency={cur} params={params} />
+          <Pagination page={defaulters} base="/fees" params={params} label="defaulters" />
+        </section>
+
+        {/* Recent payments + methods */}
+        <div className="space-y-6">
+          <section className="card p-6 rise rise-4">
+            <h2 className="font-display text-xl">Collection by method</h2>
+            <ul className="mt-4 space-y-3">
+              {ov.byMethod.map((m) => {
+                const pct = ov.collected > 0 ? Math.round((m.amount / ov.collected) * 100) : 0;
+                return (
+                  <li key={m.method ?? 'other'}>
+                    <div className="flex justify-between text-sm">
+                      <span>{METHOD_LABEL[m.method] ?? m.method}</span>
+                      <span className="tabular font-medium">
+                        {money(m.amount)} <span className="text-oat">({pct}%)</span>
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-parchment mt-1.5 overflow-hidden">
+                      <div className="h-full rounded-full bg-brand" style={{ width: `${pct}%` }} />
+                    </div>
+                  </li>
+                );
+              })}
+              {ov.byMethod.length === 0 && (
+                <li className="text-sm text-oat">Nothing has been collected this term yet.</li>
+              )}
+            </ul>
+          </section>
+
+          <section className="card p-6 rise rise-4">
+            {/*
+              "Recent" is the whole claim this panel makes, so it is not paged. It is the last
+              handful of payments, not a list of them — the full history lives on each student's
+              record and in the export.
+            */}
+            <h2 className="font-display text-xl">Recent payments</h2>
+            <ul className="mt-4 space-y-3">
+              {ov.recentPayments.slice(0, 6).map((p) => (
+                <li
+                  key={p.id}
+                  className="flex justify-between gap-3 text-sm border-b border-mist/50 last:border-0 pb-2.5 last:pb-0"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{p.student}</p>
+                    <p className="text-[11px] text-oat tabular">
+                      {p.receiptNumber} · {METHOD_LABEL[p.method] ?? p.method}
+                    </p>
+                  </div>
+                  <p className="tabular font-medium text-leaf shrink-0">{money(p.amount)}</p>
+                </li>
+              ))}
+              {ov.recentPayments.length === 0 && (
+                <li className="text-sm text-oat">No payment has been recorded yet.</li>
+              )}
+            </ul>
+          </section>
         </div>
-      )}
+      </div>
     </div>
   );
 }

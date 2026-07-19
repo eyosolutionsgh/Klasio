@@ -1,10 +1,22 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Combobox from '@/components/Combobox';
+import Pagination from '@/components/Pagination';
+import SortHeader from '@/components/SortHeader';
 import { Button, useAsyncAction } from '@/components/Button';
-import { KeyIcon, MailIcon, PhoneIcon, PlusIcon, SaveIcon, UserIcon } from '@/components/icons';
+import {
+  KeyIcon,
+  MailIcon,
+  PhoneIcon,
+  PlusIcon,
+  SaveIcon,
+  SearchIcon,
+  UserIcon,
+} from '@/components/icons';
 import { roleLabel } from '@/lib/roles';
+import { DEFAULT_PER_PAGE, listHref, one, type ListSearchParams } from '@/lib/list';
 
 /**
  * Staff accounts, and what each person may do.
@@ -60,15 +72,66 @@ interface PermissionDef {
 const ROLES = ['OWNER', 'HEAD', 'BURSAR', 'TEACHER', 'FRONT_DESK'];
 const label = roleLabel;
 
+/**
+ * Which columns the list may be ordered by, and how each compares.
+ *
+ * `GET /users` returns the whole staff of one school, so the searching, ordering and paging here
+ * are done in the browser over rows that have already arrived — there is no second request to make
+ * and no truncation to undo. The comparators still live behind a named allowlist so a stale or
+ * hand-edited `?sort=` lands on the default order rather than on `undefined` being compared.
+ *
+ * Names are compared with `localeCompare` because the register is full of names outside ASCII —
+ * Ashiokai, Owusu-Ansah, Ọláwálé — and a plain `<` orders those by code point, which puts them in
+ * an order no Ghanaian reader would call alphabetical.
+ */
+const STAFF_SORTS: Record<string, (a: StaffUser, b: StaffUser) => number> = {
+  name: (a, b) => a.name.localeCompare(b.name),
+  email: (a, b) => a.email.localeCompare(b.email),
+  role: (a, b) => label(a.role).localeCompare(label(b.role)),
+  // An account with no role sorts as an empty string, which lands the "cannot do anything"
+  // accounts together at one end — where somebody auditing access wants to find them.
+  staffRole: (a, b) => (a.staffRole?.name ?? '').localeCompare(b.staffRole?.name ?? ''),
+  status: (a, b) => Number(b.active) - Number(a.active),
+};
+
+/** The order the API itself returns: everyone still working, alphabetically, then the leavers. */
+const defaultOrder = (a: StaffUser, b: StaffUser) =>
+  Number(b.active) - Number(a.active) || a.name.localeCompare(b.name);
+
+const STATUSES = [
+  { value: 'active', label: 'Active only' },
+  { value: 'inactive', label: 'Deactivated only' },
+  { value: 'all', label: 'Everyone' },
+];
+
 const field =
   'rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
 
 export default function StaffPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  /**
+   * The filters live in the URL rather than in component state so this page behaves like every
+   * other list in the portal: a filtered view can be linked to a colleague, and the back button
+   * steps back through the filters instead of leaving the page entirely.
+   */
+  const params = useMemo(
+    () => Object.fromEntries(searchParams.entries()) as ListSearchParams,
+    [searchParams],
+  );
+  const q = one(params.q) ?? '';
+  const roleFilter = one(params.role) ?? '';
+  const status = one(params.status) ?? 'active';
+  const sort = one(params.sort);
+  const order = one(params.order) === 'desc' ? 'desc' : 'asc';
+  const perPage = Math.max(Number(one(params.perPage)) || DEFAULT_PER_PAGE, 1);
+  const page = Math.max(Number(one(params.page)) || 1, 1);
+  const includeInactive = status !== 'active';
+
   const [users, setUsers] = useState<StaffUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [held, setHeld] = useState<string[]>([]);
   const [permissions, setPermissions] = useState<PermissionDef[]>([]);
-  const [includeInactive, setIncludeInactive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** Shown once, never retrievable again — the API only ever returns it on create/reset. */
   const [credential, setCredential] = useState<{ email: string; password: string } | null>(null);
@@ -132,6 +195,47 @@ export default function StaffPage() {
     () => permissions.filter((p) => held.includes(p.code)),
     [permissions, held],
   );
+
+  /**
+   * Deactivated accounts are filtered here as well as by the request.
+   *
+   * `?includeInactive=true` widens the query to everybody; narrowing to "deactivated only" is this
+   * screen's own question and has no server equivalent, so both ends of the choice are applied
+   * against what came back rather than only one of them being honoured.
+   */
+  const matching = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return users.filter((u) => {
+      if (status === 'inactive' && u.active) return false;
+      if (roleFilter && u.role !== roleFilter) return false;
+      if (!needle) return true;
+      return (
+        u.name.toLowerCase().includes(needle) ||
+        u.email.toLowerCase().includes(needle) ||
+        (u.phone ?? '').toLowerCase().includes(needle)
+      );
+    });
+  }, [users, q, roleFilter, status]);
+
+  const sorted = useMemo(() => {
+    const cmp = sort ? STAFF_SORTS[sort] : undefined;
+    if (!cmp) return [...matching].sort(defaultOrder);
+    const dir = order === 'desc' ? -1 : 1;
+    // The name is the tie-break on every column, so re-sorting by account type does not shuffle
+    // the people within a type on each render.
+    return [...matching].sort((a, b) => cmp(a, b) * dir || a.name.localeCompare(b.name));
+  }, [matching, sort, order]);
+
+  const pageCount = Math.max(Math.ceil(sorted.length / perPage), 1);
+  // A filter that shortens the list can strand the reader on a page that no longer exists; showing
+  // the last page there is kinder than an empty table that reads as "nobody matched".
+  const current = Math.min(page, pageCount);
+  const shown = sorted.slice((current - 1) * perPage, current * perPage);
+
+  const go = (changes: Record<string, string | undefined>) =>
+    router.push(listHref('/settings/staff', params, changes));
+
+  const editingUser = editing ? (users.find((u) => u.id === editing) ?? null) : null;
 
   async function send(path: string, body?: unknown, method = 'POST') {
     setError(null);
@@ -208,14 +312,66 @@ export default function StaffPage() {
             .
           </p>
         </div>
-        <label className="flex items-center gap-2 text-[13px] text-oat">
-          <input
-            type="checkbox"
-            checked={includeInactive}
-            onChange={(e) => setIncludeInactive(e.target.checked)}
-          />
-          Show deactivated
-        </label>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="text-[13px]">
+            <span className="block text-oat mb-1">Account type</span>
+            <select
+              value={roleFilter}
+              onChange={(e) => go({ role: e.target.value || undefined })}
+              className={field}
+            >
+              <option value="">All types</option>
+              {ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {label(r)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-[13px]">
+            <span className="block text-oat mb-1">Status</span>
+            <select
+              value={status}
+              onChange={(e) => go({ status: e.target.value })}
+              className={field}
+            >
+              {STATUSES.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {/* Uncontrolled and submitted, not filtered per keystroke: every character would
+              otherwise push a history entry, and the back button would walk the search backwards
+              one letter at a time. */}
+          <form
+            className="flex items-end gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const typed = String(new FormData(e.currentTarget).get('q') ?? '').trim();
+              go({ q: typed || undefined });
+            }}
+          >
+            <label className="text-[13px]">
+              <span className="block text-oat mb-1">Search</span>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                  <SearchIcon />
+                </span>
+                <input
+                  key={q}
+                  type="search"
+                  name="q"
+                  defaultValue={q}
+                  placeholder="Name, email or phone"
+                  className={`${field} w-52 pl-10`}
+                />
+              </div>
+            </label>
+            <Button type="submit">Search</Button>
+          </form>
+        </div>
       </div>
 
       {credential && (
@@ -236,30 +392,40 @@ export default function StaffPage() {
       )}
       {error && <p className="text-sm text-danger mt-4">{error}</p>}
 
-      <div className="card mt-6 overflow-x-auto rise rise-2">
-        <table className="w-full text-sm min-w-[720px]">
+      <div className="card mt-6 overflow-x-auto rise rise-2 table-stack-wrap">
+        <table className="w-full text-sm sm:min-w-[720px] table-stack">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
-              <th className="px-5 py-3 font-medium">Name</th>
-              <th className="px-5 py-3 font-medium">Email</th>
-              <th className="px-5 py-3 font-medium">Account type</th>
-              <th className="px-5 py-3 font-medium">Staff role</th>
-              <th className="px-5 py-3 font-medium">Status</th>
+              <SortHeader column="name" base="/settings/staff" params={params}>
+                Name
+              </SortHeader>
+              <SortHeader column="email" base="/settings/staff" params={params}>
+                Email
+              </SortHeader>
+              <SortHeader column="role" base="/settings/staff" params={params}>
+                Account type
+              </SortHeader>
+              <SortHeader column="staffRole" base="/settings/staff" params={params}>
+                Staff role
+              </SortHeader>
+              <SortHeader column="status" base="/settings/staff" params={params}>
+                Status
+              </SortHeader>
               <th className="px-5 py-3" />
             </tr>
           </thead>
           <tbody>
-            {users.map((u) => (
+            {shown.map((u) => (
               <tr key={u.id} className="border-b border-mist/60 last:border-0">
-                <td className="px-5 py-3 font-medium">
+                <td data-label="Name" className="px-5 py-3 font-medium">
                   {u.name}
                   {u.isSelf && <span className="ml-2 text-[11px] text-oat">(you)</span>}
                 </td>
-                <td className="px-5 py-3 text-oat">
+                <td data-label="Email" className="px-5 py-3 text-oat">
                   {u.email}
                   {u.phone && <span className="block text-[11px] tabular">{u.phone}</span>}
                 </td>
-                <td className="px-5 py-3">
+                <td data-label="Account type" className="px-5 py-3">
                   {u.manageable ? (
                     <select
                       value={u.role}
@@ -276,7 +442,7 @@ export default function StaffPage() {
                     <span>{label(u.role)}</span>
                   )}
                 </td>
-                <td className="px-5 py-3">
+                <td data-label="Staff role" className="px-5 py-3">
                   {u.role === 'OWNER' ? (
                     <>
                       <span className="font-medium">Full access</span>
@@ -299,7 +465,7 @@ export default function StaffPage() {
                     </>
                   )}
                 </td>
-                <td className="px-5 py-3">
+                <td data-label="Status" className="px-5 py-3">
                   <span
                     className={`text-[11px] uppercase tracking-wider rounded-full px-2 py-0.5 ${u.active ? 'bg-brand-mist text-brand' : 'bg-parchment text-oat'}`}
                   >
@@ -324,21 +490,34 @@ export default function StaffPage() {
                 </td>
               </tr>
             ))}
-            {users.length === 0 && (
+            {shown.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-5 py-10 text-center text-oat">
-                  No staff accounts yet.
+                  {users.length === 0
+                    ? 'No staff accounts yet.'
+                    : 'No accounts match. Try a different account type, status or search term.'}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        <Pagination
+          page={{ total: sorted.length, page: current, perPage, pageCount }}
+          base="/settings/staff"
+          params={params}
+          label="staff accounts"
+        />
       </div>
 
-      {editing && (
+      {/*
+        Looked up in the whole list, not the visible page, and guarded rather than asserted: paging
+        or filtering while a panel is open would otherwise leave `editing` pointing at somebody who
+        is no longer rendered, and a non-null assertion there crashes the screen.
+      */}
+      {editingUser && (
         <AccessPanel
           key={editing}
-          user={users.find((u) => u.id === editing)!}
+          user={editingUser}
           roleOptions={roleOptions}
           hiddenRoles={hiddenRoles}
           permissions={grantablePermissions}

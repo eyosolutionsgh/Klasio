@@ -257,7 +257,7 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
             <p className="text-xs text-oat mt-1">
               Every charge and payment, newest first. Corrections appear as reversals.
             </p>
-            <table className="w-full text-sm mt-4">
+            <table className="w-full text-sm mt-4 table-stack">
               <thead>
                 <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist">
                   <th className="py-2 font-medium">Date</th>
@@ -268,10 +268,13 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
               <tbody>
                 {s.ledger.map((e) => (
                   <tr key={e.id} className="border-b border-mist/50 last:border-0">
-                    <td className="py-2.5 text-oat tabular whitespace-nowrap align-top">
+                    <td
+                      data-label="Date"
+                      className="py-2.5 text-oat tabular whitespace-nowrap align-top"
+                    >
                       {fmtDate(e.createdAt)}
                     </td>
-                    <td className="py-2.5">
+                    <td data-label="Entry" className="py-2.5">
                       <p
                         className={`font-medium text-[13px] ${e.reversed ? 'line-through text-oat' : ''}`}
                       >
@@ -308,6 +311,7 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
                       </span>
                     </td>
                     <td
+                      data-label="Amount"
                       className={`py-2.5 text-right tabular font-medium align-top ${
                         e.reversed
                           ? 'line-through text-oat'

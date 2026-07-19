@@ -2,41 +2,43 @@
 
 import { useRouter } from 'next/navigation';
 import Combobox from './Combobox';
+import DateRangeFilter from './DateRangeFilter';
+import { listHref, one, type ListSearchParams } from '@/lib/list';
 
 /**
- * File and state filters for the exception queue. The page is a server component, so changing a
- * filter navigates rather than mutating client state.
+ * File, state and import-date filters for the exception queue. The page is a server component, so
+ * changing a filter navigates rather than mutating client state.
+ *
+ * Every control routes through `listHref` rather than rebuilding the query string by hand. The
+ * hand-rolled version listed the two parameters it knew about and dropped everything else, so
+ * changing the state filter while sorted by amount silently threw the sort away — and, once the
+ * queue was paged, would have kept the reader on page 4 of a list that had just become one page.
  */
 export default function ReconciliationFilters({
-  batchId,
-  status,
+  params,
   batches,
   states,
 }: {
-  batchId?: string;
-  status?: string;
+  params: ListSearchParams;
   batches: { id: string; label: string; hint: string }[];
   states: { key: string; label: string }[];
 }) {
   const router = useRouter();
+  const go = (changes: Record<string, string | undefined>) =>
+    router.push(listHref('/settings/reconciliation', params, changes));
 
-  function go(next: Record<string, string | undefined>) {
-    const merged = { batchId, status, ...next };
-    const p = new URLSearchParams();
-    if (merged.batchId) p.set('batchId', merged.batchId);
-    if (merged.status) p.set('status', merged.status);
-    router.push(`/settings/reconciliation?${p}`);
-  }
+  const batchId = one(params.batchId) ?? '';
+  const status = one(params.status) ?? '';
 
   return (
-    <div className="flex flex-wrap gap-3">
+    <div className="flex flex-wrap items-end gap-3">
       <Combobox
         label="File"
         className="w-full sm:w-64"
         clearLabel="Every import"
         placeholder="Search imports…"
         options={batches.map((b) => ({ value: b.id, label: b.label, hint: b.hint }))}
-        value={batchId ?? ''}
+        value={batchId}
         onChange={(v) => go({ batchId: v || undefined })}
       />
       <Combobox
@@ -46,9 +48,10 @@ export default function ReconciliationFilters({
         clearLabel="Still open"
         placeholder="Search states…"
         options={states.map((s) => ({ value: s.key, label: s.label }))}
-        value={status ?? ''}
+        value={status}
         onChange={(v) => go({ status: v || undefined })}
       />
+      <DateRangeFilter base="/settings/reconciliation" params={params} label="Imported between" />
     </div>
   );
 }

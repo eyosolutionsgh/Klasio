@@ -1,5 +1,8 @@
 import { api, getMe, money } from '@/lib/api';
 import BillingAction from '@/components/BillingAction';
+import Pagination from '@/components/Pagination';
+import SortHeader from '@/components/SortHeader';
+import { apiQuery, one, type ListSearchParams, type Page } from '@/lib/list';
 
 interface Plan {
   tier: 'BASIC' | 'MEDIUM' | 'ADVANCED';
@@ -83,13 +86,26 @@ function derivation(p: Plan) {
 export default async function BillingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ref?: string }>;
+  searchParams: Promise<ListSearchParams>;
 }) {
-  const { ref } = await searchParams;
-  const [data, invoices, me] = await Promise.all([
+  const params = await searchParams;
+  const ref = one(params.ref);
+
+  const [data, invoices, me, returnedPage] = await Promise.all([
     api<Plans>('/billing/plans'),
-    api<SubInvoice[]>('/billing/invoices'),
+    api<Page<SubInvoice>>(`/billing/invoices?${apiQuery(params, ['status'])}`),
     getMe(),
+    /**
+     * The gateway-return banner resolves its invoice by reference, in its own request.
+     *
+     * It used to read the invoice out of the list already on screen, which was fine while that
+     * list was every invoice the school had ever had. Paged, it is not: a school with a few years
+     * of history would have been told a settled payment was "not confirmed yet" purely because
+     * the invoice sat on page two.
+     */
+    ref
+      ? api<Page<SubInvoice>>(`/billing/invoices?reference=${encodeURIComponent(ref)}&perPage=1`)
+      : Promise.resolve(null),
   ]);
 
   // The API puts @Roles('OWNER') on subscribe and change-tier. Hiding the controls for anyone
@@ -102,7 +118,7 @@ export default async function BillingPage({
 
   // Set when the gateway bounced the browser back here. The tier has not moved yet either way:
   // only the webhook settles it, so this says "we are waiting", never "you are upgraded".
-  const returned = ref ? invoices.find((i) => i.reference === ref) : undefined;
+  const returned = returnedPage?.rows[0];
 
   return (
     <div>
@@ -290,31 +306,74 @@ export default async function BillingPage({
             are never summed together.
           </p>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[620px]">
+        {/* `sm:min-w-` rather than a bare one: an unconditional floor survives the stacking rules
+            below `sm` and would put the sideways scroll straight back on a phone. */}
+        <div className="overflow-x-auto table-stack-wrap">
+          <table className="w-full text-sm sm:min-w-[620px] table-stack">
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
-                <th className="px-6 py-2.5 font-medium">Reference</th>
-                <th className="px-3 py-2.5 font-medium">Package</th>
-                <th className="px-3 py-2.5 font-medium">Period</th>
-                <th className="px-3 py-2.5 font-medium text-right">Students</th>
-                <th className="px-3 py-2.5 font-medium text-right">Amount</th>
-                <th className="px-6 py-2.5 font-medium">State</th>
+                <SortHeader column="reference" base="/settings/billing" params={params}>
+                  Reference
+                </SortHeader>
+                <SortHeader column="tier" base="/settings/billing" params={params}>
+                  Package
+                </SortHeader>
+                <SortHeader
+                  column="periodStart"
+                  base="/settings/billing"
+                  params={params}
+                  defaultOrder="desc"
+                >
+                  Period
+                </SortHeader>
+                <SortHeader
+                  column="studentCount"
+                  base="/settings/billing"
+                  params={params}
+                  defaultOrder="desc"
+                  align="right"
+                >
+                  Students
+                </SortHeader>
+                <SortHeader
+                  column="amount"
+                  base="/settings/billing"
+                  params={params}
+                  defaultOrder="desc"
+                  align="right"
+                >
+                  Amount
+                </SortHeader>
+                <SortHeader column="status" base="/settings/billing" params={params}>
+                  State
+                </SortHeader>
               </tr>
             </thead>
             <tbody>
-              {invoices.map((inv) => (
+              {invoices.rows.map((inv) => (
                 <tr key={inv.id} className="border-b border-mist/60 last:border-0">
-                  <td className="px-6 py-3 tabular font-medium">{inv.reference}</td>
-                  <td className="px-3 py-3">{inv.tier}</td>
-                  <td className="px-3 py-3 text-oat text-[12.5px] whitespace-nowrap">
+                  <td data-label="Reference" className="px-6 py-3 tabular font-medium">
+                    {inv.reference}
+                  </td>
+                  <td data-label="Package" className="px-3 py-3">
+                    {inv.tier}
+                  </td>
+                  <td
+                    data-label="Period"
+                    className="px-3 py-3 text-oat text-[12.5px] whitespace-nowrap"
+                  >
                     {day(inv.periodStart)} → {day(inv.periodEnd)}
                   </td>
-                  <td className="px-3 py-3 text-right tabular">{inv.studentCount}</td>
-                  <td className="px-3 py-3 text-right tabular whitespace-nowrap">
+                  <td data-label="Students" className="px-3 py-3 text-right tabular">
+                    {inv.studentCount}
+                  </td>
+                  <td
+                    data-label="Amount"
+                    className="px-3 py-3 text-right tabular whitespace-nowrap"
+                  >
                     {money(inv.amount, inv.currency)}
                   </td>
-                  <td className="px-6 py-3">
+                  <td data-label="State" className="px-6 py-3">
                     <span
                       className={`text-[10px] uppercase tracking-wider rounded-full px-2 py-0.5 ${STATUS_TONE[inv.status] ?? 'bg-parchment text-oat'}`}
                     >
@@ -326,7 +385,7 @@ export default async function BillingPage({
                   </td>
                 </tr>
               ))}
-              {invoices.length === 0 && (
+              {invoices.rows.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-6 py-10 text-center text-oat">
                     Nothing has been charged yet.
@@ -336,6 +395,7 @@ export default async function BillingPage({
             </tbody>
           </table>
         </div>
+        <Pagination page={invoices} base="/settings/billing" params={params} label="invoices" />
       </div>
     </div>
   );

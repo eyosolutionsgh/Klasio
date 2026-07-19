@@ -135,8 +135,10 @@ export default async function ReturnsPage({
       {/* The table scrolls inside its own card on narrow screens rather than widening the page. */}
       <h2 className="font-display text-xl mt-8 rise rise-3">Enrolment by level and sex</h2>
       <div className="card mt-3 overflow-hidden rise rise-3">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[480px]">
+        {/* `sm:`-scoped floor: an unconditional min-width survives the stacking media query and
+            would hold this 480px wide on exactly the handsets the stacking is for. */}
+        <div className="overflow-x-auto table-stack-wrap">
+          <table className="w-full text-sm sm:min-w-[480px] table-stack">
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
                 <th className="px-5 py-3 font-medium">Level</th>
@@ -149,11 +151,21 @@ export default async function ReturnsPage({
             <tbody>
               {e.byLevel.map((r) => (
                 <tr key={r.level} className="border-b border-mist/60 last:border-0">
-                  <td className="px-5 py-3 font-medium">{r.level}</td>
-                  <td className="px-5 py-3 text-oat">{humanise(r.category)}</td>
-                  <td className="px-5 py-3 text-right tabular">{r.male}</td>
-                  <td className="px-5 py-3 text-right tabular">{r.female}</td>
-                  <td className="px-5 py-3 text-right tabular font-medium">{r.total}</td>
+                  <td data-label="Level" className="px-5 py-3 font-medium">
+                    {r.level}
+                  </td>
+                  <td data-label="Category" className="px-5 py-3 text-oat">
+                    {humanise(r.category)}
+                  </td>
+                  <td data-label="Male" className="px-5 py-3 text-right tabular">
+                    {r.male}
+                  </td>
+                  <td data-label="Female" className="px-5 py-3 text-right tabular">
+                    {r.female}
+                  </td>
+                  <td data-label="Total" className="px-5 py-3 text-right tabular font-medium">
+                    {r.total}
+                  </td>
                 </tr>
               ))}
               {e.byLevel.length === 0 && (
@@ -169,9 +181,18 @@ export default async function ReturnsPage({
                 <td className="px-5 py-3 font-medium" colSpan={2}>
                   Total on roll
                 </td>
-                <td className="px-5 py-3 text-right tabular">{e.male}</td>
-                <td className="px-5 py-3 text-right tabular">{e.female}</td>
-                <td className="px-5 py-3 text-right tabular font-display text-base">{e.total}</td>
+                <td data-label="Male" className="px-5 py-3 text-right tabular">
+                  {e.male}
+                </td>
+                <td data-label="Female" className="px-5 py-3 text-right tabular">
+                  {e.female}
+                </td>
+                <td
+                  data-label="Total"
+                  className="px-5 py-3 text-right tabular font-display text-base"
+                >
+                  {e.total}
+                </td>
               </tr>
             </tfoot>
           </table>

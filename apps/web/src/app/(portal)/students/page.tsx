@@ -4,8 +4,11 @@ import PromoteClass from '@/components/PromoteClass';
 import DownloadButton from '@/components/DownloadButton';
 import StudentFilters from '@/components/StudentFilters';
 import AddStudent from '@/components/AddStudent';
+import Pagination from '@/components/Pagination';
+import SortHeader from '@/components/SortHeader';
 import { Button } from '@/components/Button';
 import { SearchIcon } from '@/components/icons';
+import { apiQuery, one, type ListSearchParams, type Page } from '@/lib/list';
 
 interface StudentRow {
   id: string;
@@ -35,15 +38,17 @@ const STATUS_TABS = [
 export default async function StudentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ classId?: string; q?: string; status?: string }>;
+  searchParams: Promise<ListSearchParams>;
 }) {
-  const { classId, q, status = 'ACTIVE' } = await searchParams;
-  const qs = new URLSearchParams();
-  if (classId) qs.set('classId', classId);
-  if (q) qs.set('q', q);
-  qs.set('status', status);
+  const params = await searchParams;
+  const classId = one(params.classId);
+  const q = one(params.q);
+  const status = one(params.status) ?? 'ACTIVE';
+  // The page's own filters, plus the paging/sorting keys `apiQuery` always forwards.
+  const qs = apiQuery(params, ['classId', 'q', 'gender'], { status });
+
   const [students, structure, me, enrolment] = await Promise.all([
-    api<StudentRow[]>(`/students?${qs}`),
+    api<Page<StudentRow>>(`/students?${qs}`),
     api<Structure>('/school/structure'),
     getMe(),
     api<{ active: number; cap: number | null; headroom: number; atCap: boolean }>(
@@ -59,7 +64,8 @@ export default async function StudentsPage({
         <div>
           <h1 className="font-display text-3xl">Students</h1>
           <p className="text-sm text-oat mt-1.5">
-            The register — {students.length} shown
+            {/* The total, not the page size. "25 shown" on a roll of 900 was the old lie. */}
+            The register — {students.total} matching
             {enrolment.cap !== null && (
               <span className={enrolment.atCap ? 'text-clay font-medium' : ''}>
                 {' · '}
@@ -88,7 +94,16 @@ export default async function StudentsPage({
             tip="Download this list as Excel"
           />
           <form className="flex gap-2 flex-1 min-w-[15rem]" action="/students" method="get">
-            {classId && <input type="hidden" name="classId" value={classId} />}
+            {/*
+              A GET form submits only its own fields, so every filter not represented here is
+              dropped on search. Carrying them as hidden inputs is what keeps "search within this
+              class" from silently becoming "search the whole school". `page` is deliberately not
+              carried — a new search starts at the beginning.
+            */}
+            {(['classId', 'gender', 'sort', 'order', 'from', 'to', 'perPage'] as const).map((k) => {
+              const v = one(params[k]);
+              return v ? <input key={k} type="hidden" name={k} value={v} /> : null;
+            })}
             <input type="hidden" name="status" value={status} />
             {/* The magnifier rides the field, not the button — one per form is the affordance. */}
             <div className="relative flex-1 min-w-0 sm:w-64 sm:flex-none">
@@ -109,13 +124,7 @@ export default async function StudentsPage({
       </div>
 
       <div className="mt-6 rise rise-2">
-        <StudentFilters
-          status={status}
-          classId={classId}
-          q={q}
-          statuses={STATUS_TABS}
-          classes={structure.classes}
-        />
+        <StudentFilters statuses={STATUS_TABS} classes={structure.classes} params={params} />
       </div>
 
       {canPromote && selectedClass && status === 'ACTIVE' && (
@@ -129,31 +138,44 @@ export default async function StudentsPage({
         </div>
       )}
 
-      <div className="card mt-6 overflow-x-auto rise rise-3">
-        <table className="w-full text-sm">
+      <div className="card mt-6 overflow-x-auto rise rise-3 table-stack-wrap">
+        <table className="w-full text-sm table-stack">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
-              <th className="px-5 py-3 font-medium">Adm. No.</th>
-              <th className="px-5 py-3 font-medium">Name</th>
-              <th className="px-5 py-3 font-medium">Class</th>
+              <SortHeader column="admissionNo" base="/students" params={params}>
+                Adm. No.
+              </SortHeader>
+              <SortHeader column="name" base="/students" params={params}>
+                Name
+              </SortHeader>
+              <SortHeader column="className" base="/students" params={params}>
+                Class
+              </SortHeader>
               {/*
                 One column, not two.
                 A child can have several guardians, and two columns headed "Primary guardian" and
                 "Phone" said otherwise — a single name with nothing beside it reads as the whole
                 answer. The phone belongs under the name rather than beside it: it is a detail of
                 that person, not a separate fact about the child.
+
+                Not sortable, for the same reason: ordering a list of children by a collection
+                would mean ordering by whichever guardian the database happened to return first.
               */}
-              <th className="px-5 py-3 font-medium">Guardians</th>
+              <th scope="col" className="px-5 py-3 font-medium">
+                Guardians
+              </th>
             </tr>
           </thead>
           <tbody>
-            {students.map((s) => (
+            {students.rows.map((s) => (
               <tr
                 key={s.id}
                 className="border-b border-mist/60 last:border-0 hover:bg-parchment/40 transition"
               >
-                <td className="px-5 py-3 tabular text-oat">{s.admissionNo}</td>
-                <td className="px-5 py-3">
+                <td data-label="Adm. No." className="px-5 py-3 tabular text-oat">
+                  {s.admissionNo}
+                </td>
+                <td data-label="Name" className="px-5 py-3">
                   <Link
                     href={`/students/${s.id}`}
                     className="font-medium text-brand hover:underline underline-offset-2"
@@ -161,8 +183,10 @@ export default async function StudentsPage({
                     {s.name}
                   </Link>
                 </td>
-                <td className="px-5 py-3">{s.className}</td>
-                <td className="px-5 py-3">
+                <td data-label="Class" className="px-5 py-3">
+                  {s.className}
+                </td>
+                <td data-label="Guardians" className="px-5 py-3">
                   {s.guardians.lead ? (
                     <>
                       <p className="flex flex-wrap items-baseline gap-x-1.5">
@@ -198,15 +222,17 @@ export default async function StudentsPage({
                 </td>
               </tr>
             ))}
-            {students.length === 0 && (
+            {students.rows.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-5 py-10 text-center text-oat">
-                  No students match. Try a different class, status, or search term.
+                  No students match. Try a different class, status, gender, date range or search
+                  term.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        <Pagination page={students} base="/students" params={params} label="students" />
       </div>
     </div>
   );

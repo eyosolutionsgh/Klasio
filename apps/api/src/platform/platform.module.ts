@@ -36,6 +36,7 @@ import { AuthUser, CurrentUser, Public, isPublishedSecret } from '../common/auth
 import { BCRYPT_ROUNDS, publicToken, tempPassword } from '../common/crypto';
 import { EmailModule, EmailService } from '../email/email.module';
 import { renderSchoolInvitation } from '../common/email-templates';
+import { PageQuery, dateWindow, orderBy, pageArgs, toPage } from '../common/list-query';
 
 /**
  * EYO itself — the vendor — rather than any one school.
@@ -156,9 +157,32 @@ class ContactDto {
   @IsOptional() @IsIn(['INFO', 'WARNING']) level?: NoticeLevel;
 }
 
-class SchoolQueryDto {
+/**
+ * Which columns the school list may be sorted by, and what each maps to in Prisma.
+ *
+ * An allowlist rather than a passthrough, and the stakes are higher here than on a school's own
+ * lists: `sort` arrives on a query string and is spread into `orderBy`, and this query runs on
+ * `db.system` — the owner connection that row-level security does not apply to. An unchecked value
+ * could order by, and therefore probe, any relation reachable from School across every tenant.
+ *
+ * The two counts sort by relation aggregate, which is what `students._count` becomes.
+ */
+const SCHOOL_SORTS: Record<string, string | string[]> = {
+  name: 'name',
+  tier: 'tier',
+  createdAt: 'createdAt',
+  studentCount: 'students._count',
+  staffCount: 'users._count',
+};
+
+/**
+ * The console's filters. Extends the shared paging/sorting/date-window base; `from`/`to` filter
+ * when the school joined the platform (see `schools`).
+ */
+class SchoolQueryDto extends PageQuery {
   @IsOptional() @IsString() @MaxLength(80) q?: string;
   @IsOptional() @IsIn(['all', 'active', 'suspended']) status?: 'all' | 'active' | 'suspended';
+  @IsOptional() @IsIn(['BASIC', 'MEDIUM', 'ADVANCED']) tier?: Tier;
 }
 
 @Injectable()
@@ -216,12 +240,25 @@ export class PlatformService {
     return { token: signPlatformToken(payload), admin: { name: admin.name, email: admin.email } };
   }
 
-  /** Every school on the platform, with the numbers a vendor actually asks about. */
+  /**
+   * Every school on the platform, paged, with the numbers a vendor actually asks about.
+   *
+   * This returned an unbounded array — no `take` at all, which is the opposite failure to the
+   * schools' own lists but no better: the console loaded every row on the platform on every
+   * keystroke of the search box, and the page it draws them into is one long table. Paging bounds
+   * both, and `total` is what the header count now means.
+   */
   async schools(query: SchoolQueryDto) {
     const status = query.status ?? 'all';
+    const { skip, take, page, perPage } = pageArgs(query);
+    const joined = dateWindow(query);
     const where: Prisma.SchoolWhereInput = {
       ...(status === 'active' ? { suspendedAt: null } : {}),
       ...(status === 'suspended' ? { NOT: { suspendedAt: null } } : {}),
+      ...(query.tier ? { tier: query.tier } : {}),
+      // The window filters when the school came onto the platform — "who signed up this quarter"
+      // is the vendor's question, and it is the only date on the row itself.
+      ...(joined ? { createdAt: joined } : {}),
       ...(query.q
         ? {
             OR: [
@@ -232,32 +269,40 @@ export class PlatformService {
         : {}),
     };
 
-    const schools = await this.db.system.school.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        email: true,
-        phone: true,
-        region: true,
-        tier: true,
-        suspendedAt: true,
-        suspendedReason: true,
-        createdAt: true,
-        subscription: { select: { status: true, periodEnd: true, amount: true, currency: true } },
-        _count: { select: { students: true, users: true } },
-      },
-    });
+    const [total, schools] = await Promise.all([
+      this.db.system.school.count({ where }),
+      this.db.system.school.findMany({
+        where,
+        orderBy: orderBy<Prisma.SchoolOrderByWithRelationInput>(query, SCHOOL_SORTS, {
+          createdAt: 'desc',
+        }),
+        skip,
+        take,
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          email: true,
+          phone: true,
+          region: true,
+          tier: true,
+          suspendedAt: true,
+          suspendedReason: true,
+          createdAt: true,
+          subscription: { select: { status: true, periodEnd: true, amount: true, currency: true } },
+          _count: { select: { students: true, users: true } },
+        },
+      }),
+    ]);
 
-    return schools.map((s) => ({
+    const rows = schools.map((s) => ({
       ...s,
       amount: s.subscription ? Number(s.subscription.amount) : null,
       studentCount: s._count.students,
       staffCount: s._count.users,
       suspended: s.suspendedAt !== null,
     }));
+    return toPage(rows, total, { page, perPage });
   }
 
   /** One school in more depth, including what EYO has said to it. */

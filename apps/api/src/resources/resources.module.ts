@@ -15,10 +15,48 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { IsOptional, IsString, MinLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
 import { DOCUMENT_TYPES, MAX_UPLOAD_BYTES, objectKey, storage } from '../common/storage';
+import { PageQuery, dateWindow, orderBy, pageArgs, toPage } from '../common/list-query';
+
+/**
+ * Which columns the library may be sorted by, and what each maps to in Prisma.
+ *
+ * An allowlist rather than a passthrough — `sort` arrives on a query string and is spread into
+ * `orderBy`, so an unchecked value would let a caller order by a relation this endpoint never
+ * meant to reach through. There is no single "For" column to sort on: a file is tagged to a class,
+ * a level and a subject independently, so each is offered on its own rather than by whichever the
+ * database happened to hold.
+ */
+const RESOURCE_SORTS: Record<string, string | string[]> = {
+  title: 'title',
+  subjectName: 'subject.name',
+  levelName: 'level.name',
+  className: 'classRoom.name',
+  downloads: 'downloads',
+  sizeBytes: 'sizeBytes',
+  published: 'published',
+  createdAt: 'createdAt',
+};
+
+/**
+ * The library's filters. Extends the shared paging/sorting/date-window base; `from`/`to` filter
+ * the upload date (see `list`).
+ */
+class ListResourcesDto extends PageQuery {
+  @IsOptional() @IsString() levelId?: string;
+  @IsOptional() @IsString() classId?: string;
+  @IsOptional() @IsString() subjectId?: string;
+  /**
+   * Stays a string rather than becoming a boolean: three states, not two. Absent means "both
+   * drafts and published", which a boolean cannot express without an extra flag beside it.
+   */
+  @IsOptional() @IsIn(['true', 'false']) published?: string;
+  @IsOptional() @IsString() q?: string;
+}
 
 /**
  * Wider than the student-document list: lesson notes arrive as Word and PowerPoint far more
@@ -109,24 +147,56 @@ export class ResourcesService {
     classRoom: { select: { name: true } },
   };
 
-  /** Staff see drafts as well as published files — they are the ones deciding what to release. */
-  async list(
-    auth: AuthUser,
-    filters: { levelId?: string; classId?: string; subjectId?: string; published?: string },
-  ) {
-    const resources = await this.db.learningResource.findMany({
-      where: {
-        schoolId: auth.schoolId,
-        ...(filters.levelId ? { levelId: filters.levelId } : {}),
-        ...(filters.classId ? { classId: filters.classId } : {}),
-        ...(filters.subjectId ? { subjectId: filters.subjectId } : {}),
-        ...(filters.published === undefined ? {} : { published: filters.published === 'true' }),
-      },
-      include: this.relations,
-      orderBy: { createdAt: 'desc' },
-      take: 200,
-    });
-    return resources.map((r) => this.shape(r));
+  /**
+   * The library, paged. Staff see drafts as well as published files — they are the ones deciding
+   * what to release.
+   *
+   * This used to return a bare array capped at `take: 200`. A school two years into using the
+   * library saw the most recent 200 files and nothing said the older ones existed, so a teacher
+   * looking for last year's past questions concluded they had never been uploaded.
+   */
+  async list(auth: AuthUser, q: ListResourcesDto) {
+    const { skip, take, page, perPage } = pageArgs(q);
+    const uploaded = dateWindow(q);
+    const where = {
+      schoolId: auth.schoolId,
+      ...(q.levelId ? { levelId: q.levelId } : {}),
+      ...(q.classId ? { classId: q.classId } : {}),
+      ...(q.subjectId ? { subjectId: q.subjectId } : {}),
+      ...(q.published === undefined ? {} : { published: q.published === 'true' }),
+      // The window filters when the file was uploaded — "everything shared since half term" is
+      // the question a head asks of a library, and it is the only date these rows carry.
+      ...(uploaded ? { createdAt: uploaded } : {}),
+      // The filename as well as the title: a teacher hunting for a scan generally remembers what
+      // the file was called long before they remember how somebody else titled it.
+      ...(q.q
+        ? {
+            OR: [
+              { title: { contains: q.q, mode: 'insensitive' as const } },
+              { filename: { contains: q.q, mode: 'insensitive' as const } },
+              { description: { contains: q.q, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
+    };
+
+    const [total, resources] = await Promise.all([
+      this.db.learningResource.count({ where }),
+      this.db.learningResource.findMany({
+        where,
+        include: this.relations,
+        orderBy: orderBy<Prisma.LearningResourceOrderByWithRelationInput>(q, RESOURCE_SORTS, {
+          createdAt: 'desc',
+        }),
+        skip,
+        take,
+      }),
+    ]);
+    return toPage(
+      resources.map((r) => this.shape(r)),
+      total,
+      { page, perPage },
+    );
   }
 
   private assertUpload(file: UploadedFileLike | undefined) {
@@ -340,14 +410,8 @@ export class ResourcesController {
 
   @Get()
   @RequirePermission('resources.view')
-  list(
-    @CurrentUser() user: AuthUser,
-    @Query('levelId') levelId?: string,
-    @Query('classId') classId?: string,
-    @Query('subjectId') subjectId?: string,
-    @Query('published') published?: string,
-  ) {
-    return this.svc.list(user, { levelId, classId, subjectId, published });
+  list(@CurrentUser() user: AuthUser, @Query() query: ListResourcesDto) {
+    return this.svc.list(user, query);
   }
 
   @Post()

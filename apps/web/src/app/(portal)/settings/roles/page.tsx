@@ -215,8 +215,14 @@ export default function RolesPage() {
         />
       )}
 
-      <section className="card rise rise-3 overflow-x-auto">
-        <table className="w-full text-sm min-w-[640px]">
+      {/*
+        No pager here, deliberately. A school's roles are the handful of presets plus whatever few
+        jobs it has invented — a strip reading "1–6 of 6" under six rows is noise, and `GET /roles`
+        is also what the staff screen reads to decide which roles it may offer, so paging it would
+        silently shorten that list too.
+      */}
+      <section className="card rise rise-3 overflow-x-auto table-stack-wrap">
+        <table className="w-full text-sm sm:min-w-[640px] table-stack">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
               <th className="px-5 py-3 font-medium">Role</th>
@@ -228,11 +234,11 @@ export default function RolesPage() {
           <tbody>
             {roles.map((r) => (
               <tr key={r.id} className="border-b border-mist/60 last:border-0 align-top">
-                <td className="px-5 py-3">
+                <td data-label="Role" className="px-5 py-3">
                   <p className="font-medium">{r.name}</p>
                   {r.description && <p className="text-xs text-oat mt-0.5">{r.description}</p>}
                 </td>
-                <td className="px-5 py-3 text-xs text-oat">
+                <td data-label="What it covers" className="px-5 py-3 text-xs text-oat">
                   {canManage ? (
                     <>
                       {summary(r).length === 0 && 'Nothing yet'}
@@ -250,7 +256,9 @@ export default function RolesPage() {
                     `${r.permissions.length} ${r.permissions.length === 1 ? 'permission' : 'permissions'}`
                   )}
                 </td>
-                <td className="px-5 py-3 text-right tabular">{r.staffCount}</td>
+                <td data-label="Staff" className="px-5 py-3 text-right tabular">
+                  {r.staffCount}
+                </td>
                 <td className="px-5 py-3 text-right whitespace-nowrap">
                   {canManage && (
                     <>

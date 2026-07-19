@@ -27,6 +27,41 @@ import { normalizeMsisdn } from '../common/phone';
 import { storage } from '../common/storage';
 import { admissionLetterPdf } from '../common/pdf';
 import { StudentsModule, StudentsService } from '../students/students.module';
+import { PageQuery, dateWindow, orderBy, pageArgs, toPage } from '../common/list-query';
+
+/**
+ * Which columns the pipeline may be sorted by, and what each maps to in Prisma.
+ *
+ * An allowlist rather than a passthrough — `sort` comes off a query string and is spread into
+ * `orderBy`, so an unchecked value would let a caller order by (and therefore probe) a relation
+ * this endpoint never meant to reach through. `name` sorts on the surname, because a stack of
+ * applications is read the way a register is.
+ */
+const APPLICANT_SORTS: Record<string, string | string[]> = {
+  reference: 'reference',
+  name: ['lastName', 'firstName'],
+  levelName: 'level.name',
+  guardianName: 'guardianName',
+  stage: 'stage',
+  createdAt: 'createdAt',
+  decidedAt: 'decidedAt',
+};
+
+/**
+ * The pipeline's filters. Extends the shared paging/sorting/date-window base; `from`/`to` filter
+ * when the application was filed (see `list`).
+ */
+class ListApplicantsDto extends PageQuery {
+  /**
+   * `@IsEnum` is what keeps a mistyped stage a 400 rather than a 500. The stage used to arrive as
+   * a bare `@Query('stage')` string and was hand-checked in the service, because an unknown value
+   * reaching Prisma's enum filter surfaces as a server error instead of as the typo it is.
+   */
+  @IsOptional() @IsEnum(ApplicantStage) stage?: ApplicantStage;
+  @IsOptional() @IsString() q?: string;
+  @IsOptional() @IsEnum(Gender) gender?: Gender;
+  @IsOptional() @IsString() levelId?: string;
+}
 
 /** The public form: the least a school needs to open a file on a child. */
 class ApplyDto {
@@ -175,61 +210,88 @@ export class AdmissionsService {
 
   // ── Staff pipeline ─────────────────────────────────────────────────
 
-  async list(auth: AuthUser, stage?: ApplicantStage, q?: string) {
-    // The stage arrives as a raw query string; an unknown one would reach Prisma's enum filter
-    // and surface as a 500 rather than as the typo it is.
-    if (stage && !Object.values(ApplicantStage).includes(stage)) {
-      throw new BadRequestException('Unknown stage');
-    }
-    const [applicants, byStage] = await Promise.all([
+  /**
+   * The pipeline, paged.
+   *
+   * This used to return a bare array capped at `take: 200`. The cap was invisible from the
+   * outside, so a school running an intake of several hundred saw 200 applications and had no way
+   * to tell that from having received exactly 200 — a parent chasing their reference simply was
+   * not there. The envelope carries the total so the screen can say which.
+   */
+  async list(auth: AuthUser, q: ListApplicantsDto) {
+    const { skip, take, page, perPage } = pageArgs(q);
+    const filed = dateWindow(q);
+    const where = {
+      schoolId: auth.schoolId,
+      ...(q.stage ? { stage: q.stage } : {}),
+      ...(q.gender ? { gender: q.gender } : {}),
+      ...(q.levelId ? { levelId: q.levelId } : {}),
+      // The window filters when the application arrived, which is what an admissions officer
+      // means by "everything since we opened for September" — not when it was decided.
+      ...(filed ? { createdAt: filed } : {}),
+      ...(q.q
+        ? {
+            OR: [
+              { firstName: { contains: q.q, mode: 'insensitive' as const } },
+              { lastName: { contains: q.q, mode: 'insensitive' as const } },
+              { reference: { contains: q.q, mode: 'insensitive' as const } },
+              { guardianPhone: { contains: q.q } },
+            ],
+          }
+        : {}),
+    };
+
+    const [total, applicants, byStage] = await Promise.all([
+      this.db.applicant.count({ where }),
       this.db.applicant.findMany({
-        where: {
-          schoolId: auth.schoolId,
-          ...(stage ? { stage } : {}),
-          ...(q
-            ? {
-                OR: [
-                  { firstName: { contains: q, mode: 'insensitive' } },
-                  { lastName: { contains: q, mode: 'insensitive' } },
-                  { reference: { contains: q, mode: 'insensitive' } },
-                  { guardianPhone: { contains: q } },
-                ],
-              }
-            : {}),
-        },
+        where,
         include: { level: { select: { name: true } } },
-        orderBy: { createdAt: 'desc' },
-        take: 200,
+        orderBy: orderBy<Prisma.ApplicantOrderByWithRelationInput>(q, APPLICANT_SORTS, {
+          createdAt: 'desc',
+        }),
+        skip,
+        take,
       }),
+      /**
+       * Counted across the whole school, deliberately unfiltered.
+       *
+       * These are the numbers on the stage chips, and a chip has to say how many applications sit
+       * at that stage — not how many of the current filter's matches do. Narrowing to the `where`
+       * above would make every chip except the selected one read zero the moment a stage is
+       * chosen, which is precisely when the others matter.
+       */
       this.db.applicant.groupBy({
         by: ['stage'],
         where: { schoolId: auth.schoolId },
         _count: true,
       }),
     ]);
+
+    const rows = applicants.map((a) => ({
+      id: a.id,
+      reference: a.reference,
+      name: `${a.firstName} ${a.lastName}`,
+      levelName: a.level?.name ?? null,
+      // The public form does not insist on either, but enrolling does — so the pipeline
+      // shows what is still missing before the office tries to convert.
+      dateOfBirth: a.dateOfBirth,
+      gender: a.gender,
+      guardianName: a.guardianName,
+      guardianPhone: a.guardianPhone,
+      stage: a.stage,
+      studentId: a.studentId,
+      decidedAt: a.decidedAt,
+      createdAt: a.createdAt,
+      /** Sent with the row so the UI never offers a move the API will refuse. */
+      allowedStages: allowedStages(a.stage),
+    }));
+
     return {
+      ...toPage(rows, total, { page, perPage }),
       counts: byStage.reduce(
         (acc, r) => ({ ...acc, [r.stage]: r._count }),
         {} as Record<string, number>,
       ),
-      applicants: applicants.map((a) => ({
-        id: a.id,
-        reference: a.reference,
-        name: `${a.firstName} ${a.lastName}`,
-        levelName: a.level?.name ?? null,
-        // The public form does not insist on either, but enrolling does — so the pipeline
-        // shows what is still missing before the office tries to convert.
-        dateOfBirth: a.dateOfBirth,
-        gender: a.gender,
-        guardianName: a.guardianName,
-        guardianPhone: a.guardianPhone,
-        stage: a.stage,
-        studentId: a.studentId,
-        decidedAt: a.decidedAt,
-        createdAt: a.createdAt,
-        /** Sent with the row so the UI never offers a move the API will refuse. */
-        allowedStages: allowedStages(a.stage),
-      })),
     };
   }
 
@@ -440,12 +502,8 @@ export class AdmissionsController {
 
   @Get()
   @RequirePermission('admissions.view')
-  list(
-    @CurrentUser() user: AuthUser,
-    @Query('stage') stage?: ApplicantStage,
-    @Query('q') q?: string,
-  ) {
-    return this.svc.list(user, stage, q);
+  list(@CurrentUser() user: AuthUser, @Query() query: ListApplicantsDto) {
+    return this.svc.list(user, query);
   }
 
   @Get(':id')

@@ -14,17 +14,55 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { IsIn, IsOptional, IsString, MinLength } from 'class-validator';
-import { GatewayProvider, Prisma } from '@prisma/client';
+import { IsEnum, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import { GatewayProvider, Prisma, SettlementStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
 import { parseSettlementCsv, reconcile } from '../common/reconcile';
+import { PageQuery, dateWindow, orderBy, pageArgs, toPage } from '../common/list-query';
 
 /** Minimal shape of a Multer upload — avoids depending on @types/multer, as elsewhere. */
 interface UploadedCsv {
   buffer: Buffer;
   originalname: string;
   mimetype: string;
+}
+
+/**
+ * Sortable columns on the exception queue.
+ *
+ * `student` and `weCharged` are absent on purpose: both come off the PaymentIntent, which is
+ * fetched separately after the rows are chosen precisely because an unmatched row has no intent
+ * at all. Ordering by them would mean ordering by a value half the queue does not have.
+ */
+const SETTLEMENT_ROW_SORTS: Record<string, string | string[]> = {
+  reference: 'reference',
+  gross: 'gross',
+  net: 'net',
+  status: 'status',
+  createdAt: 'createdAt',
+};
+
+/** Sortable columns on the list of imported files. */
+const BATCH_SORTS: Record<string, string | string[]> = {
+  filename: 'filename',
+  provider: 'provider',
+  grossTotal: 'grossTotal',
+  netTotal: 'netTotal',
+  rowCount: 'rowCount',
+  matchedCount: 'matchedCount',
+  createdAt: 'createdAt',
+};
+
+/** Filters for the exception queue. `from`/`to` window the import date — see `exceptions`. */
+class ListExceptionsDto extends PageQuery {
+  @IsOptional() @IsString() batchId?: string;
+  @IsOptional() @IsEnum(SettlementStatus) status?: SettlementStatus;
+}
+
+/** Filters for the imported-file list. `from`/`to` window when the file was imported. */
+class ListBatchesDto extends PageQuery {
+  @IsOptional() @IsEnum(GatewayProvider) provider?: GatewayProvider;
 }
 
 class ResolveRowDto {
@@ -107,13 +145,36 @@ export class ReconciliationService {
     return { batchId: batch.id, ...summary };
   }
 
-  async batches(auth: AuthUser) {
-    const rows = await this.db.settlementBatch.findMany({
-      where: { schoolId: auth.schoolId },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-    });
-    return rows.map((b) => ({
+  /**
+   * Everything imported, paged.
+   *
+   * The gateway-charges figure on the screen is deliberately *not* derived from these rows — see
+   * `summary()`. Summing the page would have quietly reported the charges from the fifty most
+   * recent files as the charges from all of them.
+   */
+  async batches(auth: AuthUser, q: ListBatchesDto) {
+    const { skip, take, page, perPage } = pageArgs(q);
+    const imported = dateWindow(q);
+    const where = {
+      schoolId: auth.schoolId,
+      ...(q.provider ? { provider: q.provider } : {}),
+      // The window filters when the file was imported, which is the only date a batch carries.
+      ...(imported ? { createdAt: imported } : {}),
+    };
+
+    const [total, batches] = await Promise.all([
+      this.db.settlementBatch.count({ where }),
+      this.db.settlementBatch.findMany({
+        where,
+        orderBy: orderBy<Prisma.SettlementBatchOrderByWithRelationInput>(q, BATCH_SORTS, {
+          createdAt: 'desc',
+        }),
+        skip,
+        take,
+      }),
+    ]);
+
+    const rows = batches.map((b) => ({
       id: b.id,
       provider: b.provider,
       filename: b.filename,
@@ -125,6 +186,40 @@ export class ReconciliationService {
       matchedCount: b.matchedCount,
       createdAt: b.createdAt,
     }));
+    return toPage(rows, total, { page, perPage });
+  }
+
+  /**
+   * The four figures that head the reconciliation screen.
+   *
+   * Its own endpoint because none of them may be derived from a page. The queue counts and the
+   * gateway's total take are statements about everything on file, and the page they happen to be
+   * rendered beside is not allowed to change them — a bursar reading "2 not recognised" off a
+   * paged table would close the screen believing the exceptions were dealt with.
+   */
+  async summary(auth: AuthUser) {
+    const [byStatus, totals] = await Promise.all([
+      this.db.settlementRow.groupBy({
+        by: ['status'],
+        where: { schoolId: auth.schoolId },
+        _count: true,
+      }),
+      this.db.settlementBatch.aggregate({
+        where: { schoolId: auth.schoolId },
+        _sum: { grossTotal: true, netTotal: true },
+        _count: true,
+      }),
+    ]);
+    const countOf = (s: SettlementStatus) => byStatus.find((r) => r.status === s)?._count ?? 0;
+    const gross = Number(totals._sum.grossTotal ?? 0);
+    const net = Number(totals._sum.netTotal ?? 0);
+    return {
+      unmatched: countOf('UNMATCHED'),
+      disputed: countOf('DISPUTED'),
+      /** What the gateway kept across every file ever imported. */
+      charges: Math.round((gross - net) * 100) / 100,
+      batchCount: totals._count,
+    };
   }
 
   /**
@@ -133,18 +228,30 @@ export class ReconciliationService {
    * Defaults to the open items rather than the whole file, because the matched rows are the
    * ones nobody needs to read.
    */
-  async exceptions(auth: AuthUser, batchId?: string, status?: string) {
-    const rows = await this.db.settlementRow.findMany({
-      where: {
-        schoolId: auth.schoolId,
-        ...(batchId ? { batchId } : {}),
-        status: status
-          ? (status as 'UNMATCHED' | 'MATCHED' | 'DISPUTED' | 'IGNORED')
-          : { in: ['UNMATCHED', 'DISPUTED'] },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 500,
-    });
+  async exceptions(auth: AuthUser, q: ListExceptionsDto) {
+    const { skip, take, page, perPage } = pageArgs(q);
+    // The window filters when the row was imported. A settlement row's own `paidAt` is optional —
+    // plenty of provider files omit it — so filtering on it would hide rows for lacking a column
+    // the school never supplied.
+    const imported = dateWindow(q);
+    const where = {
+      schoolId: auth.schoolId,
+      ...(q.batchId ? { batchId: q.batchId } : {}),
+      ...(imported ? { createdAt: imported } : {}),
+      status: q.status ? q.status : { in: ['UNMATCHED', 'DISPUTED'] as SettlementStatus[] },
+    };
+
+    const [total, rows] = await Promise.all([
+      this.db.settlementRow.count({ where }),
+      this.db.settlementRow.findMany({
+        where,
+        orderBy: orderBy<Prisma.SettlementRowOrderByWithRelationInput>(q, SETTLEMENT_ROW_SORTS, {
+          createdAt: 'desc',
+        }),
+        skip,
+        take,
+      }),
+    ]);
 
     const intentIds = rows.map((r) => r.intentId).filter((x): x is string => !!x);
     const intents = intentIds.length
@@ -159,7 +266,7 @@ export class ReconciliationService {
       : [];
     const byId = new Map(intents.map((i) => [i.id, i]));
 
-    return rows.map((r) => {
+    const mapped = rows.map((r) => {
       const intent = r.intentId ? byId.get(r.intentId) : undefined;
       return {
         id: r.id,
@@ -175,6 +282,7 @@ export class ReconciliationService {
         createdAt: r.createdAt,
       };
     });
+    return toPage(mapped, total, { page, perPage });
   }
 
   /** Close an exception. The note is mandatory — "resolved" with no reason helps nobody later. */
@@ -226,17 +334,19 @@ export class ReconciliationController {
   }
 
   @Get('batches')
-  batches(@CurrentUser() user: AuthUser) {
-    return this.svc.batches(user);
+  batches(@CurrentUser() user: AuthUser, @Query() query: ListBatchesDto) {
+    return this.svc.batches(user, query);
+  }
+
+  /** The four headline figures, over everything on file rather than over a page. */
+  @Get('summary')
+  summary(@CurrentUser() user: AuthUser) {
+    return this.svc.summary(user);
   }
 
   @Get('exceptions')
-  exceptions(
-    @CurrentUser() user: AuthUser,
-    @Query('batchId') batchId?: string,
-    @Query('status') status?: string,
-  ) {
-    return this.svc.exceptions(user, batchId, status);
+  exceptions(@CurrentUser() user: AuthUser, @Query() query: ListExceptionsDto) {
+    return this.svc.exceptions(user, query);
   }
 
   @Patch('rows/:id')

@@ -71,8 +71,10 @@ export default function CumulativeRecord({ studentId }: { studentId: string }) {
         )}
       </div>
 
-      <div className="mt-5 overflow-x-auto">
-        <table className="w-full text-sm min-w-[440px]">
+      {/* The 440px floor is `sm:` only: unconditional, it would outlive the stacking rules and
+          hand a phone back the sideways scroll the stack exists to remove. */}
+      <div className="mt-5 overflow-x-auto table-stack-wrap">
+        <table className="w-full text-sm sm:min-w-[440px] table-stack">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist">
               <th className="py-2 font-medium">Term</th>
@@ -85,16 +87,20 @@ export default function CumulativeRecord({ studentId }: { studentId: string }) {
           <tbody>
             {data.terms.map((t) => (
               <tr key={t.termId} className="border-b border-mist/50 last:border-0">
-                <td className="py-2.5">
+                <td data-label="Term" className="py-2.5">
                   {t.term}
                   <span className="block text-[11px] text-oat">{t.year}</span>
                 </td>
-                <td className="py-2.5">{t.className}</td>
-                <td className="py-2.5 text-right tabular font-medium">{t.average}</td>
-                <td className="py-2.5 text-right tabular text-oat">
+                <td data-label="Class" className="py-2.5">
+                  {t.className}
+                </td>
+                <td data-label="Average" className="py-2.5 text-right tabular font-medium">
+                  {t.average}
+                </td>
+                <td data-label="Position" className="py-2.5 text-right tabular text-oat">
                   {t.classPosition ? `${t.classPosition}/${t.classSize}` : '—'}
                 </td>
-                <td className="py-2.5 w-28">
+                <td data-label="Progress" className="py-2.5 w-28">
                   <span className="block h-2 rounded-full bg-parchment overflow-hidden">
                     <span
                       className="block h-full bg-brand"

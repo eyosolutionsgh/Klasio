@@ -44,7 +44,7 @@ interface UploadedFileLike {
   mimetype: string;
   size: number;
 }
-import { PaymentMethod, Prisma } from '@prisma/client';
+import { DepositStatus, PaymentMethod, Prisma } from '@prisma/client';
 import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
 import { PrismaService, withTenant } from '../prisma/prisma.service';
@@ -56,8 +56,74 @@ import { receiptPdf } from '../common/pdf';
 import { toCsv, toXlsx, Cell } from '../common/export';
 import { balanceOf } from '../common/ledger';
 import { nextInSequence, refNumber } from '../common/sequences';
+import { PageQuery, dateWindow, orderBy, pageArgs, toPage } from '../common/list-query';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+/** One family's arrears as of a term. Computed, never a row — see `FeesService.defaulters`. */
+interface DefaulterRow {
+  studentId: string;
+  name: string;
+  admissionNo: string;
+  className: string;
+  /** Carried so the list can be filtered by class without a second lookup per row. */
+  classId: string | null;
+  phone: string | null;
+  balance: number;
+}
+
+/**
+ * Which columns the defaulter list may be ordered by, and how each is read off a row.
+ *
+ * Functions rather than Prisma paths, because this list is not a query. A balance is folded out
+ * of the ledger by `balanceOf` — a REVERSAL cancels one named entry — so there is no `groupBy`
+ * that yields it and nothing for the database to sort or offset by. Everything happens on the
+ * computed rows; the allowlist survives only so that an unrecognised `sort` from a stale bookmark
+ * falls back to "largest debt first" rather than erroring.
+ */
+const DEFAULTER_SORTS: Record<string, (r: DefaulterRow) => string | number> = {
+  name: (r) => r.name.toLowerCase(),
+  admissionNo: (r) => r.admissionNo,
+  className: (r) => r.className,
+  balance: (r) => r.balance,
+};
+
+/**
+ * Sortable columns on the bank-deposit queue. Dotted values reach through the relation, exactly
+ * as the register's allowlist does. `proof` is absent: sorting by whether a file is attached
+ * would order the queue by something the reviewer already sees at a glance.
+ */
+const DEPOSIT_SORTS: Record<string, string | string[]> = {
+  student: ['student.lastName', 'student.firstName'],
+  admissionNo: 'student.admissionNo',
+  reference: 'reference',
+  amount: 'amount',
+  bankName: 'bankName',
+  depositedAt: 'depositedAt',
+  status: 'status',
+  createdAt: 'createdAt',
+};
+
+/**
+ * Filters for the defaulter list.
+ *
+ * `from`/`to` come with `PageQuery` but are deliberately ignored here. An arrear is a running
+ * total, not an event: "everyone who owed money in March" is not a question the ledger can
+ * answer by date, and answering a near-miss of it would report a number a bursar would then
+ * chase. `termId` is the as-of point, and it is the only time input this list takes.
+ */
+class ListDefaultersDto extends PageQuery {
+  @IsString() termId: string;
+  @IsOptional() @IsString() classId?: string;
+  /** Matches a name or an admission number, like the register's search does. */
+  @IsOptional() @IsString() q?: string;
+}
+
+/** Filters for the bank-deposit queue. `from`/`to` window the deposit date — see `listDeposits`. */
+class ListDepositsDto extends PageQuery {
+  @IsOptional() @IsEnum(DepositStatus) status?: DepositStatus;
+  @IsOptional() @IsString() studentId?: string;
+}
 
 class RecordPaymentDto {
   @IsString() studentId: string;
@@ -623,8 +689,15 @@ export class FeesService {
     return { candidates: defaulters.length, sent, skipped, dryRun, planned: planned.slice(0, 50) };
   }
 
-  /** Who owes money as of this term, counting arrears carried in from earlier terms. */
-  async defaulters(auth: AuthUser, termId: string) {
+  /**
+   * Who owes money as of this term, counting arrears carried in from earlier terms.
+   *
+   * Always the whole set. Everything that reports a figure — the overview's outstanding total,
+   * the reminder run, the export — needs every family, so this stays uncapped and unpaged and
+   * `listDefaulters` slices it for a screen. Paging here would have made the school's
+   * outstanding-fees figure a function of which page happened to be open.
+   */
+  async defaulters(auth: AuthUser, termId: string): Promise<DefaulterRow[]> {
     const entries = await this.db.ledgerEntry.findMany({
       where: await this.asOfTerm(auth, termId),
       include: {
@@ -633,6 +706,7 @@ export class FeesService {
             firstName: true,
             lastName: true,
             admissionNo: true,
+            classId: true,
             classRoom: { select: { name: true } },
             guardians: {
               /**
@@ -651,16 +725,7 @@ export class FeesService {
         },
       },
     });
-    const byStudent = new Map<
-      string,
-      {
-        name: string;
-        admissionNo: string;
-        className: string;
-        phone: string | null;
-        balance: number;
-      }
-    >();
+    const byStudent = new Map<string, Omit<DefaulterRow, 'studentId'>>();
     // Group first, then sum: a reversal cancels an entry belonging to the same child, so the
     // balance has to be derived per student rather than accumulated entry by entry.
     const rowsFor = new Map<string, typeof entries>();
@@ -669,6 +734,7 @@ export class FeesService {
         name: `${e.student.firstName} ${e.student.lastName}`,
         admissionNo: e.student.admissionNo,
         className: e.student.classRoom?.name ?? '—',
+        classId: e.student.classId,
         phone: e.student.guardians[0]?.guardian.phone ?? null,
         balance: 0,
       };
@@ -681,6 +747,46 @@ export class FeesService {
       .filter(([, v]) => v.balance > 0.005)
       .map(([studentId, v]) => ({ studentId, ...v }))
       .sort((a, b) => b.balance - a.balance);
+  }
+
+  /**
+   * The defaulter list as a screen sees it: filtered, sorted, and one page at a time.
+   *
+   * The web page used to render `defaulters.slice(0, 12)` against an uncapped array, so a school
+   * with ninety families in arrears saw twelve of them and was told nothing about the rest — the
+   * same silent truncation the register had, and worse here, because the twelve on screen sat
+   * directly beneath an "Outstanding" tile counting all ninety.
+   *
+   * `total` counts everyone matching the filters, never the slice. The money on the page still
+   * comes from `overview()`, which sums the whole set and does not page — turning a page must not
+   * be able to change what a school believes it is owed.
+   */
+  async listDefaulters(auth: AuthUser, q: ListDefaultersDto) {
+    const all = await this.defaulters(auth, q.termId);
+    const needle = q.q?.trim().toLowerCase();
+    const matching = all.filter(
+      (d) =>
+        (!q.classId || d.classId === q.classId) &&
+        (!needle ||
+          d.name.toLowerCase().includes(needle) ||
+          d.admissionNo.toLowerCase().includes(needle)),
+    );
+
+    // `defaulters()` already returns biggest debt first, which is the order a bursar works in, so
+    // an absent or unrecognised sort leaves that alone rather than re-sorting to something else.
+    const read = q.sort ? DEFAULTER_SORTS[q.sort] : undefined;
+    const rows = read ? [...matching] : matching;
+    if (read) {
+      const dir = q.order === 'desc' ? -1 : 1;
+      rows.sort((a, b) => {
+        const x = read(a);
+        const y = read(b);
+        return x < y ? -dir : x > y ? dir : 0;
+      });
+    }
+
+    const { skip, take, page, perPage } = pageArgs(q);
+    return toPage(rows.slice(skip, skip + take), matching.length, { page, perPage });
   }
 
   async defaultersExport(auth: AuthUser, termId: string, format: string) {
@@ -932,16 +1038,41 @@ export class FeesService {
     return { id: deposit.id, reference: deposit.reference, status: deposit.status };
   }
 
-  async listDeposits(auth: AuthUser, status?: string) {
-    const deposits = await this.db.bankDeposit.findMany({
-      where: { schoolId: auth.schoolId, ...(status ? { status: status as never } : {}) },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-      include: {
-        student: { select: { firstName: true, lastName: true, admissionNo: true } },
-      },
-    });
-    return deposits.map((d) => ({
+  /**
+   * The bank-deposit queue, paged.
+   *
+   * The cap here was `take: 100` with no total, which is the worst shape a review queue can have:
+   * a bursar working through claims oldest-first could not tell an empty queue from one whose
+   * hundred-and-first item was invisible, and nothing on the screen admitted a limit existed.
+   */
+  async listDeposits(auth: AuthUser, q: ListDepositsDto) {
+    const { skip, take, page, perPage } = pageArgs(q);
+    // The window filters `depositedAt` — the day the money left the payer's hands, which is what
+    // a bank statement shows — not `createdAt`, the day somebody got round to keying the slip in.
+    const deposited = dateWindow(q);
+    const where = {
+      schoolId: auth.schoolId,
+      ...(q.status ? { status: q.status } : {}),
+      ...(q.studentId ? { studentId: q.studentId } : {}),
+      ...(deposited ? { depositedAt: deposited } : {}),
+    };
+
+    const [total, deposits] = await Promise.all([
+      this.db.bankDeposit.count({ where }),
+      this.db.bankDeposit.findMany({
+        where,
+        orderBy: orderBy<Prisma.BankDepositOrderByWithRelationInput>(q, DEPOSIT_SORTS, {
+          createdAt: 'desc',
+        }),
+        skip,
+        take,
+        include: {
+          student: { select: { firstName: true, lastName: true, admissionNo: true } },
+        },
+      }),
+    ]);
+
+    const rows = deposits.map((d) => ({
       id: d.id,
       reference: d.reference,
       student: `${d.student.firstName} ${d.student.lastName}`,
@@ -956,6 +1087,7 @@ export class FeesService {
       reviewNote: d.reviewNote,
       createdAt: d.createdAt,
     }));
+    return toPage(rows, total, { page, perPage });
   }
 
   async readDepositProof(auth: AuthUser, id: string) {
@@ -1603,8 +1735,8 @@ export class FeesController {
 
   @Get('defaulters')
   @RequirePermission('fees.view')
-  defaulters(@CurrentUser() user: AuthUser, @Query('termId') termId: string) {
-    return this.svc.defaulters(user, termId);
+  defaulters(@CurrentUser() user: AuthUser, @Query() query: ListDefaultersDto) {
+    return this.svc.listDefaulters(user, query);
   }
 
   @Get('defaulters/export')
@@ -1818,8 +1950,8 @@ export class FeesController {
 
   @Get('deposits')
   @RequirePermission('fees.view')
-  deposits(@CurrentUser() user: AuthUser, @Query('status') status?: string) {
-    return this.svc.listDeposits(user, status);
+  deposits(@CurrentUser() user: AuthUser, @Query() query: ListDepositsDto) {
+    return this.svc.listDeposits(user, query);
   }
 
   @Get('deposits/:id/proof')

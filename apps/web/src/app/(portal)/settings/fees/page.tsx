@@ -192,10 +192,19 @@ export default function FeeStructurePage() {
         </p>
       </div>
 
-      {/* The table scrolls inside its own card on narrow screens rather than widening the page. */}
+      {/*
+        Below `sm` each row becomes its own labelled card; above it the table scrolls inside its
+        own card rather than widening the page. The width floor has to be `sm:`-scoped — an
+        unconditional `min-w` survives the stacking rules and puts the sideways scroll back on
+        exactly the screens the stacking exists for.
+
+        This table is not paged on purpose: a term's fee structure is a handful of items a bursar
+        reads as a whole, and the compulsory total in the footer is only true if every item is on
+        screen. Paging it would show a "total per student" that silently omitted page two.
+      */}
       <div className="card mt-6 overflow-hidden rise rise-2">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[520px]">
+        <div className="overflow-x-auto table-stack-wrap">
+          <table className="w-full text-sm sm:min-w-[520px] table-stack">
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
                 <th className="px-5 py-3 font-medium">Item</th>
@@ -291,7 +300,7 @@ export default function FeeStructurePage() {
                   </tr>
                 ) : (
                   <tr key={i.id} className="border-b border-mist/60 last:border-0">
-                    <td className="px-5 py-3 font-medium">
+                    <td data-label="Item" className="px-5 py-3 font-medium">
                       {i.name}
                       {i.optional && (
                         <span className="ml-2 text-[10px] uppercase tracking-wider bg-parchment text-oat rounded-full px-2 py-0.5">
@@ -299,12 +308,14 @@ export default function FeeStructurePage() {
                         </span>
                       )}
                     </td>
-                    <td className="px-5 py-3 text-oat">
+                    <td data-label="Applies to" className="px-5 py-3 text-oat">
                       {i.levelId
                         ? (levels.find((l) => l.id === i.levelId)?.name ?? '—')
                         : 'All levels'}
                     </td>
-                    <td className="px-5 py-3 text-right tabular font-medium">{money(i.amount)}</td>
+                    <td data-label="Amount" className="px-5 py-3 text-right tabular font-medium">
+                      {money(i.amount)}
+                    </td>
                     <td className="px-5 py-3 text-right whitespace-nowrap">
                       {canStructure && (
                         <>

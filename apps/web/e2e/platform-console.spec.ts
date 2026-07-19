@@ -104,6 +104,12 @@ interface Listed {
   suspended: boolean;
 }
 
+/** The paged envelope every list endpoint returns. Mirrors `Page<T>` in the API. */
+interface Paged<T> {
+  rows: T[];
+  total: number;
+}
+
 /**
  * This suite's school, existing and not suspended, however it was left last time.
  *
@@ -113,9 +119,9 @@ interface Listed {
  */
 async function ensureSchool(page: Page): Promise<Listed> {
   const find = async () =>
-    (await vendor<Listed[]>(page, `schools?q=${encodeURIComponent(INVITED.school)}`)).find(
-      (s) => s.name === INVITED.school,
-    );
+    (
+      await vendor<Paged<Listed>>(page, `schools?q=${encodeURIComponent(INVITED.school)}`)
+    ).rows.find((s) => s.name === INVITED.school);
 
   let school = await find();
   if (!school) {
@@ -158,22 +164,35 @@ async function ensureSuspended(page: Page, id: string, reason: string) {
 test.describe('the platform owner', () => {
   test('1 · signs in to a console that lists every school', async ({ page }) => {
     const school = await ensureSchool(page);
-    const all = await vendor<Listed[]>(page, 'schools');
+    /**
+     * The console's *first page*, not every school.
+     *
+     * The list is paged, so the screen shows the first 25 and says so. Asking the API for the
+     * default page is what keeps this an assertion about the console rather than about how many
+     * schools the seeds happen to have left behind — comparing the rendered rows against an
+     * unpaged fetch would start failing the moment a 26th school exists, and would report it as
+     * "the console is missing schools".
+     */
+    const firstPage = await vendor<Paged<Listed>>(page, 'schools');
 
     await signInAsPlatform(page);
     await shot(page, '01-schools');
 
     // "Every school" checked against what the API actually holds, rather than against the demo
     // fixtures — which schools happen to be seeded is not this suite's business.
-    const rows = page.getByRole('row').filter({ has: page.getByRole('link') });
-    await expect(rows).toHaveCount(all.length);
+    // Scoped to the body: the column headings are sort links now, so a bare row-with-a-link
+    // filter would count the header row as a school.
+    const rows = page.locator('tbody tr').filter({ has: page.getByRole('link') });
+    await expect(rows).toHaveCount(firstPage.rows.length);
     await expect(page.getByRole('link', { name: school.name })).toBeVisible();
 
     // Cross-tenant by design: the only screen in the product where two schools appear at once,
-    // which is exactly why everything else is fenced.
-    expect(all.length, 'the console is only interesting with more than one school').toBeGreaterThan(
-      1,
-    );
+    // which is exactly why everything else is fenced. The total, not the page — one school on a
+    // second page is still two schools.
+    expect(
+      firstPage.total,
+      'the console is only interesting with more than one school',
+    ).toBeGreaterThan(1);
   });
 
   test('2 · provisions a school by invitation, and the school completes it', async ({ page }) => {

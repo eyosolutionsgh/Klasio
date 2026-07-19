@@ -245,8 +245,11 @@ export default function SchemeActions({
               </label>
             </div>
 
-            <div className="mt-5 overflow-x-auto">
-              <table className="w-full text-sm min-w-[560px]">
+            {/* Four inputs a row will not fit a handset side by side, so below `sm` each band
+                becomes its own labelled card. The 560px floor has to be `sm:` — left
+                unconditional it would push the dialog itself wider than the screen. */}
+            <div className="mt-5 overflow-x-auto table-stack-wrap">
+              <table className="w-full text-sm sm:min-w-[560px] table-stack">
                 <thead>
                   <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist">
                     <th className="py-2 pr-3 font-medium">From</th>
@@ -259,7 +262,7 @@ export default function SchemeActions({
                 <tbody>
                   {bands.map((b, i) => (
                     <tr key={i} className="border-b border-mist/50 last:border-0">
-                      <td className="py-2 pr-3">
+                      <td data-label="From" className="py-2 pr-3">
                         <input
                           required
                           type="number"
@@ -270,7 +273,7 @@ export default function SchemeActions({
                           className={`${field} w-20 tabular`}
                         />
                       </td>
-                      <td className="py-2 pr-3">
+                      <td data-label="To" className="py-2 pr-3">
                         <input
                           required
                           type="number"
@@ -281,7 +284,7 @@ export default function SchemeActions({
                           className={`${field} w-20 tabular`}
                         />
                       </td>
-                      <td className="py-2 pr-3">
+                      <td data-label="Grade" className="py-2 pr-3">
                         <input
                           required
                           value={b.grade}
@@ -290,7 +293,7 @@ export default function SchemeActions({
                           className={`${field} w-20`}
                         />
                       </td>
-                      <td className="py-2 pr-3">
+                      <td data-label="Remark on the report" className="py-2 pr-3">
                         <input
                           value={b.remark}
                           onChange={(e) => setBand(i, { remark: e.target.value })}

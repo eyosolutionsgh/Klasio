@@ -309,8 +309,19 @@ export default function MarksPage() {
         )}
       </div>
 
-      <div className="card mt-3 overflow-x-auto rise rise-3">
-        <table className="w-full text-sm min-w-[640px]">
+      {/*
+        Not paged, on purpose.
+
+        This is one class's column of marks, saved as a single request that replays the whole
+        column — `save` builds `entries` from every row on screen. Paging it would mean a teacher
+        who scrolled to page 2 and let autosave fire submitted only the second half of the class,
+        and the API would take that as the complete answer. The list is bounded by class size, which
+        is the natural limit here; the register is what gets paged, not the marks sheet.
+      */}
+      <div className="card mt-3 overflow-x-auto rise rise-3 table-stack-wrap">
+        {/* The minimum width applies only where the table is still a table — below `sm` the rows
+            are stacked cards and a 640px floor would put the whole page in sideways scroll. */}
+        <table className="w-full text-sm sm:min-w-[640px] table-stack">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
               <th className="px-5 py-3 font-medium">Student</th>
@@ -333,12 +344,18 @@ export default function MarksPage() {
           <tbody>
             {rows.map((r) => (
               <tr key={r.studentId} className="border-b border-mist/60 last:border-0">
-                <td className="px-5 py-2">
+                <td data-label="Student" className="px-5 py-2">
                   <p className="font-medium">{r.name}</p>
                   <p className="text-[11px] text-oat tabular">{r.admissionNo}</p>
                 </td>
                 {components.map((c) => (
-                  <td key={c.id} className="px-3 py-2 text-center">
+                  // The label carries the maximum as well as the name: stacked on a phone the
+                  // column heading that said "/20" is no longer above the box being typed into.
+                  <td
+                    key={c.id}
+                    data-label={`${c.name} /${c.maxScore}`}
+                    className="px-3 py-2 text-center"
+                  >
                     <input
                       type="number"
                       min={0}

@@ -77,8 +77,12 @@ export default function GatewaysPage() {
         </p>
       </div>
 
-      <div className="card mt-6 overflow-x-auto rise rise-2">
-        <table className="w-full text-sm">
+      {/*
+        Unpaged and unsorted on purpose: the table can only ever hold one row per provider and
+        mode, so there is nothing to page through and no order a reader would want to change.
+      */}
+      <div className="card mt-6 overflow-x-auto rise rise-2 table-stack-wrap">
+        <table className="w-full text-sm table-stack">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
               <th className="px-5 py-3 font-medium">Provider</th>
@@ -90,18 +94,25 @@ export default function GatewaysPage() {
           <tbody>
             {gateways.map((g) => (
               <tr key={g.id} className="border-b border-mist/60 last:border-0">
-                <td className="px-5 py-3 font-medium">{g.provider}</td>
-                <td className="px-5 py-3">
+                <td data-label="Provider" className="px-5 py-3 font-medium">
+                  {g.provider}
+                </td>
+                <td data-label="Mode" className="px-5 py-3">
                   <span
                     className={`text-[11px] uppercase tracking-wider rounded-full px-2 py-0.5 ${g.mode === 'LIVE' ? 'bg-leaf/10 text-leaf' : 'bg-parchment text-oat'}`}
                   >
                     {g.mode}
                   </span>
                 </td>
-                <td className="px-5 py-3 text-oat tabular text-xs">
+                <td
+                  data-label="Public key / merchant"
+                  className="px-5 py-3 text-oat tabular text-xs"
+                >
                   {g.publicKey ?? g.merchantNumber ?? '—'}
                 </td>
-                <td className="px-5 py-3 text-oat">{g.hasSecret ? 'stored ✓' : '—'}</td>
+                <td data-label="Secret" className="px-5 py-3 text-oat">
+                  {g.hasSecret ? 'stored ✓' : '—'}
+                </td>
               </tr>
             ))}
             {gateways.length === 0 && (

@@ -2,51 +2,44 @@
 
 import { useRouter } from 'next/navigation';
 import Combobox from './Combobox';
+import DateRangeFilter from './DateRangeFilter';
+import { listHref, one, type ListSearchParams } from '@/lib/list';
 
 /**
- * Level, class, subject and draft/published filters for the resource library. The page is a
- * server component, so changing a filter navigates rather than mutating client state.
+ * Level, class, subject, draft/published and upload-date filters for the resource library. The
+ * page is a server component, so changing a filter navigates rather than mutating client state.
+ *
+ * Every control routes through `listHref`, which preserves the parameters it is not changing and
+ * drops `page`. This used to rebuild the query string from the four filter props it was given,
+ * which meant changing a level while searching threw the search term away — and narrowing a filter
+ * while holding page 3 would land on an empty table that reads as "nothing here".
  */
 export default function ResourceFilters({
-  levelId,
-  classId,
-  subjectId,
-  published,
   levels,
   classes,
   subjects,
   states,
+  params,
 }: {
-  levelId?: string;
-  classId?: string;
-  subjectId?: string;
-  published?: string;
   levels: { id: string; name: string }[];
   classes: { id: string; name: string; level: string }[];
   subjects: { id: string; name: string }[];
   states: { key: string; label: string }[];
+  params: ListSearchParams;
 }) {
   const router = useRouter();
-
-  function go(next: Record<string, string | undefined>) {
-    const merged = { levelId, classId, subjectId, published, ...next };
-    const p = new URLSearchParams();
-    if (merged.levelId) p.set('levelId', merged.levelId);
-    if (merged.classId) p.set('classId', merged.classId);
-    if (merged.subjectId) p.set('subjectId', merged.subjectId);
-    if (merged.published) p.set('published', merged.published);
-    router.push(`/resources?${p}`);
-  }
+  const go = (changes: Record<string, string | undefined>) =>
+    router.push(listHref('/resources', params, changes));
 
   return (
-    <div className="flex flex-wrap gap-3">
+    <div className="flex flex-wrap items-end gap-3">
       <Combobox
         label="Level"
         className="w-full sm:w-48"
         clearLabel="All levels"
         placeholder="Search levels…"
         options={levels.map((l) => ({ value: l.id, label: l.name }))}
-        value={levelId ?? ''}
+        value={one(params.levelId) ?? ''}
         onChange={(v) => go({ levelId: v || undefined })}
       />
       <Combobox
@@ -59,7 +52,7 @@ export default function ResourceFilters({
           label: c.name,
           hint: c.level !== c.name ? c.level : undefined,
         }))}
-        value={classId ?? ''}
+        value={one(params.classId) ?? ''}
         onChange={(v) => go({ classId: v || undefined })}
       />
       <Combobox
@@ -68,7 +61,7 @@ export default function ResourceFilters({
         clearLabel="All subjects"
         placeholder="Search subjects…"
         options={subjects.map((s) => ({ value: s.id, label: s.name }))}
-        value={subjectId ?? ''}
+        value={one(params.subjectId) ?? ''}
         onChange={(v) => go({ subjectId: v || undefined })}
       />
       <Combobox
@@ -77,9 +70,10 @@ export default function ResourceFilters({
         clearLabel="Everything"
         placeholder="Search status…"
         options={states.map((s) => ({ value: s.key, label: s.label }))}
-        value={published ?? ''}
+        value={one(params.published) ?? ''}
         onChange={(v) => go({ published: v || undefined })}
       />
+      <DateRangeFilter base="/resources" params={params} label="Uploaded between" />
     </div>
   );
 }

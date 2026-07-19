@@ -12,10 +12,11 @@ import {
   OnModuleInit,
   Param,
   Post,
+  Query,
   Req,
 } from '@nestjs/common';
-import { IsIn, IsOptional, IsString } from 'class-validator';
-import { GatewayProvider, Prisma, Tier } from '@prisma/client';
+import { IsEnum, IsIn, IsOptional, IsString } from 'class-validator';
+import { GatewayProvider, Prisma, SubscriptionInvoiceStatus, Tier } from '@prisma/client';
 import { PrismaService, withTenant } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, Public, RequirePermission, Roles } from '../common/auth';
 import { publicToken } from '../common/crypto';
@@ -31,9 +32,28 @@ import {
   quoteFor,
   TIER_PRICES,
 } from '../common/pricing';
+import { PageQuery, dateWindow, orderBy, pageArgs, toPage } from '../common/list-query';
 
 /** Hourly: a tier change is due at a date, not a minute. */
 const SWEEP_EVERY_MS = 60 * 60_000;
+
+/**
+ * Sortable columns on the subscription-invoice list, mapped to Prisma paths.
+ *
+ * An allowlist, not a passthrough: `sort` arrives off a query string and is spread into
+ * `orderBy`, so anything unchecked would let a caller order by — and therefore probe — a column
+ * this endpoint never meant to expose.
+ */
+const INVOICE_SORTS: Record<string, string | string[]> = {
+  reference: 'reference',
+  tier: 'tier',
+  amount: 'amount',
+  studentCount: 'studentCount',
+  periodStart: 'periodStart',
+  status: 'status',
+  paidAt: 'paidAt',
+  createdAt: 'createdAt',
+};
 
 /**
  * The school's own subscription to EYO.
@@ -52,6 +72,13 @@ class SubscribeDto {
 
 class ChangeTierDto {
   @IsIn(['BASIC', 'MEDIUM', 'ADVANCED']) tier: Tier;
+}
+
+/** Filters for the subscription-invoice history. `from`/`to` bound the date it was raised. */
+class ListInvoicesDto extends PageQuery {
+  @IsOptional() @IsEnum(SubscriptionInvoiceStatus) status?: SubscriptionInvoiceStatus;
+  /** Resolves the one invoice a gateway return is about; see `invoices`. */
+  @IsOptional() @IsString() reference?: string;
 }
 
 @Injectable()
@@ -461,13 +488,37 @@ export class BillingService {
     };
   }
 
-  async invoices(auth: AuthUser) {
-    const rows = await this.db.subscriptionInvoice.findMany({
-      where: { schoolId: auth.schoolId },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-    });
-    return rows.map((r) => ({
+  /**
+   * What Klasio has charged this school, paged.
+   *
+   * `reference` is a filter rather than a separate endpoint because of the gateway return: the
+   * payer lands back on the billing page with `?ref=…`, and the banner has to resolve that one
+   * invoice. Reading it out of the current page of results only worked while the list was
+   * unpaged — a school with a few years of history would have shown "not confirmed yet" for a
+   * payment that had in fact settled, simply because the invoice sat on page two.
+   */
+  async invoices(auth: AuthUser, q: ListInvoicesDto) {
+    const { skip, take, page, perPage } = pageArgs(q);
+    const issued = dateWindow(q);
+    const where = {
+      schoolId: auth.schoolId,
+      ...(q.status ? { status: q.status } : {}),
+      ...(q.reference ? { reference: q.reference } : {}),
+      // The window filters when the invoice was raised, which is what "charges this year" means.
+      ...(issued ? { createdAt: issued } : {}),
+    };
+    const [total, rows] = await Promise.all([
+      this.db.subscriptionInvoice.count({ where }),
+      this.db.subscriptionInvoice.findMany({
+        where,
+        orderBy: orderBy<Prisma.SubscriptionInvoiceOrderByWithRelationInput>(q, INVOICE_SORTS, {
+          createdAt: 'desc',
+        }),
+        skip,
+        take,
+      }),
+    ]);
+    const mapped = rows.map((r) => ({
       id: r.id,
       reference: r.reference,
       tier: r.tier,
@@ -479,6 +530,7 @@ export class BillingService {
       status: r.status,
       paidAt: r.paidAt,
     }));
+    return toPage(mapped, total, { page, perPage });
   }
 }
 
@@ -494,8 +546,8 @@ export class BillingController {
 
   @Get('invoices')
   @RequirePermission('billing.manage')
-  invoices(@CurrentUser() user: AuthUser) {
-    return this.svc.invoices(user);
+  invoices(@CurrentUser() user: AuthUser, @Query() query: ListInvoicesDto) {
+    return this.svc.invoices(user, query);
   }
 
   /**

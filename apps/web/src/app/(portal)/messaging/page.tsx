@@ -1,22 +1,13 @@
-'use client';
-
-import { useEffect, useState } from 'react';
-import Combobox from '@/components/Combobox';
+import { api, getMe } from '@/lib/api';
+import SmsComposer, { type ClassOpt, type LevelOpt } from '@/components/SmsComposer';
 import SmsTopUp from '@/components/SmsTopUp';
-import { Button, useAsyncAction } from '@/components/Button';
-import { ChoiceCards } from '@/components/ChoiceCards';
-import { SendIcon } from '@/components/icons';
+import MessageFilters from '@/components/MessageFilters';
+import Pagination from '@/components/Pagination';
+import SortHeader from '@/components/SortHeader';
+import { Button } from '@/components/Button';
+import { SearchIcon } from '@/components/icons';
+import { apiQuery, one, type ListSearchParams, type Page } from '@/lib/list';
 
-type Audience = 'ALL' | 'CLASS' | 'LEVEL' | 'CUSTOM';
-interface ClassOpt {
-  id: string;
-  name: string;
-  studentCount: number;
-}
-interface LevelOpt {
-  id: string;
-  name: string;
-}
 interface Balance {
   credits: number;
   senderId: string | null;
@@ -31,73 +22,33 @@ interface Message {
   error: string | null;
   createdAt: string;
 }
+interface Structure {
+  classes: ClassOpt[];
+  levels: LevelOpt[];
+}
 
-export default function MessagingPage() {
-  const [classes, setClasses] = useState<ClassOpt[]>([]);
-  const [levels, setLevels] = useState<LevelOpt[]>([]);
-  const [balance, setBalance] = useState<Balance | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+export default async function MessagingPage({
+  searchParams,
+}: {
+  searchParams: Promise<ListSearchParams>;
+}) {
+  const params = await searchParams;
+  const q = one(params.q);
+  // The log's own filters, plus the paging/sorting/date keys `apiQuery` always forwards.
+  const qs = apiQuery(params, ['status', 'q']);
+
+  const [structure, balance, messages, me] = await Promise.all([
+    api<Structure>('/school/structure'),
+    api<Balance>('/sms/balance'),
+    api<Page<Message>>(`/sms/messages?${qs}`),
+    getMe(),
+  ]);
+
   // Only the head and the owner may record a purchase, so only they are shown the control.
-  const [canTopUp, setCanTopUp] = useState(false);
-
-  const [audience, setAudience] = useState<Audience>('ALL');
-  const [classId, setClassId] = useState('');
-  const [levelId, setLevelId] = useState('');
-  const [recipients, setRecipients] = useState('');
-  const [body, setBody] = useState('');
-  // Failures only — the button reports the send itself, and the balance and log refresh below.
-  const [error, setError] = useState<string | null>(null);
-
-  async function loadMeta() {
-    const [s, b, m, me] = await Promise.all([
-      fetch('/api/proxy/school/structure').then((r) => r.json()),
-      fetch('/api/proxy/sms/balance').then((r) => r.json()),
-      fetch('/api/proxy/sms/messages').then((r) => r.json()),
-      fetch('/api/proxy/me').then((r) => r.json()),
-    ]);
-    setCanTopUp(['OWNER', 'HEAD'].includes(me?.user?.role));
-    const withStudents = s.classes.filter((c: ClassOpt) => c.studentCount > 0);
-    setClasses(withStudents);
-    setLevels(s.levels);
-    if (withStudents[0]) setClassId(withStudents[0].id);
-    if (s.levels[0]) setLevelId(s.levels[0].id);
-    setBalance(b);
-    setMessages(Array.isArray(m) ? m : []);
-  }
-
-  useEffect(() => {
-    loadMeta();
-  }, []);
-
-  const send = useAsyncAction(async () => {
-    setError(null);
-    const res = await fetch('/api/proxy/sms/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        audience,
-        body,
-        classId: audience === 'CLASS' ? classId : undefined,
-        levelId: audience === 'LEVEL' ? levelId : undefined,
-        recipients:
-          audience === 'CUSTOM'
-            ? recipients
-                .split(/[\s,]+/)
-                .map((r) => r.trim())
-                .filter(Boolean)
-            : undefined,
-      }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setError(data.message ?? 'Could not send.');
-      throw new Error('rejected');
-    }
-    setBody('');
-    await loadMeta();
-  });
-
-  const segments = 1 + Math.floor(body.length / 160);
+  const canTopUp = ['OWNER', 'HEAD'].includes(me.user.role);
+  // A class with nobody in it cannot be an audience — offering it only produces "No recipients
+  // matched" after the message has been written.
+  const classes = structure.classes.filter((c) => c.studentCount > 0);
 
   return (
     <div>
@@ -108,125 +59,103 @@ export default function MessagingPage() {
             Bulk SMS to guardians. Pay-as-you-go — one credit per recipient.
           </p>
         </div>
-        {balance && (
-          <div className="card px-5 py-3 text-right">
-            <p className="text-[11px] uppercase tracking-widest text-oat">SMS credits</p>
-            <p className="font-display text-2xl tabular mt-1 text-brand">{balance.credits}</p>
-            <p className="text-[11px] text-oat">
-              Sender {balance.senderId ?? '—'} · {balance.provider}
-            </p>
-          </div>
-        )}
+        <div className="card px-5 py-3 text-right">
+          <p className="text-[11px] uppercase tracking-widest text-oat">SMS credits</p>
+          <p className="font-display text-2xl tabular mt-1 text-brand">{balance.credits}</p>
+          <p className="text-[11px] text-oat">
+            Sender {balance.senderId ?? '—'} · {balance.provider}
+          </p>
+        </div>
       </div>
 
       {canTopUp && (
         <div className="mt-3 flex justify-end">
-          <SmsTopUp onDone={loadMeta} />
+          <SmsTopUp />
         </div>
       )}
 
-      <div className="card p-6 mt-6 rise rise-2 space-y-4">
-        {/* No icons: only "Custom numbers" has an obvious one, and one iconed card in four reads
-            as an error rather than a distinction. */}
-        <ChoiceCards
-          legend="Send it to"
-          name="audience"
-          value={audience}
-          onChange={setAudience}
-          options={[
-            { value: 'ALL', label: 'All guardians' },
-            { value: 'CLASS', label: 'By class' },
-            { value: 'LEVEL', label: 'By level' },
-            { value: 'CUSTOM', label: 'Custom numbers' },
-          ]}
-        />
-
-        {audience === 'CLASS' && (
-          <Combobox
-            label="Class"
-            className="w-full sm:w-64"
-            allowClear={false}
-            placeholder="Search classes…"
-            options={classes.map((c) => ({
-              value: c.id,
-              label: c.name,
-              hint: `${c.studentCount} student${c.studentCount === 1 ? '' : 's'}`,
-            }))}
-            value={classId}
-            onChange={setClassId}
-          />
-        )}
-        {audience === 'LEVEL' && (
-          <Combobox
-            label="Level"
-            className="w-full sm:w-64"
-            allowClear={false}
-            placeholder="Search levels…"
-            options={levels.map((l) => ({ value: l.id, label: l.name }))}
-            value={levelId}
-            onChange={setLevelId}
-          />
-        )}
-        {audience === 'CUSTOM' && (
-          <textarea
-            value={recipients}
-            onChange={(e) => setRecipients(e.target.value)}
-            placeholder="Phone numbers, comma or space separated (e.g. 0241234567, 233201112222)"
-            rows={2}
-            className="w-full rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-brand"
-          />
-        )}
-
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder="Type your message to guardians…"
-          rows={4}
-          className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
-        />
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-          <p className="text-xs text-oat">
-            {body.length} characters · {segments} SMS segment{segments === 1 ? '' : 's'} per
-            recipient
-          </p>
-          <Button onClick={send.run} state={send.state} disabled={!body.trim()} icon={<SendIcon />}>
-            Send SMS
-          </Button>
-        </div>
-        {/* Kept: the button can only say the send failed, not that the school is out of credits. */}
-        {error && (
-          <p role="alert" className="text-sm text-danger">
-            {error}
-          </p>
-        )}
+      <div className="mt-6 rise rise-2">
+        <SmsComposer classes={classes} levels={structure.levels} />
       </div>
 
-      <h2 className="font-display text-xl mt-8 rise rise-3">Recent messages</h2>
-      <div className="card mt-3 overflow-x-auto rise rise-3">
-        <table className="w-full text-sm">
+      <div className="mt-8 rise rise-3 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h2 className="font-display text-xl">Recent messages</h2>
+          <p className="text-sm text-oat mt-1">{messages.total} matching</p>
+        </div>
+        <form className="flex gap-2" action="/messaging" method="get">
+          {/*
+            A GET form submits only its own fields, so every filter not represented here is dropped
+            on search. Carrying them as hidden inputs is what keeps "search within the failures"
+            from silently becoming "search everything". `page` is deliberately not carried — a new
+            search starts at the beginning.
+          */}
+          {(['status', 'sort', 'order', 'from', 'to', 'perPage'] as const).map((k) => {
+            const v = one(params[k]);
+            return v ? <input key={k} type="hidden" name={k} value={v} /> : null;
+          })}
+          <div className="relative min-w-0 flex-1 sm:w-64 sm:flex-none">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+              <SearchIcon />
+            </span>
+            <input
+              type="search"
+              name="q"
+              defaultValue={q}
+              placeholder="Search number or message"
+              className="w-full rounded-lg border border-mist bg-white pl-10 pr-3.5 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+            />
+          </div>
+          <Button type="submit">Search</Button>
+        </form>
+      </div>
+
+      <div className="mt-4 rise rise-3">
+        <MessageFilters params={params} />
+      </div>
+
+      <div className="card mt-4 overflow-x-auto rise rise-3 table-stack-wrap">
+        <table className="w-full text-sm table-stack">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
-              <th className="px-5 py-3 font-medium">To</th>
-              <th className="px-5 py-3 font-medium">Message</th>
-              <th className="px-5 py-3 font-medium">Status</th>
-              <th className="px-5 py-3 font-medium">When</th>
+              <SortHeader column="to" base="/messaging" params={params}>
+                To
+              </SortHeader>
+              {/*
+                Not sortable: alphabetising a broadcast by its own text answers no question, and it
+                would scatter the recipients of one send across the list.
+              */}
+              <th scope="col" className="px-5 py-3 font-medium">
+                Message
+              </th>
+              <SortHeader column="status" base="/messaging" params={params}>
+                Status
+              </SortHeader>
+              <SortHeader column="createdAt" base="/messaging" params={params} defaultOrder="desc">
+                When
+              </SortHeader>
             </tr>
           </thead>
           <tbody>
-            {messages.map((m) => (
+            {messages.rows.map((m) => (
               <tr key={m.id} className="border-b border-mist/60 last:border-0">
-                <td className="px-5 py-2.5 tabular text-oat">{m.to}</td>
-                <td className="px-5 py-2.5 max-w-md truncate" title={m.body}>
+                <td data-label="To" className="px-5 py-2.5 tabular text-oat">
+                  {m.to}
+                </td>
+                <td data-label="Message" className="px-5 py-2.5 max-w-md truncate" title={m.body}>
                   {m.body}
                 </td>
-                <td className="px-5 py-2.5">
+                <td data-label="Status" className="px-5 py-2.5">
                   <span
                     className={`text-[11px] uppercase tracking-wider rounded-full px-2 py-0.5 ${m.status === 'SENT' ? 'bg-brand-mist text-brand' : m.status === 'FAILED' ? 'bg-danger/10 text-danger' : 'bg-parchment text-oat'}`}
                   >
                     {m.status}
                   </span>
                 </td>
-                <td className="px-5 py-2.5 text-oat text-xs tabular whitespace-nowrap">
+                <td
+                  data-label="When"
+                  className="px-5 py-2.5 text-oat text-xs tabular whitespace-nowrap"
+                >
                   {new Date(m.createdAt).toLocaleString('en-GH', {
                     day: 'numeric',
                     month: 'short',
@@ -236,15 +165,16 @@ export default function MessagingPage() {
                 </td>
               </tr>
             ))}
-            {messages.length === 0 && (
+            {messages.rows.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-5 py-10 text-center text-oat">
-                  No messages sent yet.
+                  No messages match. Try a different status, date range or search term.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        <Pagination page={messages} base="/messaging" params={params} label="messages" />
       </div>
     </div>
   );

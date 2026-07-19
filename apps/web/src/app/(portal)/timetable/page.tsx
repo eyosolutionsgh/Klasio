@@ -266,75 +266,116 @@ export default function TimetablePage() {
         </div>
       )}
 
-      <div className="card mt-5 overflow-x-auto rise rise-3">
-        <table className="w-full text-sm min-w-[760px]">
-          <thead>
-            <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
-              <th className="px-5 py-3 font-medium w-40">Period</th>
-              {weekdays.map((d) => (
-                <th key={d.value} className="px-3 py-3 font-medium">
-                  {d.name}
+      <div className="card mt-5 rise rise-3">
+        {/*
+          The week, on a screen wide enough to hold a week.
+
+          Deliberately not `table-stack`: that turns each row into a card, and a row here is one
+          period across five days, so a phone would read "First lesson — Monday: Maths, Tuesday:
+          English…". Nobody asks a timetable that question. The per-day view below is the same data
+          asked the way it is actually used — "what is on, on Tuesday" — so the two are separate
+          renderings rather than one table folded up.
+        */}
+        <div className="hidden overflow-x-auto sm:block">
+          <table className="w-full text-sm min-w-[760px]">
+            <caption className="sr-only">
+              The week for {grid?.scope.name ?? 'this timetable'}, by period and day.
+            </caption>
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist bg-parchment/50">
+                <th scope="col" className="px-5 py-3 font-medium w-40">
+                  Period
                 </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {(grid?.periods ?? []).map((p) => (
-              <tr key={p.id} className="border-b border-mist/60 last:border-0 align-top">
-                <td className="px-5 py-2.5">
-                  <p className="font-medium">{p.name}</p>
-                  <p className="text-[11px] text-oat tabular">
-                    {p.startsAt}–{p.endsAt}
-                  </p>
-                </td>
-                {p.isBreak ? (
-                  // A break runs across the whole week — drawing five empty boxes would invite
-                  // someone to try to teach in one.
-                  <td
-                    colSpan={weekdays.length}
-                    className="px-3 py-2.5 text-[13px] text-oat bg-parchment/40 text-center"
-                  >
-                    Break
-                  </td>
-                ) : (
-                  weekdays.map((d) => {
-                    const slot = byCell.get(`${p.id}:${d.value}`);
-                    const editable = canEdit && view === 'CLASS';
-                    return (
-                      <td key={d.value} className="px-2 py-2">
-                        <button
-                          type="button"
-                          onClick={() => openCell(p, d.value)}
-                          disabled={!editable}
-                          aria-label={`${p.name}, ${d.name}${slot?.subject ? `: ${slot.subject}` : ' — free'}`}
-                          className={`w-full text-left rounded-lg px-3 py-2 min-h-14 transition ${
-                            slot
-                              ? 'bg-brand-mist/60 border border-brand/15'
-                              : 'border border-dashed border-mist'
-                          } ${editable ? 'hover:border-brand cursor-pointer' : 'cursor-default'}`}
-                        >
-                          {slot ? (
-                            <>
-                              <span className="block font-medium leading-tight">
-                                {slot.subject ?? 'Unassigned'}
-                              </span>
-                              <span className="block text-[11px] text-oat mt-0.5">
-                                {view === 'CLASS' ? (slot.teacher ?? 'Unstaffed') : slot.className}
-                                {slot.room ? ` · ${slot.room}` : ''}
-                              </span>
-                            </>
-                          ) : (
-                            <span className="block text-[12px] text-oat/70">Free</span>
-                          )}
-                        </button>
-                      </td>
-                    );
-                  })
-                )}
+                {weekdays.map((d) => (
+                  <th key={d.value} scope="col" className="px-3 py-3 font-medium">
+                    {d.name}
+                  </th>
+                ))}
               </tr>
+            </thead>
+            <tbody>
+              {(grid?.periods ?? []).map((p) => (
+                <tr key={p.id} className="border-b border-mist/60 last:border-0 align-top">
+                  <th scope="row" className="px-5 py-2.5 text-left font-normal">
+                    <p className="font-medium">{p.name}</p>
+                    <p className="text-[11px] text-oat tabular">
+                      {p.startsAt}–{p.endsAt}
+                    </p>
+                  </th>
+                  {p.isBreak ? (
+                    // A break runs across the whole week — drawing five empty boxes would invite
+                    // someone to try to teach in one.
+                    <td
+                      colSpan={weekdays.length}
+                      className="px-3 py-2.5 text-[13px] text-oat bg-parchment/40 text-center"
+                    >
+                      Break
+                    </td>
+                  ) : (
+                    weekdays.map((d) => (
+                      <td key={d.value} className="px-2 py-2">
+                        <LessonCell
+                          period={p}
+                          dayName={d.name}
+                          slot={byCell.get(`${p.id}:${d.value}`)}
+                          view={view}
+                          editable={canEdit && view === 'CLASS'}
+                          onOpen={() => openCell(p, d.value)}
+                        />
+                      </td>
+                    ))
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/*
+          One section per day on a handset.
+
+          A weekly grid squeezed into 375px is either five unreadable columns or a sideways scroll
+          that hides Monday while you read Friday. Reading down a single day is how the timetable is
+          used away from a desk — a teacher checking what is next, a head covering an absence — so
+          the phone gets the day, with the period and its clock time beside every lesson.
+        */}
+        <div className="divide-y divide-mist/60 sm:hidden">
+          {(grid?.periods.length ?? 0) > 0 &&
+            weekdays.map((d) => (
+              <section key={d.value} className="px-4 py-4">
+                <h3 className="text-[11px] uppercase tracking-widest text-oat">{d.name}</h3>
+                <ul className="mt-2.5 space-y-2">
+                  {(grid?.periods ?? []).map((p) => (
+                    <li key={p.id} className="flex items-start gap-3">
+                      <span className="w-20 shrink-0 pt-2">
+                        <span className="block text-[12px] font-medium leading-tight">
+                          {p.name}
+                        </span>
+                        <span className="block text-[11px] text-oat tabular">{p.startsAt}</span>
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        {p.isBreak ? (
+                          <span className="block rounded-lg bg-parchment/60 px-3 py-2 text-[13px] text-oat">
+                            Break
+                          </span>
+                        ) : (
+                          <LessonCell
+                            period={p}
+                            dayName={d.name}
+                            slot={byCell.get(`${p.id}:${d.value}`)}
+                            view={view}
+                            editable={canEdit && view === 'CLASS'}
+                            onOpen={() => openCell(p, d.value)}
+                          />
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             ))}
-          </tbody>
-        </table>
+        </div>
+
         {grid && grid.periods.length === 0 && (
           <div className="px-5 py-8">
             <p className="text-sm text-oat">
@@ -354,5 +395,53 @@ export default function TimetablePage() {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * One timetabled slot, shared by the weekly grid and the per-day phone view.
+ *
+ * Extracted rather than duplicated because the two layouts must stay the same control: the label a
+ * screen reader hears, whether the cell is clickable, and what an empty slot says are all part of
+ * "is this period free", and a phone answering that differently from a desktop is a bug waiting to
+ * happen. Only the arrangement around it differs.
+ */
+function LessonCell({
+  period,
+  dayName,
+  slot,
+  view,
+  editable,
+  onOpen,
+}: {
+  period: Period;
+  dayName: string;
+  slot?: Slot;
+  view: View;
+  editable: boolean;
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      disabled={!editable}
+      aria-label={`${period.name}, ${dayName}${slot?.subject ? `: ${slot.subject}` : ' — free'}`}
+      className={`w-full text-left rounded-lg px-3 py-2 min-h-14 transition ${
+        slot ? 'bg-brand-mist/60 border border-brand/15' : 'border border-dashed border-mist'
+      } ${editable ? 'hover:border-brand cursor-pointer' : 'cursor-default'}`}
+    >
+      {slot ? (
+        <>
+          <span className="block font-medium leading-tight">{slot.subject ?? 'Unassigned'}</span>
+          <span className="block text-[11px] text-oat mt-0.5">
+            {view === 'CLASS' ? (slot.teacher ?? 'Unstaffed') : slot.className}
+            {slot.room ? ` · ${slot.room}` : ''}
+          </span>
+        </>
+      ) : (
+        <span className="block text-[12px] text-oat/70">Free</span>
+      )}
+    </button>
   );
 }
