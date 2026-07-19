@@ -217,6 +217,178 @@ html {
   background: linear-gradient(180deg, var(--color-forest), var(--color-gold));
 }
 
+/* ---- loading skeletons ---- */
+
+/**
+ * The shimmer that marks a placeholder as *waiting* rather than as empty.
+ *
+ * A static grey bar is indistinguishable from a real but blank field, so the movement is the
+ * signal. It rides a background gradient rather than opacity so it reads on the parchment page
+ * as well as on white cards.
+ */
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+.shimmer {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-mist) 0%,
+    rgba(255, 255, 255, 0.85) 50%,
+    var(--color-mist) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+/**
+ * Vestibular safety. A shimmer and the emblem's spin are both motion for its own sake, so anyone
+ * who has asked the OS for less gets a still placeholder — it still reads as "waiting", because
+ * the grey bar is in the shape of the content that has not arrived.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .shimmer {
+    animation: none;
+    background-image: none;
+  }
+  .rise {
+    animation: none;
+  }
+}
+
+/* ---- responsive tables ---- */
+
+/**
+ * A wide table becomes a stack of cards on a phone.
+ *
+ * The portal's tables were all `overflow-x-auto`, which is honest but miserable on a handset: a
+ * bursar checking a balance had to scroll sideways to find out whose balance it was, because the
+ * name column had gone off the left edge. Below `sm` each row becomes its own block and each cell
+ * carries its column heading, so every fact stays next to the thing it describes.
+ *
+ * The mechanism is `data-label` on each `<td>`. A cell with no `data-label` (an actions column,
+ * say) simply renders without a heading, which is what you want for a row of buttons.
+ *
+ * `<thead>` is hidden rather than removed so the accessibility tree keeps the association — and
+ * so the same markup prints as a real table.
+ */
+@media (max-width: 639px) {
+  .table-stack thead {
+    /* clip, not display:none — display:none on a thead detaches the header cells from their
+       columns for a screen reader, and then the per-cell data-label is the only thing left
+       naming them, which sighted-only help is exactly what this is trying to avoid. */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .table-stack,
+  .table-stack tbody,
+  .table-stack tfoot,
+  .table-stack tr,
+  .table-stack td {
+    display: block;
+    width: 100%;
+  }
+
+  .table-stack tr {
+    border: 1px solid var(--color-mist);
+    border-radius: 10px;
+    background: #ffffff;
+    padding: 0.25rem 0;
+    margin-bottom: 0.75rem;
+  }
+  .table-stack tr:last-child {
+    margin-bottom: 0;
+  }
+
+  .table-stack td {
+    display: grid;
+    grid-template-columns: minmax(5.5rem, 38%) 1fr;
+    align-items: baseline;
+    gap: 0.75rem;
+    padding: 0.5rem 0.9rem;
+    border: 0;
+    text-align: left !important;
+  }
+
+  .table-stack td[data-label]::before {
+    content: attr(data-label);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-oat);
+    line-height: 1.5;
+    /* Pin the label to the first row so a multi-line value does not push it down beside its own
+       second line. */
+    grid-row: 1;
+  }
+
+  /**
+   * Every element in a labelled cell belongs in the value column.
+   *
+   * Without this, only the *first* child lands beside the label and the rest wrap round into
+   * column one — a guardian's phone number, on its own second line, appeared underneath the
+   * heading rather than under the name it belongs to. Auto-placement then stacks them down
+   * column two, which is exactly the reading order wanted.
+   */
+  .table-stack td[data-label] > * {
+    grid-column: 2;
+  }
+
+  /* A cell with no heading spans the full width — actions rows and the "nothing here" row. */
+  .table-stack td:not([data-label]) {
+    grid-template-columns: 1fr;
+  }
+
+  /* The empty-state cell should not look like a card of its own. */
+  .table-stack tbody tr:has(> td[colspan]) {
+    border: 0;
+    background: transparent;
+  }
+
+  /**
+   * A footer row is a summary of the table, not another record, so it keeps its card but reads as
+   * a total: label and figure on one line rather than stacked like a field. Without this the
+   * "Compulsory total per student" cell and its amount landed as two separate rows, which looked
+   * like one more fee item rather than the sum of them.
+   */
+  .table-stack tfoot tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    background: var(--color-parchment);
+  }
+  /* Label and figure side by side, not stacked — a footer cell is one fact, not a field. */
+  .table-stack tfoot td {
+    width: auto;
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+  }
+  /* Cells a footer uses only for column alignment carry nothing on a phone. */
+  .table-stack tfoot td:empty {
+    display: none;
+  }
+
+  /* The card already carries the border; the scroll container must not add a second one. */
+  .table-stack-wrap {
+    overflow-x: visible;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+}
+
 /* simple CSS tooltips (docs/07 — tooltips everywhere)
  *
  * The tooltip must be `display: none` while idle, not merely transparent. An absolutely
