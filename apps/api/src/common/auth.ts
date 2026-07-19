@@ -40,6 +40,25 @@ export interface AuthUser {
 }
 
 /**
+ * Values that appear in `.env.example` or as a fallback in this source tree.
+ *
+ * "Set" is not the same as "secret". Standing this repository up the obvious way — copy
+ * `.env.example`, fill in the database URL, deploy — leaves a signing key that is published on
+ * every clone, and a check that only asked whether the variable was populated would wave it
+ * through while giving the impression the question had been asked. The whole point of refusing a
+ * missing key is that the key must be unguessable, and these are the most guessable values there
+ * are.
+ */
+const PUBLISHED_SECRETS = new Set([
+  'change-me-in-production',
+  'dev-secret',
+  'dev-secret-do-not-use-in-prod',
+  'dev-platform-secret-do-not-use-in-prod',
+]);
+
+export const isPublishedSecret = (value: string) => PUBLISHED_SECRETS.has(value.trim());
+
+/**
  * The key every school session is signed with.
  *
  * Refused outright in production rather than falling back, for the same reason
@@ -56,9 +75,14 @@ export interface AuthUser {
  */
 export const jwtSecret = () => {
   const secret = process.env.JWT_SECRET;
-  if (secret) return secret;
+  if (secret && !isPublishedSecret(secret)) return secret;
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('JWT_SECRET must be set — it signs every school session.');
+    throw new Error(
+      secret
+        ? 'JWT_SECRET is still set to the value from .env.example, which is public in this ' +
+            'repository. Generate one: openssl rand -base64 48'
+        : 'JWT_SECRET must be set — it signs every school session.',
+    );
   }
   return 'dev-secret-do-not-use-in-prod';
 };

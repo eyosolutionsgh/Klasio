@@ -59,7 +59,16 @@ test.describe('EYO SMS portal — end-to-end', () => {
     await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
     await page.screenshot({ path: `${SHOTS}/01-login.png`, fullPage: true });
 
-    await page.getByLabel('Email address').fill('bursar@demo.school');
+    /**
+     * A throwaway address, not a demo account.
+     *
+     * Wrong passwords now count towards a lockout, and they count against the address whether or
+     * not it has an account. Failing `bursar@demo.school` here would spend one of that account's
+     * five attempts on every run — and the tests below sign in as the bursar, so a handful of
+     * runs inside the window would start failing them with a 429 that reads, from the browser,
+     * exactly like a broken login page.
+     */
+    await page.getByLabel('Email address').fill('not-a-real-account@demo.school');
     await page.getByRole('textbox', { name: 'Password' }).fill('wrong-password');
     await page.getByRole('button', { name: 'Log in' }).click();
     await expect(page.getByText('That email or password is not right')).toBeVisible();

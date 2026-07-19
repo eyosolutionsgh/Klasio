@@ -32,7 +32,7 @@ import * as jwt from 'jsonwebtoken';
 import * as bcrypt from 'bcryptjs';
 import type { NoticeLevel, Prisma, Tier } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, Public } from '../common/auth';
+import { AuthUser, CurrentUser, Public, isPublishedSecret } from '../common/auth';
 import { publicToken } from '../common/crypto';
 
 /**
@@ -56,9 +56,16 @@ import { publicToken } from '../common/crypto';
  */
 export const platformJwtSecret = () => {
   const secret = process.env.PLATFORM_JWT_SECRET;
-  if (secret) return secret;
+  // Same reasoning as `jwtSecret`: the value from .env.example is public, so being set is not
+  // the same as being secret — and this key carries authority over every school at once.
+  if (secret && !isPublishedSecret(secret)) return secret;
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('PLATFORM_JWT_SECRET must be set — it authenticates EYO across every school.');
+    throw new Error(
+      secret
+        ? 'PLATFORM_JWT_SECRET is still set to the value from .env.example, which is public in ' +
+            'this repository. Generate one: openssl rand -base64 48'
+        : 'PLATFORM_JWT_SECRET must be set — it authenticates EYO across every school.',
+    );
   }
   return 'dev-platform-secret-do-not-use-in-prod';
 };
