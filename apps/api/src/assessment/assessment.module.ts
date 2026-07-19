@@ -61,6 +61,8 @@ class SaveScoresDto {
 class GenerateReportsDto {
   @IsString() classId: string;
   @IsString() termId: string;
+  /** Deliberate consent to rewrite reports guardians have already been shown. */
+  @IsOptional() @IsBoolean() regeneratePublished?: boolean;
 }
 
 class UpdateReportDto {
@@ -520,14 +522,37 @@ export class AssessmentService {
       subjectRanks.set(sub.id, this.rank(entries));
     }
 
-    // overall class position
+    /**
+     * Overall class position.
+     *
+     * Ranked on the **average** across the subjects a student was actually marked in, not on the
+     * raw sum. `weighSubject` is careful never to let an unmarked assessment become a zero, and a
+     * subject with nothing marked is dropped from the report above — but summing what survives
+     * quietly reintroduced that zero at the class-position level. A child whose Maths scores had
+     * not been entered yet was ranked on seven subjects against a class of eight, so the best
+     * student in the year could come out twelfth, and that position went onto the printed report
+     * card and into the parents' portal.
+     *
+     * `cumulative()` below already said as much in its own comment — that a term with nine
+     * subjects and one with six are not comparable on the raw total — and then the position on the
+     * report card was computed the other way.
+     *
+     * The displayed total stays the sum, because that is the figure schools recognise; only the
+     * ranking uses the average.
+     */
     const overall = students
-      .map((st) => ({
-        id: st.id,
-        total: Math.round((perStudent.get(st.id) ?? []).reduce((a, l) => a + l.total, 0) * 10) / 10,
-      }))
-      .sort((a, b) => b.total - a.total);
-    const overallRank = this.rank(overall);
+      .map((st) => {
+        const lines = perStudent.get(st.id) ?? [];
+        const sum = lines.reduce((a, l) => a + l.total, 0);
+        return {
+          id: st.id,
+          total: Math.round(sum * 10) / 10,
+          average: lines.length ? sum / lines.length : 0,
+          subjectsMarked: lines.length,
+        };
+      })
+      .sort((a, b) => b.average - a.average);
+    const overallRank = this.rank(overall.map((o) => ({ id: o.id, total: o.average })));
 
     return {
       classRoom,
@@ -562,6 +587,35 @@ export class AssessmentService {
       if (a.status === 'PRESENT' || a.status === 'LATE') cur.present += a._count;
       attTotals.set(a.studentId, cur);
     }
+
+    /**
+     * Published reports are not silently rewritten.
+     *
+     * Editing a single line of a published report was already refused — "unpublish it before
+     * editing" — while re-running generation for the whole class overwrote every mark, grade and
+     * position on it with no check at all. The guarded path was the harmless one and the
+     * destructive one was wide open: a teacher entering one late score and clicking Generate
+     * rewrote documents parents had already read, leaving only `generatedAt` to show it happened.
+     *
+     * Regenerating is often the right thing to do — a genuine marking error has to be fixable —
+     * so this asks rather than refuses, and records that the school chose it.
+     */
+    const published = await this.db.termReport.findMany({
+      where: {
+        schoolId: auth.schoolId,
+        classId: dto.classId,
+        termId: dto.termId,
+        publishedAt: { not: null },
+      },
+      select: { studentId: true },
+    });
+    if (published.length > 0 && !dto.regeneratePublished) {
+      throw new BadRequestException(
+        `${published.length} of these reports ${published.length === 1 ? 'has' : 'have'} already been published and shared with parents. ` +
+          'Regenerating will replace what they have seen — confirm to go ahead.',
+      );
+    }
+    const publishedIds = new Set(published.map((p) => p.studentId));
 
     let generated = 0;
     for (const st of students) {
@@ -605,6 +659,8 @@ export class AssessmentService {
     await this.db.audit(auth.schoolId, auth.sub, 'reports.generate', 'ClassRoom', dto.classId, {
       termId: dto.termId,
       generated,
+      // Which already-shared documents this run replaced, so the change is answerable later.
+      republished: [...publishedIds],
     });
     return { generated, classSize: students.length };
   }

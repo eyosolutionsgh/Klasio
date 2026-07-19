@@ -5,8 +5,11 @@ import {
   Get,
   Headers,
   Injectable,
+  Logger,
   Module,
   NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
   Post,
   Req,
 } from '@nestjs/common';
@@ -20,6 +23,9 @@ import { PaystackProvider } from '../common/payments/paystack';
 import { HubtelProvider } from '../common/payments/hubtel';
 import { MockProvider, MOCK_SECRET } from '../common/payments/mock';
 import { changeEffect, isEntitled, periodFor, quoteFor, TIER_PRICES } from '../common/pricing';
+
+/** Hourly: a tier change is due at a date, not a minute. */
+const SWEEP_EVERY_MS = 60 * 60_000;
 
 /**
  * The school's own subscription to EYO.
@@ -262,6 +268,59 @@ export class BillingService {
   }
 
   /**
+   * Apply downgrades whose paid period has now ended.
+   *
+   * Two comments in this file named `applyDueChanges` as the thing that did this. It did not
+   * exist — `changeTier` wrote `pendingTier` and `status: CANCELLING`, and nothing ever read them
+   * back. So a school that cancelled in January kept the full ADVANCED feature set forever: the
+   * gates resolve from `school.tier`, `school.tier` was never lowered, and the JWT kept asserting
+   * a tier the school had stopped paying for. `isEntitled` returned false the whole time and
+   * nothing on the request path consulted it.
+   *
+   * Idempotent, so the sweep and the sign-in path can both call it freely.
+   */
+  async applyDueChanges(schoolId?: string) {
+    const due = await this.db.system.subscription.findMany({
+      where: {
+        ...(schoolId ? { schoolId } : {}),
+        pendingTier: { not: null },
+        periodEnd: { lte: new Date() },
+      },
+      select: { id: true, schoolId: true, pendingTier: true, periodEnd: true },
+    });
+
+    let applied = 0;
+    for (const sub of due) {
+      const tier = sub.pendingTier!;
+      await withTenant(sub.schoolId, async () => {
+        await this.db.school.update({ where: { id: sub.schoolId }, data: { tier } });
+        await this.db.subscription.update({
+          where: { id: sub.id },
+          data: {
+            tier,
+            pendingTier: null,
+            // Cancelling was a state of waiting for this moment; it has arrived.
+            status: tier === 'BASIC' ? 'CANCELLED' : 'ACTIVE',
+          },
+        });
+        await this.db.audit(
+          sub.schoolId,
+          'system',
+          'billing.downgrade-applied',
+          'Subscription',
+          sub.id,
+          {
+            tier,
+            dueAt: sub.periodEnd,
+          },
+        );
+      });
+      applied++;
+    }
+    return { applied };
+  }
+
+  /**
    * Ask to move tier without paying — only ever downward.
    *
    * An upgrade needs money and goes through `subscribe`. A downgrade is recorded as an intention
@@ -429,9 +488,42 @@ export class BillingController {
   }
 }
 
+/**
+ * Runs `applyDueChanges` on a timer.
+ *
+ * A plain interval rather than a BullMQ job on purpose: the payment sweep is optional because
+ * webhooks already settle the money, but nothing else lowers a tier, so this cannot be allowed to
+ * depend on a Redis that standalone installs do not run. Sign-in applies a school's own due change
+ * too, so the worst case if the process restarts is that a downgrade lands at the next login.
+ */
+@Injectable()
+export class BillingSweep implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger('BillingSweep');
+  private timer?: NodeJS.Timeout;
+
+  constructor(private svc: BillingService) {}
+
+  onModuleInit() {
+    this.timer = setInterval(() => {
+      void this.svc
+        .applyDueChanges()
+        .then((r) => {
+          if (r.applied > 0) this.logger.log(`applied ${r.applied} due tier change(s)`);
+        })
+        .catch((e) => this.logger.warn(`tier sweep failed: ${e instanceof Error ? e.message : e}`));
+    }, SWEEP_EVERY_MS);
+    // Must not hold the process open on its own.
+    this.timer.unref?.();
+  }
+
+  onModuleDestroy() {
+    if (this.timer) clearInterval(this.timer);
+  }
+}
+
 @Module({
   controllers: [BillingController],
-  providers: [BillingService],
+  providers: [BillingService, BillingSweep],
   exports: [BillingService],
 })
 export class BillingModule {}

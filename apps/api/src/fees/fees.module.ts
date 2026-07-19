@@ -54,6 +54,8 @@ import { SmsModule, SmsService } from '../sms/sms.module';
 import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
 import { receiptPdf } from '../common/pdf';
 import { toCsv, toXlsx, Cell } from '../common/export';
+import { balanceOf } from '../common/ledger';
+import { nextInSequence, refNumber } from '../common/sequences';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
@@ -64,6 +66,11 @@ class RecordPaymentDto {
   @IsOptional() @IsString() note?: string;
   /** Term the money settles. Defaults to the current term; set it to clear an older arrear. */
   @IsOptional() @IsString() termId?: string;
+}
+
+class ReverseDto {
+  /** Required: an unexplained reversal is indistinguishable from someone hiding a payment. */
+  @IsString() @MinLength(4) reason: string;
 }
 
 class ConcessionDto {
@@ -357,18 +364,24 @@ export class FeesService {
 
     const baseLines = compulsory.map((i) => ({ name: i.name, amount: Number(i.amount) }));
     const baseTotal = baseLines.reduce((a, l) => a + l.amount, 0);
-    const count = await this.db.invoice.count({ where: { schoolId: auth.schoolId } });
+    // Claim the whole block of invoice numbers up front. Deriving each from `count + created`
+    // meant two runs for different classes started from the same base and collided on the
+    // invoice's unique number, aborting one of them part-way through.
+    const pending = students.filter((st) => !invoiced.has(st.id));
+    const firstNumber =
+      pending.length > 0
+        ? await nextInSequence(this.db, auth.schoolId, 'INVOICE', pending.length)
+        : 0;
 
     // Concessions are resolved once for the whole run, not per student: sibling rank depends on
     // the family, so it cannot be worked out from a student in isolation.
     const { rules, contextFor } = await this.concessionContext(auth.schoolId);
 
     let created = 0;
-    for (const st of students) {
-      if (invoiced.has(st.id)) continue;
+    for (const st of pending) {
       const lines = [...baseLines, ...(extrasFor.get(st.id) ?? [])];
       const total = lines.reduce((a, l) => a + l.amount, 0);
-      const number = `INV-${refYear()}-${String(count + created + 1).padStart(4, '0')}`;
+      const number = refNumber('INV', firstNumber + created);
       await this.db.invoice.create({
         data: {
           schoolId: auth.schoolId,
@@ -639,6 +652,9 @@ export class FeesService {
         balance: number;
       }
     >();
+    // Group first, then sum: a reversal cancels an entry belonging to the same child, so the
+    // balance has to be derived per student rather than accumulated entry by entry.
+    const rowsFor = new Map<string, typeof entries>();
     for (const e of entries) {
       const cur = byStudent.get(e.studentId) ?? {
         name: `${e.student.firstName} ${e.student.lastName}`,
@@ -647,13 +663,14 @@ export class FeesService {
         phone: e.student.guardians[0]?.guardian.phone ?? null,
         balance: 0,
       };
-      const amt = Number(e.amount);
-      cur.balance += e.type === 'INVOICE' ? amt : e.type === 'REVERSAL' ? 0 : -amt;
       byStudent.set(e.studentId, cur);
+      rowsFor.set(e.studentId, [...(rowsFor.get(e.studentId) ?? []), e]);
     }
+    for (const [studentId, v] of byStudent) v.balance = balanceOf(rowsFor.get(studentId) ?? []);
+
     return [...byStudent.entries()]
       .filter(([, v]) => v.balance > 0.005)
-      .map(([studentId, v]) => ({ studentId, ...v, balance: Math.round(v.balance * 100) / 100 }))
+      .map(([studentId, v]) => ({ studentId, ...v }))
       .sort((a, b) => b.balance - a.balance);
   }
 
@@ -678,6 +695,73 @@ export class FeesService {
   }
 
   /**
+   * Cancel a ledger entry by appending its reversal.
+   *
+   * This is the correction procedure the schema and CLAUDE.md both describe, and until now it
+   * existed only as prose: nothing in the codebase created a REVERSAL, and the readers that
+   * consumed one ignored it. So an invoice raised twice, or a payment recorded against the wrong
+   * child, could not be undone at all — the ledger is append-only, so there was no edit to fall
+   * back on either. A bursar's only recourse was a compensating fake payment, which is exactly the
+   * lie the append-only design exists to prevent.
+   *
+   * Both halves stay in the history. The parent can see the charge and see it cancelled, which is
+   * the point of correcting rather than deleting.
+   */
+  async reverseEntry(auth: AuthUser, entryId: string, dto: ReverseDto) {
+    const entry = await this.db.ledgerEntry.findFirst({
+      where: { id: entryId, schoolId: auth.schoolId },
+    });
+    if (!entry) throw new NotFoundException('Ledger entry not found');
+    if (entry.type === 'REVERSAL') {
+      throw new BadRequestException('A reversal cannot itself be reversed');
+    }
+
+    const already = await this.db.ledgerEntry.findFirst({
+      where: { schoolId: auth.schoolId, type: 'REVERSAL', reversedId: entryId },
+    });
+    if (already) {
+      // Reversing twice would look like it cancelled twice. It does not — balanceOf ignores the
+      // repeat — but saying so plainly beats a silent no-op.
+      throw new BadRequestException('That entry has already been reversed');
+    }
+
+    const seq = await nextInSequence(this.db, auth.schoolId, 'PAYMENT');
+    const reversal = await this.db.ledgerEntry.create({
+      data: {
+        schoolId: auth.schoolId,
+        studentId: entry.studentId,
+        // The reversal belongs to the same term as what it cancels, or the term's collection
+        // figures would never come back into line.
+        termId: entry.termId,
+        type: 'REVERSAL',
+        amount: entry.amount,
+        reference: refNumber('REV', seq),
+        reversedId: entry.id,
+        note: dto.reason,
+        createdById: auth.sub,
+      },
+    });
+
+    await this.db.audit(auth.schoolId, auth.sub, 'fees.reverse', 'LedgerEntry', entry.id, {
+      reversalId: reversal.id,
+      reversedType: entry.type,
+      amount: Number(entry.amount),
+      reason: dto.reason,
+    });
+    return {
+      reversed: true,
+      reversalId: reversal.id,
+      reference: reversal.reference,
+      balance: await this.balanceFor(auth.schoolId, entry.studentId),
+    };
+  }
+
+  /** The student's balance after the ledger changed — so the caller need not re-fetch. */
+  private async balanceFor(schoolId: string, studentId: string) {
+    return balanceOf(await this.db.ledgerEntry.findMany({ where: { schoolId, studentId } }));
+  }
+
+  /**
    * Grant a discount, waiver or scholarship. It is a ledger entry like any other — append-only,
    * carrying its reason — so the reduction shows in the student's history rather than silently
    * shrinking an invoice. Correcting one means a REVERSAL, never an edit.
@@ -697,10 +781,25 @@ export class FeesService {
         });
     if (dto.termId && !term) throw new NotFoundException('Term not found');
 
-    const seq =
-      (await this.db.ledgerEntry.count({
-        where: { schoolId: auth.schoolId, type: { in: ['DISCOUNT', 'WAIVER'] } },
-      })) + 1;
+    /**
+     * A concession can never exceed the bill it discounts.
+     *
+     * common/concessions.ts states this invariant and enforces it for rule-driven discounts; the
+     * manual path validated only that the amount was positive. A bursar typing 13,900 instead of
+     * 1,390 drove the balance to −12,510, and because every arrears view filters on `balance > 0`
+     * the child then vanished from the defaulters list, the reminders and the guardian portal —
+     * a data-entry slip that hides itself.
+     */
+    const owed = await this.balanceFor(auth.schoolId, dto.studentId);
+    if (dto.amount > owed + 0.005) {
+      throw new BadRequestException(
+        owed <= 0.005
+          ? 'This student does not owe anything, so there is nothing to discount'
+          : `That is more than the student owes (${owed.toFixed(2)}). A concession cannot leave the school owing the family money.`,
+      );
+    }
+
+    const seq = await nextInSequence(this.db, auth.schoolId, 'PAYMENT');
     const entry = await this.db.ledgerEntry.create({
       data: {
         schoolId: auth.schoolId,
@@ -708,7 +807,7 @@ export class FeesService {
         termId: term?.id,
         type: dto.type,
         amount: dto.amount,
-        reference: `${dto.type === 'WAIVER' ? 'WVR' : 'DSC'}-${refYear()}-${String(seq).padStart(5, '0')}`,
+        reference: refNumber(dto.type === 'WAIVER' ? 'WVR' : 'DSC', seq),
         note: dto.reason,
         createdById: auth.sub,
       },
@@ -738,10 +837,8 @@ export class FeesService {
           where: { isCurrent: true, academicYear: { schoolId: auth.schoolId, isCurrent: true } },
         });
     if (dto.termId && !term) throw new NotFoundException('Term not found');
-    const paySeq =
-      (await this.db.ledgerEntry.count({ where: { schoolId: auth.schoolId, type: 'PAYMENT' } })) +
-      1;
-    const rcpSeq = (await this.db.receipt.count({ where: { schoolId: auth.schoolId } })) + 1;
+    const paySeq = await nextInSequence(this.db, auth.schoolId, 'PAYMENT');
+    const rcpSeq = await nextInSequence(this.db, auth.schoolId, 'RECEIPT');
     const entry = await this.db.ledgerEntry.create({
       data: {
         schoolId: auth.schoolId,
@@ -750,7 +847,7 @@ export class FeesService {
         type: 'PAYMENT',
         amount: dto.amount,
         method: dto.method,
-        reference: `PAY-${refYear()}-${String(paySeq).padStart(5, '0')}`,
+        reference: refNumber('PAY', paySeq),
         note: dto.note,
         createdById: auth.sub,
       },
@@ -759,7 +856,7 @@ export class FeesService {
       data: {
         schoolId: auth.schoolId,
         ledgerEntryId: entry.id,
-        number: `RCP-${refYear()}-${String(rcpSeq).padStart(5, '0')}`,
+        number: refNumber('RCP', rcpSeq),
       },
     });
     await this.db.audit(auth.schoolId, auth.sub, 'payment.record', 'Student', dto.studentId, {
@@ -884,7 +981,7 @@ export class FeesService {
       return { confirmed: true, alreadyApplied: true, reference: deposit.reference };
     }
 
-    const rcpSeq = (await this.db.receipt.count({ where: { schoolId: auth.schoolId } })) + 1;
+    const rcpSeq = await nextInSequence(this.db, auth.schoolId, 'RECEIPT');
     try {
       const entry = await this.db.ledgerEntry.create({
         data: {
@@ -903,7 +1000,7 @@ export class FeesService {
         data: {
           schoolId: auth.schoolId,
           ledgerEntryId: entry.id,
-          number: `RCP-${refYear()}-${String(rcpSeq).padStart(5, '0')}`,
+          number: refNumber('RCP', rcpSeq),
         },
       });
     } catch (e) {
@@ -979,12 +1076,7 @@ export class FeesService {
         createdAt: { lte: entry.createdAt },
       },
     });
-    const balanceAfter = priorEntries.reduce((acc, e) => {
-      const amt = Number(e.amount);
-      if (e.type === 'INVOICE') return acc + amt;
-      if (e.type === 'REVERSAL') return acc;
-      return acc - amt;
-    }, 0);
+    const balanceAfter = balanceOf(priorEntries);
 
     // A missing/unreadable photo must never block issuing a receipt.
     const studentPhoto = entry.student.photoUrl
@@ -1115,12 +1207,7 @@ export class FeesService {
     const entries = await this.db.ledgerEntry.findMany({
       where: { schoolId: auth.schoolId, studentId },
     });
-    const owed = entries.reduce((acc, e) => {
-      const amt = Number(e.amount);
-      if (e.type === 'INVOICE') return acc + amt;
-      if (e.type === 'REVERSAL') return acc;
-      return acc - amt;
-    }, 0);
+    const owed = balanceOf(entries);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -1698,6 +1785,12 @@ export class FeesController {
   @RequirePermission('fees.record_payment')
   record(@CurrentUser() user: AuthUser, @Body() dto: RecordPaymentDto) {
     return this.svc.recordPayment(user, dto);
+  }
+
+  @Post('ledger/:id/reverse')
+  @RequirePermission('fees.reverse')
+  reverse(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ReverseDto) {
+    return this.svc.reverseEntry(user, id, dto);
   }
 
   @Post('deposits')

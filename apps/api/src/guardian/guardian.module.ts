@@ -27,6 +27,7 @@ import { ResourcesModule, ResourcesService, ResourceScope } from '../resources/r
 import { Public } from '../common/auth';
 import { maskMsisdn, normalizeMsisdn } from '../common/phone';
 import { reportCardPdf, ReportCardData } from '../common/pdf';
+import { balanceOf } from '../common/ledger';
 
 const OTP_TTL_MINUTES = 10;
 const OTP_MAX_ATTEMPTS = 5;
@@ -368,12 +369,7 @@ export class GuardianService {
         _count: true,
       }),
     ]);
-    const balance = ledger.reduce((acc, e) => {
-      const amt = Number(e.amount);
-      if (e.type === 'INVOICE') return acc + amt;
-      if (e.type === 'REVERSAL') return acc;
-      return acc - amt;
-    }, 0);
+    const balance = balanceOf(ledger);
     return {
       student: {
         name: `${student.firstName} ${student.lastName}`,

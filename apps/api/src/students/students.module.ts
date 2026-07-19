@@ -34,6 +34,7 @@ import {
   objectKey,
   storage,
 } from '../common/storage';
+import { balanceOf } from '../common/ledger';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
@@ -180,12 +181,7 @@ export class StudentsService {
         _count: true,
       }),
     ]);
-    const balance = ledger.reduce((acc, e) => {
-      const amt = Number(e.amount);
-      if (e.type === 'INVOICE') return acc + amt;
-      if (e.type === 'REVERSAL') return acc; // reversal handling: paired entries net out via referenced amounts
-      return acc - amt;
-    }, 0);
+    const balance = balanceOf(ledger);
     return {
       id: s.id,
       admissionNo: s.admissionNo,

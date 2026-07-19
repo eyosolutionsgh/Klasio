@@ -23,6 +23,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, Public, RequirePermission } from '../common/auth';
 import { CalendarModule, CalendarService } from '../calendar/calendar.module';
 import { ResourcesModule, ResourcesService, ResourceScope } from '../resources/resources.module';
+import { balanceOf } from '../common/ledger';
 
 const SESSION_DAYS = 30;
 const BCRYPT_ROUNDS = 10;
@@ -152,12 +153,7 @@ export class StudentPortalService {
       this.db.ledgerEntry.findMany({ where: { studentId: auth.sub } }),
     ]);
 
-    const balance = ledger.reduce((acc, e) => {
-      const amt = Number(e.amount);
-      if (e.type === 'INVOICE') return acc + amt;
-      if (e.type === 'REVERSAL') return acc;
-      return acc - amt;
-    }, 0);
+    const balance = balanceOf(ledger);
 
     const terms = await this.db.term.findMany({
       where: { id: { in: reports.map((r) => r.termId) } },

@@ -110,6 +110,13 @@ export const PERMISSIONS = [
     caution: 'Reduces what a family owes.',
   },
   {
+    code: 'fees.reverse',
+    label: 'Reverse a ledger entry',
+    group: 'Money',
+    caution:
+      'Cancels a charge or a recorded payment. Deliberately not held by the person who takes money at the counter.',
+  },
+  {
     code: 'fees.reconcile',
     label: 'Reconcile gateway settlements',
     group: 'Money',
@@ -351,6 +358,7 @@ export const ROLE_PRESETS: RolePreset[] = [
       'fees.structure',
       'fees.invoice',
       'fees.concessions',
+      'fees.reverse',
       'fees.reconcile',
       'fees.deposit_submit',
       'fees.deposits',

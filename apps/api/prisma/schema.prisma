@@ -631,6 +631,23 @@ model LedgerEntry {
   @@index([schoolId, createdAt])
 }
 
+/// Per-school counters for human-facing document numbers (receipts, payments, invoices).
+///
+/// These were each derived from `count(rows) + 1`, which is not a counter: two clerks taking
+/// money at the same moment both read the same total and both claim the same receipt number.
+/// One insert then loses the unique index — and because the whole request runs in one
+/// transaction, the loser's ledger entry is discarded with it. Held here and incremented
+/// atomically, the way `School.admissionNoNext` already is.
+model NumberSequence {
+  id       String @id @default(cuid())
+  schoolId String
+  /// RECEIPT | PAYMENT | INVOICE
+  name     String
+  next     Int    @default(1)
+
+  @@unique([schoolId, name])
+}
+
 model Receipt {
   id            String      @id @default(cuid())
   schoolId      String

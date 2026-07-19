@@ -35,6 +35,8 @@ import { HubtelProvider } from '../common/payments/hubtel';
 import { MockProvider, MOCK_SECRET } from '../common/payments/mock';
 import { hasEntitlement } from '../common/entitlements';
 import { createHmac } from 'crypto';
+import { balanceOf } from '../common/ledger';
+import { nextInSequence, refNumber } from '../common/sequences';
 
 class ConnectGatewayDto {
   @IsIn(['HUBTEL', 'PAYSTACK']) provider: 'HUBTEL' | 'PAYSTACK';
@@ -70,16 +72,6 @@ const METHOD_FOR: Record<PaymentChannel, PaymentMethod> = {
   USSD: 'MOMO',
   CARD: 'CARD',
 };
-
-/**
- * The year a reference carries.
- *
- * Was hardcoded to 2026, which would have printed "RCP-2026-00041" on a receipt issued in
- * January 2027. The sequence itself is global and never resets, so no number can collide — only
- * the label was wrong, which is exactly the kind of thing nobody notices until a parent queries a
- * receipt.
- */
-const refYear = () => new Date().getFullYear();
 
 @Injectable()
 export class PaymentsService {
@@ -137,13 +129,7 @@ export class PaymentsService {
    */
   async outstandingFor(studentId: string): Promise<number> {
     const entries = await this.db.ledgerEntry.findMany({ where: { studentId } });
-    const bal = entries.reduce((acc, e) => {
-      const amt = Number(e.amount);
-      if (e.type === 'INVOICE') return acc + amt;
-      if (e.type === 'REVERSAL') return acc;
-      return acc - amt;
-    }, 0);
-    return Math.round(bal * 100) / 100;
+    return balanceOf(entries);
   }
 
   // ── Gateway credentials ────────────────────────────────────────────
@@ -441,7 +427,7 @@ export class PaymentsService {
       }
 
       const amount = amountPaid != null && amountPaid > 0 ? amountPaid : Number(intent.amount);
-      const rcpSeq = (await this.db.receipt.count({ where: { schoolId: intent.schoolId } })) + 1;
+      const rcpSeq = await nextInSequence(this.db, intent.schoolId, 'RECEIPT');
       try {
         const entry = await this.db.ledgerEntry.create({
           data: {
@@ -460,13 +446,26 @@ export class PaymentsService {
           data: {
             schoolId: intent.schoolId,
             ledgerEntryId: entry.id,
-            number: `RCP-${refYear()}-${String(rcpSeq).padStart(5, '0')}`,
+            number: refNumber('RCP', rcpSeq),
           },
         });
       } catch (e) {
-        // Concurrent callback won the race — the money is already recorded exactly once.
+        // Which constraint fired matters, and treating them alike lost money.
+        //
+        // A duplicate `LedgerEntry.reference` means a concurrent callback for *this* payment won
+        // the race, so the money really is recorded exactly once and there is nothing to do. A
+        // duplicate receipt *number* used to mean something entirely different: two different
+        // children's payments colliding on `count(receipts) + 1`. Reporting that as "already
+        // applied" returned 200 to the gateway, which then never retried — while the whole
+        // request, ledger entry included, had already been rolled back. The payment vanished.
+        //
+        // The counter is now atomic so that collision should not arise, but the catch must not be
+        // the thing that hides it if it ever does.
         if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-          return { applied: false, alreadyApplied: true, reference };
+          const target = String((e.meta as { target?: string[] } | undefined)?.target ?? '');
+          if (target.includes('reference')) {
+            return { applied: false, alreadyApplied: true, reference };
+          }
         }
         throw e;
       }

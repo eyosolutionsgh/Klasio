@@ -12,6 +12,7 @@ import * as bcrypt from 'bcryptjs';
 import { PrismaService, withTenant } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, Public, signToken } from '../common/auth';
 import { entitlementsForTier } from '../common/entitlements';
+import { BillingModule, BillingService } from '../billing/billing.module';
 
 class LoginDto {
   @IsEmail() email: string;
@@ -20,7 +21,10 @@ class LoginDto {
 
 @Injectable()
 export class AuthService {
-  constructor(private db: PrismaService) {}
+  constructor(
+    private db: PrismaService,
+    private billing: BillingService,
+  ) {}
 
   async login(dto: LoginDto) {
     // Sign-in has no tenant yet — an email identifies a person across every school — so this
@@ -33,6 +37,11 @@ export class AuthService {
     if (!ok) throw new UnauthorizedException('Invalid email or password');
     // From here on the school is known, so everything runs inside its tenant scope — the
     // request has no principal yet, so nothing else would put one there.
+    // A scheduled downgrade whose paid period has ended is applied before the tier is read, not
+    // after. The token carries the tier for its whole lifetime, so issuing one from a stale value
+    // would keep a cancelled school on its old plan until that token expired.
+    await this.billing.applyDueChanges(user.schoolId).catch(() => undefined);
+
     return withTenant(user.schoolId, async () => {
       const school = await this.db.school.findUniqueOrThrow({ where: { id: user.schoolId } });
       const payload: AuthUser = {
@@ -106,5 +115,5 @@ export class AuthController {
   }
 }
 
-@Module({ controllers: [AuthController], providers: [AuthService] })
+@Module({ imports: [BillingModule], controllers: [AuthController], providers: [AuthService] })
 export class AuthModule {}
