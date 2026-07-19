@@ -37,19 +37,14 @@ Sizes are 800w and 1400w. The art panel renders around 530 CSS pixels wide and i
 hard on purpose — every one of these sits behind a 65% scrim in `AuthShell`, where compression
 artefacts are invisible.
 
-### `auth/schoolyard-{800,1400}.webp`
-
-- **Source:** https://commons.wikimedia.org/wiki/File:Bright_Junior_High_School.jpg
-- **Photographer:** Wikimedia Commons user "Iphone thirteen"
-- **Licence:** CC0 1.0 (Public Domain Dedication) — no attribution required
-- **Date:** 25 May 2024
-- **Subject:** Bright Junior High School, Boi community, Jirapa District, Upper West Region, Ghana
-- **Changes:** resized, converted to WebP (q42)
-- **Fetched:** 19 July 2026
-
-Used on the staff sign-in, setup and public admissions pages.
+Both files are crops of the **same** photograph, framed differently so the doors are not identical.
+That is deliberate rather than lazy: it was the only openly-licensed picture found that shows a
+West African school with no identifiable children, no livestock and no aid-agency staging in it,
+and two honest views of one good photograph beat a second picture with any of those in it.
 
 ### `auth/courtyard-{800,1400}.webp`
+
+The wider view — covered walkway, benches, paved court.
 
 - **Source:** https://commons.wikimedia.org/wiki/File:A_Classroom_Block_in_Tamale.jpg
 - **Photographer:** Wikimedia Commons user "KBimam 1997"
@@ -58,6 +53,25 @@ Used on the staff sign-in, setup and public admissions pages.
 - **Subject:** Classroom block courtyard, Savannah International Academy, Tamale, Ghana
 - **Changes:** resized, converted to WebP (q70)
 - **Fetched:** 19 July 2026
+
+Used on the guardian, student and password pages.
+
+### `auth/schoolyard-{800,1400}.webp`
+
+The colonnade and the curved block, cropped upright from the same frame at full resolution.
+
+- **Source:** as above — same photograph, different crop
+- **Licence:** CC0 1.0 — no attribution required
+- **Changes:** cropped from the 4608×3456 original, resized, converted to WebP (q70)
+
+Used on the staff sign-in, setup and public admissions pages.
+
+**Previously** this slot held a CC0 photograph of Bright Junior High School, Jirapa
+(https://commons.wikimedia.org/wiki/File:Bright_Junior_High_School.jpg). It was replaced because
+sheep were grazing across the school field in the foreground — correctly licensed and perfectly
+truthful, but not the first impression a school wants to make. Worth knowing if you go looking for
+a replacement: livestock, litter and parked cars disqualify a picture here just as surely as a
+licence problem does.
 
 Used on the guardian, student and password pages.
 
