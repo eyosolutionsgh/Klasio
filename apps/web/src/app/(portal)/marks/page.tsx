@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import Combobox from '@/components/Combobox';
 import OfflineBar from '@/components/OfflineBar';
+import { Button, useAsyncAction, type ActionState } from '@/components/Button';
+import { PlusIcon, SaveIcon } from '@/components/icons';
 import { submitOrQueue } from '@/lib/offline';
 
 interface Component {
@@ -129,6 +131,48 @@ export default function MarksPage() {
     return () => clearTimeout(t);
   }, [dirty, saveState, save]);
 
+  /**
+   * The save button reads its state off `saveState` instead of being driven by `useAsyncAction`.
+   * Autosave saves too, so the lifecycle is not the button's to own — and the hook returns to
+   * idle a couple of seconds after an outcome, which would erase the very "error" state that
+   * stops the timer re-sending a save the server has already refused.
+   */
+  const saveButtonState: ActionState =
+    saveState === 'saving'
+      ? 'pending'
+      : saveState === 'saved'
+        ? 'done'
+        : saveState === 'error'
+          ? 'failed'
+          : 'idle';
+
+  const addComponent = useAsyncAction(async (e: React.FormEvent<HTMLFormElement>) => {
+    const f = new FormData(e.currentTarget);
+    const res = await fetch('/api/proxy/assessment/components', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: String(f.get('name') ?? '').trim(),
+        maxScore: Number(f.get('maxScore')),
+        category: String(f.get('category')),
+        // Scoped to what the teacher is actually marking, unless they widen it.
+        subjectId: f.get('scope') === 'SUBJECT' ? subjectId : undefined,
+      }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      // The server's reason — a clashing name, a bad maximum — is what the teacher has to act
+      // on; the button can only say it did not work.
+      setComponentError(
+        Array.isArray(d.message) ? d.message.join('. ') : (d.message ?? 'Could not add that.'),
+      );
+      throw new Error('component rejected');
+    }
+    setAddingComponent(false);
+    setComponentError('');
+    load();
+  });
+
   return (
     <div>
       <OfflineBar />
@@ -160,35 +204,31 @@ export default function MarksPage() {
           onChange={setSubjectId}
         />
         <div className="ml-auto flex items-center gap-3">
+          {/*
+            Only the "it will save itself in a moment" case is left here. "Saving…" and "All
+            changes saved" are now the button's own wording, and repeating them beside it just
+            gave a screen reader the same news twice.
+          */}
           <p className="text-[13px] text-oat">
-            {saveState === 'saving'
-              ? 'Saving…'
-              : dirty
-                ? 'Saving shortly…'
-                : saveState === 'saved'
-                  ? queued
-                    ? 'Saved on this device'
-                    : 'All changes saved'
-                  : ''}
+            {dirty && saveState !== 'saving' ? 'Saving shortly…' : ''}
           </p>
-          <button
-            onClick={save}
-            disabled={saveState === 'saving' || !dirty}
-            className="rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition disabled:opacity-50"
-          >
-            {saveState === 'saving' ? 'Saving…' : 'Save now'}
-          </button>
+          <Button onClick={save} disabled={!dirty} state={saveButtonState} icon={<SaveIcon />}>
+            Save now
+          </Button>
         </div>
       </div>
 
-      {saveState === 'saved' && (
+      {/*
+        Only the queued case still says anything. A plain "Scores saved." was the button's tick
+        written out again; "saved on this device, not yet on the server" is not, and a teacher
+        about to close the laptop needs to read it.
+      */}
+      {saveState === 'saved' && queued && (
         <p
           role="status"
           className="mt-3 text-sm text-leaf bg-leaf/10 border border-leaf/20 rounded-lg px-3 py-2 rise"
         >
-          {queued
-            ? 'Scores saved on this device — they will sync when the connection returns.'
-            : 'Scores saved.'}
+          Scores saved on this device — they will sync when the connection returns.
         </p>
       )}
       {saveState === 'error' && (
@@ -202,36 +242,7 @@ export default function MarksPage() {
 
       <div className="mt-5 rise rise-3">
         {addingComponent ? (
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              const f = new FormData(e.currentTarget);
-              const res = await fetch('/api/proxy/assessment/components', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  name: String(f.get('name') ?? '').trim(),
-                  maxScore: Number(f.get('maxScore')),
-                  category: String(f.get('category')),
-                  // Scoped to what the teacher is actually marking, unless they widen it.
-                  subjectId: f.get('scope') === 'SUBJECT' ? subjectId : undefined,
-                }),
-              });
-              if (res.ok) {
-                setAddingComponent(false);
-                setComponentError('');
-                load();
-              } else {
-                const d = await res.json().catch(() => ({}));
-                setComponentError(
-                  Array.isArray(d.message)
-                    ? d.message.join('. ')
-                    : (d.message ?? 'Could not add that.'),
-                );
-              }
-            }}
-            className="card p-4 flex flex-wrap items-end gap-3"
-          >
+          <form onSubmit={addComponent.run} className="card p-4 flex flex-wrap items-end gap-3">
             <label className="text-[13px]">
               <span className="block text-oat mb-1">Assessment name</span>
               <input
@@ -275,26 +286,26 @@ export default function MarksPage() {
                 <option value="ALL">Every subject</option>
               </select>
             </label>
-            <button className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
+            <Button type="submit" state={addComponent.state} icon={<PlusIcon />}>
               Add column
-            </button>
-            <button
-              type="button"
-              onClick={() => setAddingComponent(false)}
-              className="min-h-11 px-2 text-[13px] text-oat"
-            >
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setAddingComponent(false)}>
               Cancel
-            </button>
+            </Button>
             {componentError && <p className="w-full text-sm text-danger">{componentError}</p>}
           </form>
         ) : (
-          <button
+          // The leading "+" is now the icon, so it is gone from the label.
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            icon={<PlusIcon />}
             onClick={() => setAddingComponent(true)}
             disabled={!subjectId}
-            className="text-[13px] font-medium text-brand hover:underline underline-offset-2 disabled:opacity-50"
           >
-            + Add an assessment
-          </button>
+            Add an assessment
+          </Button>
         )}
       </div>
 

@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Button, useAsyncAction } from './Button';
+import { SendIcon } from './icons';
 
 /**
  * Reply to a family, inside the open window.
@@ -13,13 +15,10 @@ import { useRouter } from 'next/navigation';
 export default function WhatsAppReply({ id, minutesLeft }: { id: string; minutesLeft: number }) {
   const router = useRouter();
   const [body, setBody] = useState('');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  const send = useAsyncAction(async () => {
     if (!body.trim()) return;
-    setBusy(true);
     setError(null);
     const res = await fetch(`/api/proxy/whatsapp/conversations/${id}/reply`, {
       method: 'POST',
@@ -27,21 +26,22 @@ export default function WhatsAppReply({ id, minutesLeft }: { id: string; minutes
       body: JSON.stringify({ body: body.trim() }),
     });
     const data = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (res.ok) {
-      setBody('');
-      router.refresh();
-    } else {
+    if (!res.ok) {
+      // A shut window is refused in the server's own words — that sentence is the whole point
+      // of the failure, so it survives the button taking over the status.
       setError(
         Array.isArray(data.message)
           ? data.message.join('. ')
           : (data.message ?? 'Could not send that reply.'),
       );
+      throw new Error('rejected');
     }
-  }
+    setBody('');
+    router.refresh();
+  });
 
   return (
-    <form onSubmit={submit}>
+    <form onSubmit={send.run}>
       <label className="block text-[13px]" htmlFor="wa-reply">
         <span className="block text-oat mb-1">Reply</span>
         <textarea
@@ -65,13 +65,16 @@ export default function WhatsAppReply({ id, minutesLeft }: { id: string; minutes
         </p>
       )}
 
-      <button
+      {/* The empty-body disable is validation, not busy state — Button owns the latter only. */}
+      <Button
         type="submit"
-        disabled={busy || !body.trim()}
-        className="mt-3 min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition disabled:opacity-50"
+        state={send.state}
+        icon={<SendIcon />}
+        disabled={!body.trim()}
+        className="mt-3"
       >
-        {busy ? 'Sending…' : 'Send reply'}
-      </button>
+        Send reply
+      </Button>
     </form>
   );
 }

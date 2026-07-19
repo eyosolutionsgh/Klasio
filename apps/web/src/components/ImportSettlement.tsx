@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import FileField from './FileField';
+import { Button, useAsyncAction } from './Button';
+import { UploadIcon } from './icons';
 
 const field =
   'w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
@@ -36,20 +38,17 @@ export default function ImportSettlement({ currency }: { currency: string }) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [provider, setProvider] = useState('HUBTEL');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Summary | null>(null);
 
   const money = (n: number) =>
     `${currency} ${n.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  const importFile = useAsyncAction(async () => {
     if (!file) {
       setError('Choose the settlement file your gateway sent you.');
-      return;
+      throw new Error('no file chosen');
     }
-    setBusy(true);
     setError(null);
     setResult(null);
     const fd = new FormData();
@@ -59,22 +58,21 @@ export default function ImportSettlement({ currency }: { currency: string }) {
       body: fd,
     });
     const body = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (res.ok) {
-      setResult(body);
-      setFile(null);
-      router.refresh();
-    } else {
+    if (!res.ok) {
       setError(
         Array.isArray(body.message)
           ? body.message.join('. ')
           : (body.message ?? 'Could not read that file.'),
       );
+      throw new Error('import rejected');
     }
-  }
+    setResult(body);
+    setFile(null);
+    router.refresh();
+  });
 
   return (
-    <form onSubmit={submit} className="card p-6 h-fit rise rise-3">
+    <form onSubmit={importFile.run} className="card p-6 h-fit rise rise-3">
       <h2 className="font-display text-xl">Import a settlement file</h2>
       <p className="text-xs text-oat mt-1">
         Nothing here credits a student. Importing only compares the gateway&apos;s file with
@@ -105,7 +103,7 @@ export default function ImportSettlement({ currency }: { currency: string }) {
         accept=".csv,text/csv"
         value={file}
         onChange={setFile}
-        disabled={busy}
+        disabled={importFile.state === 'pending'}
         hint="The CSV as downloaded — columns are found by their headings, so the order does not matter. It needs a reference column and an amount column."
       />
 
@@ -115,13 +113,16 @@ export default function ImportSettlement({ currency }: { currency: string }) {
         </p>
       )}
 
-      <button
+      <Button
         type="submit"
-        disabled={busy}
-        className="mt-5 rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2.5 hover:bg-brand-deep transition disabled:opacity-60"
+        state={importFile.state}
+        icon={<UploadIcon />}
+        className="mt-5"
+        // "Import" conjugates itself, but reading the file is what the wait actually is.
+        pendingLabel="Reading…"
       >
-        {busy ? 'Reading…' : 'Import and match'}
-      </button>
+        Import and match
+      </Button>
 
       {result && (
         <div role="status" className="mt-5 pt-5 border-t border-mist/60">

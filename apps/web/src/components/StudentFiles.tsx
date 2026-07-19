@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Button, useAsyncAction } from './Button';
+import { TrashIcon } from './icons';
 
 interface Doc {
   id: string;
@@ -118,12 +120,18 @@ export default function StudentFiles({
     }
   }
 
-  async function removeDoc(id: string) {
-    setConfirming(null);
+  // The confirmation stays open until the request settles — closing it first would unmount the
+  // button before it could report anything, and a failure would leave no trace but the message.
+  const removeDoc = useAsyncAction(async (id: string) => {
+    setError(null);
     const res = await fetch(`/api/proxy/documents/${id}`, { method: 'DELETE' });
-    if (res.ok) load();
-    else setError('Could not remove that document.');
-  }
+    if (!res.ok) {
+      setError('Could not remove that document.');
+      throw new Error('rejected');
+    }
+    setConfirming(null);
+    load();
+  });
 
   function onDrop(e: React.DragEvent) {
     e.preventDefault();
@@ -221,18 +229,18 @@ export default function StudentFiles({
                     child's birth certificate should not be able to delete it. */}
                 {confirming === d.id ? (
                   <span className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => removeDoc(d.id)}
-                      className="rounded-md bg-danger px-2 py-1 text-[12px] font-medium text-white hover:opacity-90"
+                    <Button
+                      onClick={() => removeDoc.run(d.id)}
+                      state={removeDoc.state}
+                      variant="danger"
+                      size="sm"
+                      icon={<TrashIcon />}
                     >
                       Remove
-                    </button>
-                    <button
-                      onClick={() => setConfirming(null)}
-                      className="text-[12px] text-oat hover:text-ink"
-                    >
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setConfirming(null)}>
                       Cancel
-                    </button>
+                    </Button>
                   </span>
                 ) : (
                   <button

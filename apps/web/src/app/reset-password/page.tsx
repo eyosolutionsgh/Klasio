@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import AuthShell from '@/components/AuthShell';
 import { AuthButton, AuthError, AuthField, AuthFieldGroup } from '@/components/AuthField';
+import { Button, useAsyncAction } from '@/components/Button';
+import { KeyIcon, LockIcon, SaveIcon } from '@/components/icons';
 
 /** Matches the API's `@MinLength(8)`, so the form refuses before a round trip does. */
 const MIN_LENGTH = 8;
@@ -26,16 +28,15 @@ function ResetPasswordForm() {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  const submit = useAsyncAction(async () => {
     if (password !== confirm) {
       setError('Those two passwords do not match.');
-      return;
+      // Thrown, not returned: a bare return would settle the button on "Saved!" for a password
+      // that was never sent anywhere.
+      throw new Error('mismatch');
     }
-    setBusy(true);
     setError(null);
     const res = await fetch('/api/password-reset', {
       method: 'POST',
@@ -47,18 +48,19 @@ function ResetPasswordForm() {
       ),
     });
     const data = await res.json().catch(() => ({}));
-    setBusy(false);
     // The API's message is shown as-is: used, superseded and expired all call for different
     // actions, and a single "invalid link" would leave the person guessing which.
-    if (res.ok) setDone(true);
-    else
+    if (!res.ok) {
       setError(
         data.error ??
           (byCode
             ? 'That code is not valid. Ask for a new one.'
             : 'That reset link is not valid. Ask for a new one.'),
       );
-  }
+      throw new Error('rejected');
+    }
+    setDone(true);
+  });
 
   if (!token && !byCode) {
     return (
@@ -89,12 +91,9 @@ function ResetPasswordForm() {
           Your new password is set. Any other device that was signed in has been signed out.
         </p>
         <div className="mt-7">
-          <button
-            onClick={() => router.push('/login')}
-            className="min-h-11 rounded-lg px-10 text-sm font-semibold uppercase tracking-wider text-ink bg-gradient-to-r from-[#00b3b9] to-gold-bright hover:from-[#00c2c8] hover:to-[#00a7ad] transition-all"
-          >
+          <Button variant="accent" className="px-10" onClick={() => router.push('/login')}>
             Sign in
-          </button>
+          </Button>
         </div>
       </AuthShell>
     );
@@ -108,11 +107,12 @@ function ResetPasswordForm() {
           <span className="text-ink">{emailParam}</span>, then choose a new password.
         </p>
       )}
-      <form onSubmit={submit} aria-label="Choose a new password">
+      <form onSubmit={submit.run} aria-label="Choose a new password">
         <AuthFieldGroup>
           {byCode && (
             <AuthField
               label="Six-digit code"
+              icon={<KeyIcon />}
               required
               autoFocus
               inputMode="numeric"
@@ -125,6 +125,7 @@ function ResetPasswordForm() {
           )}
           <AuthField
             label="New password"
+            icon={<LockIcon />}
             revealable
             required
             minLength={MIN_LENGTH}
@@ -136,6 +137,7 @@ function ResetPasswordForm() {
           />
           <AuthField
             label="Confirm new password"
+            icon={<LockIcon />}
             revealable
             required
             minLength={MIN_LENGTH}
@@ -151,7 +153,13 @@ function ResetPasswordForm() {
         {error && <AuthError>{error}</AuthError>}
 
         <div className="mt-7 flex items-center gap-5">
-          <AuthButton busy={busy} busyLabel="Saving…">
+          {/* "Set" is not a conjugated verb, so the working/settled wording is given explicitly. */}
+          <AuthButton
+            state={submit.state}
+            busyLabel="Saving…"
+            doneLabel="Saved!"
+            icon={<SaveIcon />}
+          >
             Set password
           </AuthButton>
           <Link href="/login" className="text-sm text-oat hover:text-brand transition">

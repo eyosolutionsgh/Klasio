@@ -4,6 +4,9 @@ import { useCallback, useEffect, useState } from 'react';
 import DepositQueue from '@/components/DepositQueue';
 import FileField from '@/components/FileField';
 import SendReminders from '@/components/SendReminders';
+import { Button, useAsyncAction } from '@/components/Button';
+import { ChoiceCards } from '@/components/ChoiceCards';
+import { CalendarIcon, CashIcon, UploadIcon } from '@/components/icons';
 
 interface Overview {
   invoiced: number;
@@ -46,7 +49,6 @@ export default function FeesPage() {
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('CASH');
   const [note, setNote] = useState('');
-  const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [depositFor, setDepositFor] = useState<Defaulter | null>(null);
   const [proof, setProof] = useState<File | null>(null);
@@ -88,10 +90,8 @@ export default function FeesPage() {
     load();
   }, [load]);
 
-  async function recordPayment(e: React.FormEvent) {
-    e.preventDefault();
+  const recordPayment = useAsyncAction(async () => {
     if (!payFor) return;
-    setBusy(true);
     const res = await fetch('/api/proxy/fees/payments', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -102,19 +102,46 @@ export default function FeesPage() {
         note: note || undefined,
       }),
     });
-    setBusy(false);
-    if (res.ok) {
-      const body = await res.json();
-      setToast(`Payment recorded — receipt ${body.receiptNumber} for ${body.student}.`);
-      setPayFor(null);
-      setAmount('');
-      setNote('');
-      load();
-    } else {
-      const body = await res.json().catch(() => ({}));
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
       setToast(body.message ?? 'Could not record payment.');
+      // Thrown so the button settles on "Couldn't record" — nothing reached the ledger.
+      throw new Error('payment rejected');
     }
-  }
+    // Kept even though the button says "Recorded!": the receipt number is what the bursar
+    // reads back to the payer, and the button cannot carry it.
+    setToast(`Payment recorded — receipt ${body.receiptNumber} for ${body.student}.`);
+    setPayFor(null);
+    setAmount('');
+    setNote('');
+    load();
+  });
+
+  const submitDeposit = useAsyncAction(async (e: React.FormEvent<HTMLFormElement>) => {
+    if (!depositFor) return;
+    const fd = new FormData(e.currentTarget);
+    fd.append('studentId', depositFor.studentId);
+    const res = await fetch('/api/proxy/fees/deposits', { method: 'POST', body: fd });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      // The server's reason (the 8MB cap, an unreadable file) is the useful half of this.
+      setToast(body.message ?? 'Could not record that deposit.');
+      throw new Error('deposit rejected');
+    }
+    // The reference and the "nothing credited yet" caveat are both news the button cannot give.
+    setToast(
+      `Deposit ${body.reference} recorded — awaiting bursar confirmation. Nothing has been credited yet.`,
+    );
+    setDepositFor(null);
+    load();
+  });
+
+  const copyPayLink = useAsyncAction(async () => {
+    // Clipboard access is absent on insecure origins; without this the button would tick for a
+    // copy that never happened.
+    if (!payLink || !navigator.clipboard) throw new Error('clipboard unavailable');
+    await navigator.clipboard.writeText(payLink.url);
+  });
 
   /** Mint a public pay link the bursar can send to the guardian (guardians have no login). */
   async function createPayLink(d: Defaulter) {
@@ -238,29 +265,42 @@ export default function FeesPage() {
                           {money(d.balance)}
                         </td>
                         <td className="px-6 py-2.5 text-right whitespace-nowrap">
-                          <button
+                          {/*
+                            No `state` on any of these: the three sit once per row, so a single
+                            hook would light every row's button at once. Two only open a dialog,
+                            and the pay link reports through the toast as it always did.
+                          */}
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
                             onClick={() => setDepositFor(d)}
                             data-tip="Record a bank deposit with proof for a bursar to confirm"
-                            className="tip text-[12.5px] font-medium text-brand border border-brand/40 rounded-full px-3 py-1 hover:bg-brand-mist transition mr-1.5"
+                            className="tip mr-1.5"
                           >
                             Bank deposit
-                          </button>
-                          <button
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
                             onClick={() => createPayLink(d)}
                             data-tip="Create a pay-online link to send to the guardian"
-                            className="tip text-[12.5px] font-medium text-brand border border-brand/40 rounded-full px-3 py-1 hover:bg-brand-mist transition mr-1.5"
+                            className="tip mr-1.5"
                           >
                             Pay link
-                          </button>
-                          <button
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
                             onClick={() => {
                               setPayFor(d);
                               setAmount(String(d.balance));
                             }}
-                            className="text-[12.5px] font-medium text-brand border border-brand/40 rounded-full px-3 py-1 hover:bg-brand-mist transition"
                           >
                             Record payment
-                          </button>
+                          </Button>
                         </td>
                       </tr>
                     ))}
@@ -334,28 +374,7 @@ export default function FeesPage() {
           role="dialog"
           aria-modal
         >
-          <form
-            className="card w-full max-w-md p-7 rise"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              const form = e.currentTarget;
-              const fd = new FormData(form);
-              fd.append('studentId', depositFor.studentId);
-              setBusy(true);
-              const res = await fetch('/api/proxy/fees/deposits', { method: 'POST', body: fd });
-              const body = await res.json().catch(() => ({}));
-              setBusy(false);
-              if (res.ok) {
-                setToast(
-                  `Deposit ${body.reference} recorded — awaiting bursar confirmation. Nothing has been credited yet.`,
-                );
-                setDepositFor(null);
-                load();
-              } else {
-                setToast(body.message ?? 'Could not record that deposit.');
-              }
-            }}
-          >
+          <form className="card w-full max-w-md p-7 rise" onSubmit={submitDeposit.run}>
             <div className="accent-rule h-[2px] -mt-7 -mx-7 mb-6 rounded-t-[10px]" />
             <h2 className="font-display text-2xl">Record bank deposit</h2>
             <p className="text-sm text-oat mt-1">
@@ -364,24 +383,34 @@ export default function FeesPage() {
             </p>
 
             <label className="block text-sm font-medium mt-6 mb-1.5">Amount ({currency})</label>
-            <input
-              name="amount"
-              type="number"
-              min="0.01"
-              step="0.01"
-              required
-              defaultValue={depositFor.balance}
-              className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 tabular outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
-            />
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                <CashIcon />
+              </span>
+              <input
+                name="amount"
+                type="number"
+                min="0.01"
+                step="0.01"
+                required
+                defaultValue={depositFor.balance}
+                className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 pl-10 tabular outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+              />
+            </div>
 
             <label className="block text-sm font-medium mt-4 mb-1.5">Date deposited</label>
-            <input
-              name="depositedAt"
-              type="date"
-              required
-              defaultValue={new Date().toISOString().slice(0, 10)}
-              className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand"
-            />
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                <CalendarIcon />
+              </span>
+              <input
+                name="depositedAt"
+                type="date"
+                required
+                defaultValue={new Date().toISOString().slice(0, 10)}
+                className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 pl-10 text-sm outline-none focus:border-brand"
+              />
+            </div>
 
             <div className="grid grid-cols-2 gap-3 mt-4">
               <div>
@@ -410,25 +439,31 @@ export default function FeesPage() {
               accept="image/jpeg,image/png,image/webp,application/pdf"
               value={proof}
               onChange={setProof}
-              disabled={busy}
+              disabled={submitDeposit.state === 'pending'}
               hint="A photo of the teller or the bank's PDF receipt, up to 8MB."
             />
 
             <div className="flex gap-3 mt-7">
-              <button
+              <Button
                 type="button"
+                variant="secondary"
+                className="flex-1"
                 onClick={() => setDepositFor(null)}
-                className="flex-1 rounded-lg border border-mist py-2.5 text-sm hover:border-oat transition"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              {/* "Submit" is not one of the conjugated verbs, so the wording is spelled out. */}
+              <Button
                 type="submit"
-                disabled={busy}
-                className="flex-1 rounded-lg bg-brand text-paper text-sm font-medium py-2.5 hover:bg-brand-deep transition disabled:opacity-60"
+                className="flex-1"
+                state={submitDeposit.state}
+                icon={<UploadIcon />}
+                pendingLabel="Submitting…"
+                doneLabel="Submitted!"
+                failedLabel="Couldn't submit"
               >
-                {busy ? 'Recording…' : 'Submit for confirmation'}
-              </button>
+                Submit for confirmation
+              </Button>
             </div>
           </form>
         </div>
@@ -454,18 +489,25 @@ export default function FeesPage() {
               className="w-full mt-5 rounded-lg border border-mist bg-parchment/50 px-3.5 py-2.5 text-sm tabular outline-none"
             />
             <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => navigator.clipboard?.writeText(payLink.url)}
-                className="flex-1 rounded-lg bg-brand text-paper text-sm font-medium py-2.5 hover:bg-brand-deep transition"
+              <Button
+                type="button"
+                className="flex-1"
+                onClick={copyPayLink.run}
+                state={copyPayLink.state}
+                pendingLabel="Copying…"
+                doneLabel="Copied!"
+                failedLabel="Couldn't copy"
               >
                 Copy link
-              </button>
-              <button
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className="flex-1"
                 onClick={() => setPayLink(null)}
-                className="flex-1 rounded-lg border border-mist py-2.5 text-sm hover:border-oat transition"
               >
                 Done
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -478,7 +520,7 @@ export default function FeesPage() {
           role="dialog"
           aria-modal
         >
-          <form onSubmit={recordPayment} className="card w-full max-w-md p-7 rise">
+          <form onSubmit={recordPayment.run} className="card w-full max-w-md p-7 rise">
             <div className="accent-rule h-[2px] -mt-7 -mx-7 mb-6 rounded-t-[10px]" />
             <h2 className="font-display text-2xl">Record payment</h2>
             <p className="text-sm text-oat mt-1">
@@ -489,34 +531,34 @@ export default function FeesPage() {
             <label className="block text-sm font-medium mt-6 mb-1.5" htmlFor="amount">
               Amount ({currency})
             </label>
-            <input
-              id="amount"
-              type="number"
-              min="0.01"
-              step="0.01"
-              required
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 tabular outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
-            />
-
-            <label className="block text-sm font-medium mt-4 mb-1.5">Payment method</label>
-            <div className="grid grid-cols-3 gap-2">
-              {['CASH', 'MOMO', 'BANK'].map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setMethod(m)}
-                  className={`rounded-lg border px-3 py-2 text-sm transition ${
-                    method === m
-                      ? 'bg-brand text-paper border-brand'
-                      : 'border-mist bg-white hover:border-brand'
-                  }`}
-                >
-                  {METHOD_LABEL[m]}
-                </button>
-              ))}
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                <CashIcon />
+              </span>
+              <input
+                id="amount"
+                type="number"
+                min="0.01"
+                step="0.01"
+                required
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 pl-10 tabular outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+              />
             </div>
+
+            {/*
+              No icons on the cards: only "Cash" has an obvious one, and a set where two of three
+              options carry a glyph reads as a rendering fault rather than a distinction.
+            */}
+            <ChoiceCards
+              className="mt-4"
+              legend="Payment method"
+              name="method"
+              value={method}
+              onChange={setMethod}
+              options={['CASH', 'MOMO', 'BANK'].map((m) => ({ value: m, label: METHOD_LABEL[m] }))}
+            />
 
             <label className="block text-sm font-medium mt-4 mb-1.5" htmlFor="note">
               Note <span className="text-oat font-normal">(optional)</span>
@@ -530,20 +572,22 @@ export default function FeesPage() {
             />
 
             <div className="flex gap-3 mt-7">
-              <button
+              <Button
                 type="button"
+                variant="secondary"
+                className="flex-1"
                 onClick={() => setPayFor(null)}
-                className="flex-1 rounded-lg border border-mist py-2.5 text-sm hover:border-oat transition"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="submit"
-                disabled={busy}
-                className="flex-1 rounded-lg bg-brand text-paper text-sm font-medium py-2.5 hover:bg-brand-deep transition disabled:opacity-60"
+                className="flex-1"
+                state={recordPayment.state}
+                icon={<CashIcon />}
               >
-                {busy ? 'Recording…' : 'Record & issue receipt'}
-              </button>
+                Record &amp; issue receipt
+              </Button>
             </div>
           </form>
         </div>

@@ -5,6 +5,9 @@ import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import Combobox from './Combobox';
 import DownloadButton from './DownloadButton';
+import { Button, useAsyncAction } from './Button';
+import { ChoiceCards } from './ChoiceCards';
+import { CalendarIcon, UserIcon } from './icons';
 
 const field =
   'w-full min-h-11 rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
@@ -44,7 +47,6 @@ export default function ApplicantActions({
   classes: { id: string; name: string; studentCount: number }[];
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [enrolling, setEnrolling] = useState(false);
   const [classId, setClassId] = useState('');
@@ -53,8 +55,9 @@ export default function ApplicantActions({
 
   useEffect(() => setMounted(true), []);
 
+  // Throws rather than returning null: the callers below are wrapped in `useAsyncAction`, which
+  // reads a rejection as the failed outcome — a resolved promise would show a tick for a refusal.
   async function post(path: string, body: Record<string, unknown>) {
-    setBusy(true);
     setError(null);
     const res = await fetch(`/api/proxy/admissions/${applicant.id}/${path}`, {
       method: 'POST',
@@ -62,23 +65,23 @@ export default function ApplicantActions({
       body: JSON.stringify(body),
     });
     const data = await res.json().catch(() => ({}));
-    setBusy(false);
     if (!res.ok) {
       setError(
         Array.isArray(data.message) ? data.message.join('. ') : (data.message ?? 'Did not save.'),
       );
-      return null;
+      throw new Error('rejected');
     }
     return data;
   }
 
-  async function move(stage: string) {
+  const move = useAsyncAction(async (stage: string) => {
     if (!stage) return;
-    if ((await post('stage', { stage })) !== null) router.refresh();
-  }
+    await post('stage', { stage });
+    router.refresh();
+  });
 
-  async function enrol(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  const enrol = useAsyncAction(async (e: React.FormEvent<HTMLFormElement>) => {
+    // Read synchronously: `currentTarget` is gone by the time the request resolves.
     const f = new FormData(e.currentTarget);
     const data = await post('convert', {
       classId,
@@ -87,12 +90,13 @@ export default function ApplicantActions({
         : String(f.get('dateOfBirth') ?? '') || undefined,
       gender: applicant.gender ? undefined : gender || undefined,
     });
-    if (data) {
-      setEnrolling(false);
-      router.push(`/students/${data.studentId}`);
-      router.refresh();
-    }
-  }
+    setEnrolling(false);
+    router.push(`/students/${data.studentId}`);
+    router.refresh();
+  });
+
+  // The stage picker stayed disabled for the whole of either request before; it still does.
+  const busy = move.state === 'pending' || enrol.state === 'pending';
 
   const canEnrol = applicant.stage === 'ACCEPTED' && !applicant.studentId;
   const hasLetter = ['OFFERED', 'ACCEPTED', 'ENROLLED'].includes(applicant.stage);
@@ -111,17 +115,14 @@ export default function ApplicantActions({
           }))}
           value=""
           disabled={busy}
-          onChange={move}
+          onChange={move.run}
         />
       )}
 
       {canEnrol && (
-        <button
-          onClick={() => setEnrolling(true)}
-          className="self-end min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition"
-        >
+        <Button onClick={() => setEnrolling(true)} icon={<UserIcon />} className="self-end">
           Enrol
-        </button>
+        </Button>
       )}
 
       {applicant.studentId && (
@@ -160,7 +161,7 @@ export default function ApplicantActions({
             onClick={(e) => e.target === e.currentTarget && setEnrolling(false)}
           >
             <form
-              onSubmit={enrol}
+              onSubmit={enrol.run}
               className="card w-full max-w-md p-6"
               onKeyDown={(e) => e.key === 'Escape' && setEnrolling(false)}
             >
@@ -188,52 +189,47 @@ export default function ApplicantActions({
                 {!applicant.dateOfBirth && (
                   <label className="block text-[13px]">
                     <span className="block text-oat mb-1">Date of birth</span>
-                    <input name="dateOfBirth" type="date" required className={field} />
+                    <div className="relative">
+                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                        <CalendarIcon />
+                      </span>
+                      <input name="dateOfBirth" type="date" required className={`${field} pl-10`} />
+                    </div>
                   </label>
                 )}
                 {!applicant.gender && (
-                  <fieldset className="text-[13px]">
-                    <legend className="block text-oat mb-1">Gender</legend>
-                    <div className="flex gap-2">
-                      {[
-                        { v: 'FEMALE', l: 'Female' },
-                        { v: 'MALE', l: 'Male' },
-                      ].map((g) => (
-                        <button
-                          key={g.v}
-                          type="button"
-                          onClick={() => setGender(g.v)}
-                          aria-pressed={gender === g.v}
-                          className={`flex-1 min-h-11 rounded-lg border text-sm transition ${
-                            gender === g.v
-                              ? 'bg-brand text-paper border-brand'
-                              : 'border-mist bg-white hover:border-brand'
-                          }`}
-                        >
-                          {g.l}
-                        </button>
-                      ))}
-                    </div>
-                  </fieldset>
+                  <ChoiceCards
+                    className="text-[13px]"
+                    legend="Gender"
+                    name="gender"
+                    value={gender}
+                    onChange={setGender}
+                    options={[
+                      { value: 'FEMALE', label: 'Female' },
+                      { value: 'MALE', label: 'Male' },
+                    ]}
+                  />
                 )}
               </div>
 
               {error && <p className="text-sm text-danger mt-4">{error}</p>}
 
               <div className="flex items-center gap-3 mt-6">
-                <button
-                  disabled={busy || !classId || (!applicant.gender && !gender)}
-                  className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition disabled:opacity-50"
+                {/* "Enrol" is not one of the conjugated verbs, so its wording is spelled out. */}
+                <Button
+                  type="submit"
+                  state={enrol.state}
+                  disabled={!classId || (!applicant.gender && !gender)}
+                  icon={<UserIcon />}
+                  pendingLabel="Enrolling…"
+                  doneLabel="Enrolled!"
+                  failedLabel="Couldn't enrol"
                 >
-                  {busy ? 'Enrolling…' : 'Enrol student'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEnrolling(false)}
-                  className="min-h-11 px-3 text-[13px] text-oat hover:text-brand transition"
-                >
+                  Enrol student
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => setEnrolling(false)}>
                   Cancel
-                </button>
+                </Button>
               </div>
             </form>
           </div>,

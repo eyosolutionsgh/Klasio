@@ -1,6 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { Button, useAsyncAction } from '@/components/Button';
+import { PlusIcon, SaveIcon } from '@/components/icons';
 
 interface FieldDef {
   id: string;
@@ -106,6 +108,110 @@ export default function RecordsSettingsPage() {
     return true;
   }
 
+  // `send` reports a rejection by returning false and parking the server's reason in `message`;
+  // the button only learns of it if we throw, so every action re-raises that false.
+  const saveField = useAsyncAction(async () => {
+    if (!editField) return;
+    const ok = await send(
+      `records/fields/${editField.id}`,
+      {
+        label: editField.label.trim(),
+        kind: editField.kind,
+        // Only meaningful for CHOICE; the API drops them for other kinds.
+        options: editField.options,
+        levelId: editField.levelId ?? '',
+        required: editField.required,
+      },
+      'PATCH',
+    );
+    if (!ok) throw new Error('rejected');
+    setEditField(null);
+  });
+
+  const addField = useAsyncAction(async (e: FormEvent<HTMLFormElement>) => {
+    const form = e.currentTarget;
+    const f = new FormData(form);
+    const levelId = String(f.get('levelId') ?? '');
+    const options = String(f.get('options') ?? '')
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean);
+    const ok = await send('records/fields', {
+      label: String(f.get('label') ?? '').trim(),
+      kind,
+      required: f.get('required') === 'on',
+      // Omitted rather than sent empty — the API reads absent as "every level".
+      ...(levelId ? { levelId } : {}),
+      ...(kind === 'CHOICE' ? { options } : {}),
+    });
+    if (!ok) throw new Error('rejected');
+    form.reset();
+    setKind('TEXT');
+  });
+
+  const saveReq = useAsyncAction(async () => {
+    if (!editReq) return;
+    const ok = await send(
+      `records/requirements/${editReq.id}`,
+      {
+        label: editReq.label.trim(),
+        kind: editReq.kind,
+        levelId: editReq.levelId ?? '',
+        required: editReq.required,
+      },
+      'PATCH',
+    );
+    if (!ok) throw new Error('rejected');
+    setEditReq(null);
+  });
+
+  const addReq = useAsyncAction(async (e: FormEvent<HTMLFormElement>) => {
+    const form = e.currentTarget;
+    const f = new FormData(form);
+    const levelId = String(f.get('levelId') ?? '');
+    const ok = await send('records/requirements', {
+      label: String(f.get('label') ?? '').trim(),
+      kind: String(f.get('kind') ?? 'OTHER'),
+      required: f.get('required') === 'on',
+      ...(levelId ? { levelId } : {}),
+    });
+    if (!ok) throw new Error('rejected');
+    form.reset();
+  });
+
+  const saveRemark = useAsyncAction(async () => {
+    if (!editRemark) return;
+    const ok = await send(
+      `remarks/${editRemark.id}`,
+      {
+        kind: editRemark.kind,
+        text: editRemark.text.trim(),
+        // Null clears the bound — "suits any score", not 0.
+        minScore: editRemark.minScore,
+        maxScore: editRemark.maxScore,
+      },
+      'PATCH',
+    );
+    if (!ok) throw new Error('rejected');
+    setEditRemark(null);
+  });
+
+  const addRemark = useAsyncAction(async (e: FormEvent<HTMLFormElement>) => {
+    const form = e.currentTarget;
+    const f = new FormData(form);
+    const min = String(f.get('minScore') ?? '');
+    const max = String(f.get('maxScore') ?? '');
+    const ok = await send('remarks', {
+      kind: String(f.get('kind') ?? 'TEACHER'),
+      text: String(f.get('text') ?? '').trim(),
+      // Sent only when typed — an empty band means "suits any score", not 0–0.
+      ...(min ? { minScore: Number(min) } : {}),
+      ...(max ? { maxScore: Number(max) } : {}),
+    });
+    if (!ok) throw new Error('rejected');
+    form.reset();
+  });
+
   const scopeLabel = (levelId: string | null) =>
     levelId ? (levels.find((l) => l.id === levelId)?.name ?? 'one level') : 'Every level';
 
@@ -148,25 +254,7 @@ export default function RecordsSettingsPage() {
                 editField?.id === f.id ? (
                   <tr key={f.id} className="border-b border-mist/50 last:border-0 bg-parchment/40">
                     <td colSpan={5} className="py-3">
-                      <form
-                        className="flex flex-wrap items-end gap-2"
-                        onSubmit={async (e) => {
-                          e.preventDefault();
-                          const ok = await send(
-                            `records/fields/${editField.id}`,
-                            {
-                              label: editField.label.trim(),
-                              kind: editField.kind,
-                              // Only meaningful for CHOICE; the API drops them for other kinds.
-                              options: editField.options,
-                              levelId: editField.levelId ?? '',
-                              required: editField.required,
-                            },
-                            'PATCH',
-                          );
-                          if (ok) setEditField(null);
-                        }}
-                      >
+                      <form className="flex flex-wrap items-end gap-2" onSubmit={saveField.run}>
                         <label className="text-[13px]">
                           <span className="block text-oat mb-1">Field name</span>
                           <input
@@ -243,16 +331,12 @@ export default function RecordsSettingsPage() {
                           />
                           <span>Required</span>
                         </label>
-                        <button className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
+                        <Button type="submit" state={saveField.state} icon={<SaveIcon />}>
                           Save field
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditField(null)}
-                          className="min-h-11 px-2 text-[13px] text-oat hover:text-brand transition"
-                        >
+                        </Button>
+                        <Button type="button" variant="ghost" onClick={() => setEditField(null)}>
                           Cancel
-                        </button>
+                        </Button>
                         <p className="w-full text-[11px] text-oat">
                           Correcting the name or the level keeps everything already recorded in this
                           field.{' '}
@@ -311,28 +395,7 @@ export default function RecordsSettingsPage() {
         </div>
         <form
           className="flex flex-wrap items-end gap-2 mt-4 pt-4 border-t border-mist/60"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            const form = e.currentTarget;
-            const f = new FormData(form);
-            const levelId = String(f.get('levelId') ?? '');
-            const options = String(f.get('options') ?? '')
-              .split(',')
-              .map((o) => o.trim())
-              .filter(Boolean);
-            const ok = await send('records/fields', {
-              label: String(f.get('label') ?? '').trim(),
-              kind,
-              required: f.get('required') === 'on',
-              // Omitted rather than sent empty — the API reads absent as "every level".
-              ...(levelId ? { levelId } : {}),
-              ...(kind === 'CHOICE' ? { options } : {}),
-            });
-            if (ok) {
-              form.reset();
-              setKind('TEXT');
-            }
-          }}
+          onSubmit={addField.run}
         >
           <label className="text-[13px]">
             <span className="block text-oat mb-1">Field name</span>
@@ -384,9 +447,9 @@ export default function RecordsSettingsPage() {
             <input type="checkbox" name="required" className="accent-brand" />
             <span>Required</span>
           </label>
-          <button className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
+          <Button type="submit" state={addField.state} icon={<PlusIcon />}>
             Add field
-          </button>
+          </Button>
         </form>
       </section>
 
@@ -413,23 +476,7 @@ export default function RecordsSettingsPage() {
                 editReq?.id === r.id ? (
                   <tr key={r.id} className="border-b border-mist/50 last:border-0 bg-parchment/40">
                     <td colSpan={5} className="py-3">
-                      <form
-                        className="flex flex-wrap items-end gap-2"
-                        onSubmit={async (e) => {
-                          e.preventDefault();
-                          const ok = await send(
-                            `records/requirements/${editReq.id}`,
-                            {
-                              label: editReq.label.trim(),
-                              kind: editReq.kind,
-                              levelId: editReq.levelId ?? '',
-                              required: editReq.required,
-                            },
-                            'PATCH',
-                          );
-                          if (ok) setEditReq(null);
-                        }}
-                      >
+                      <form className="flex flex-wrap items-end gap-2" onSubmit={saveReq.run}>
                         <label className="text-[13px]">
                           <span className="block text-oat mb-1">Document name</span>
                           <input
@@ -479,16 +526,12 @@ export default function RecordsSettingsPage() {
                           />
                           <span>Required</span>
                         </label>
-                        <button className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
+                        <Button type="submit" state={saveReq.state} icon={<SaveIcon />}>
                           Save document
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditReq(null)}
-                          className="min-h-11 px-2 text-[13px] text-oat hover:text-brand transition"
-                        >
+                        </Button>
+                        <Button type="button" variant="ghost" onClick={() => setEditReq(null)}>
                           Cancel
-                        </button>
+                        </Button>
                         <p className="w-full text-[11px] text-oat">
                           Nothing already uploaded is touched. Changing the kind changes which
                           uploads count towards this requirement, so a child who was ticked off may
@@ -537,19 +580,7 @@ export default function RecordsSettingsPage() {
         </div>
         <form
           className="flex flex-wrap items-end gap-2 mt-4 pt-4 border-t border-mist/60"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            const form = e.currentTarget;
-            const f = new FormData(form);
-            const levelId = String(f.get('levelId') ?? '');
-            const ok = await send('records/requirements', {
-              label: String(f.get('label') ?? '').trim(),
-              kind: String(f.get('kind') ?? 'OTHER'),
-              required: f.get('required') === 'on',
-              ...(levelId ? { levelId } : {}),
-            });
-            if (ok) form.reset();
-          }}
+          onSubmit={addReq.run}
         >
           <label className="text-[13px]">
             <span className="block text-oat mb-1">Document name</span>
@@ -585,9 +616,9 @@ export default function RecordsSettingsPage() {
             <input type="checkbox" name="required" defaultChecked className="accent-brand" />
             <span>Required</span>
           </label>
-          <button className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
+          <Button type="submit" state={addReq.state} icon={<PlusIcon />}>
             Add document
-          </button>
+          </Button>
         </form>
       </section>
 
@@ -610,21 +641,7 @@ export default function RecordsSettingsPage() {
                       <li key={r.id}>
                         <form
                           className="flex flex-wrap items-end gap-2 rounded-lg bg-parchment/50 p-3"
-                          onSubmit={async (e) => {
-                            e.preventDefault();
-                            const ok = await send(
-                              `remarks/${editRemark.id}`,
-                              {
-                                kind: editRemark.kind,
-                                text: editRemark.text.trim(),
-                                // Null clears the bound — "suits any score", not 0.
-                                minScore: editRemark.minScore,
-                                maxScore: editRemark.maxScore,
-                              },
-                              'PATCH',
-                            );
-                            if (ok) setEditRemark(null);
-                          }}
+                          onSubmit={saveRemark.run}
                         >
                           <label className="text-[13px]">
                             <span className="block text-oat mb-1">For</span>
@@ -691,16 +708,12 @@ export default function RecordsSettingsPage() {
                               className={`${field} w-full min-h-11`}
                             />
                           </label>
-                          <button className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
+                          <Button type="submit" state={saveRemark.state} icon={<SaveIcon />}>
                             Save remark
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditRemark(null)}
-                            className="min-h-11 px-2 text-[13px] text-oat hover:text-brand transition"
-                          >
+                          </Button>
+                          <Button type="button" variant="ghost" onClick={() => setEditRemark(null)}>
                             Cancel
-                          </button>
+                          </Button>
                           <p className="w-full text-[11px] text-oat">
                             Reports already written keep the wording they were saved with — this
                             changes what is offered from here on. Leave a bound empty to open that
@@ -744,24 +757,7 @@ export default function RecordsSettingsPage() {
           {remarks.length === 0 && <p className="text-xs text-oat">No remarks banked yet.</p>}
         </div>
 
-        <form
-          className="mt-5 pt-5 border-t border-mist/60 space-y-3"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            const form = e.currentTarget;
-            const f = new FormData(form);
-            const min = String(f.get('minScore') ?? '');
-            const max = String(f.get('maxScore') ?? '');
-            const ok = await send('remarks', {
-              kind: String(f.get('kind') ?? 'TEACHER'),
-              text: String(f.get('text') ?? '').trim(),
-              // Sent only when typed — an empty band means "suits any score", not 0–0.
-              ...(min ? { minScore: Number(min) } : {}),
-              ...(max ? { maxScore: Number(max) } : {}),
-            });
-            if (ok) form.reset();
-          }}
-        >
+        <form className="mt-5 pt-5 border-t border-mist/60 space-y-3" onSubmit={addRemark.run}>
           <h3 className="font-medium text-sm">Add a remark</h3>
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-[13px]">
@@ -807,9 +803,9 @@ export default function RecordsSettingsPage() {
               className={`${field} w-full`}
             />
           </label>
-          <button className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
+          <Button type="submit" state={addRemark.state} icon={<PlusIcon />}>
             Add remark
-          </button>
+          </Button>
         </form>
       </section>
     </div>

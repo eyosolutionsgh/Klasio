@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import FileField from './FileField';
+import { Button, useAsyncAction } from './Button';
+import { UploadIcon } from './icons';
 
 const field =
   'w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
@@ -42,16 +44,15 @@ export default function UploadResource({
   const [levelId, setLevelId] = useState('');
   const [classId, setClassId] = useState('');
   const [subjectId, setSubjectId] = useState('');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  const upload = useAsyncAction(async () => {
     if (!file) {
       setError('Choose a file to upload.');
-      return;
+      // Throw so the button settles on "Couldn't upload" rather than a tick for a file we
+      // never sent.
+      throw new Error('no file');
     }
-    setBusy(true);
     setError(null);
     const fd = new FormData();
     fd.append('file', file);
@@ -61,23 +62,24 @@ export default function UploadResource({
     if (classId) fd.append('classId', classId);
     if (subjectId) fd.append('subjectId', subjectId);
     const res = await fetch('/api/proxy/resources', { method: 'POST', body: fd });
-    setBusy(false);
-    if (res.ok) {
-      setTitle('');
-      setDescription('');
-      setClassId('');
-      setSubjectId('');
-      setLevelId('');
-      setFile(null);
-      router.refresh();
-    } else {
+    if (!res.ok) {
       const b = await res.json().catch(() => ({}));
+      // The server's reason is the useful half — the size limit, the rejected type — so it stays
+      // even though the button now says the action failed.
       setError(b.message ?? 'Could not upload the file.');
+      throw new Error('rejected');
     }
-  }
+    setTitle('');
+    setDescription('');
+    setClassId('');
+    setSubjectId('');
+    setLevelId('');
+    setFile(null);
+    router.refresh();
+  });
 
   return (
-    <form onSubmit={submit} className="card p-6 h-fit rise rise-2">
+    <form onSubmit={upload.run} className="card p-6 h-fit rise rise-2">
       <h2 className="font-display text-xl">Share a file</h2>
 
       <label className="block text-sm font-medium mt-5 mb-1.5" htmlFor="res-title">
@@ -101,7 +103,7 @@ export default function UploadResource({
         accept={ACCEPT}
         value={file}
         onChange={setFile}
-        disabled={busy}
+        disabled={upload.state === 'pending'}
         hint="PDF, Word, PowerPoint, Excel, text or an image, up to 8MB."
       />
 
@@ -178,13 +180,9 @@ export default function UploadResource({
           {error}
         </p>
       )}
-      <button
-        type="submit"
-        disabled={busy}
-        className="mt-5 rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2.5 hover:bg-brand-deep transition disabled:opacity-60"
-      >
-        {busy ? 'Uploading…' : 'Upload as draft'}
-      </button>
+      <Button type="submit" state={upload.state} icon={<UploadIcon />} className="mt-5">
+        Upload as draft
+      </Button>
     </form>
   );
 }

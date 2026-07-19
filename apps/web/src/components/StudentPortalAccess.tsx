@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Button, useAsyncAction } from './Button';
+import { CloseIcon, KeyIcon, TrashIcon } from './icons';
 
 /**
  * Give a student their sign-in PIN, or take it away.
@@ -26,38 +28,31 @@ export default function StudentPortalAccess({
   hasPin: boolean;
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState(false);
   const [pin, setPin] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function issue() {
-    setBusy(true);
+  const issue = useAsyncAction(async () => {
     setError(null);
     const res = await fetch(`/api/proxy/students/${studentId}/portal-pin`, { method: 'POST' });
     const body = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (res.ok) {
-      setPin(body.pin);
-      router.refresh();
-    } else {
+    if (!res.ok) {
       setError(body.message ?? 'Could not create a PIN.');
+      throw new Error('rejected');
     }
-  }
+    setPin(body.pin);
+    router.refresh();
+  });
 
-  async function revoke() {
-    if (!confirm(`Stop ${studentName} signing in? They will need a new PIN to get back in.`))
-      return;
-    setBusy(true);
+  const revoke = useAsyncAction(async () => {
     setError(null);
     const res = await fetch(`/api/proxy/students/${studentId}/portal-pin`, { method: 'DELETE' });
-    setBusy(false);
-    if (res.ok) {
-      setPin(null);
-      router.refresh();
-    } else {
+    if (!res.ok) {
       setError('Could not remove the PIN.');
+      throw new Error('rejected');
     }
-  }
+    setPin(null);
+    router.refresh();
+  });
 
   return (
     <section className="card p-6 rise rise-4">
@@ -76,32 +71,49 @@ export default function StudentPortalAccess({
             scrambled, so nobody — including the school — can look it up later. If it is lost,
             create a new one.
           </p>
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<CloseIcon />}
+            className="mt-3"
             onClick={() => setPin(null)}
-            className="mt-3 text-[12px] font-medium text-brand hover:underline underline-offset-2"
           >
             Done — hide it
-          </button>
+          </Button>
         </div>
       ) : (
         <div className="mt-4 flex items-center gap-3 flex-wrap">
-          <button
-            onClick={issue}
-            disabled={busy}
-            className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition disabled:opacity-60"
+          {/* KeyIcon: what the button hands over is a credential, not a saved record. */}
+          <Button
+            onClick={issue.run}
+            state={issue.state}
+            icon={<KeyIcon />}
+            disabled={revoke.state === 'pending'}
           >
-            {busy ? 'Working…' : hasPin ? 'Create a new PIN' : 'Create a PIN'}
-          </button>
+            {hasPin ? 'Create a new PIN' : 'Create a PIN'}
+          </Button>
           {hasPin && (
             <>
               <span className="text-[12px] text-leaf">Can sign in</span>
-              <button
-                onClick={revoke}
-                disabled={busy}
-                className="min-h-11 px-3 text-[12.5px] text-oat hover:text-danger transition"
+              {/* The confirm stays outside `run`, so backing out of it does not read as done. */}
+              <Button
+                onClick={() => {
+                  if (
+                    !confirm(
+                      `Stop ${studentName} signing in? They will need a new PIN to get back in.`,
+                    )
+                  )
+                    return;
+                  revoke.run();
+                }}
+                state={revoke.state}
+                variant="danger"
+                size="sm"
+                icon={<TrashIcon />}
+                disabled={issue.state === 'pending'}
               >
                 Remove access
-              </button>
+              </Button>
             </>
           )}
           {!hasPin && <span className="text-[12px] text-oat">No PIN yet — cannot sign in</span>}

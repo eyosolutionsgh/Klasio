@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import Combobox from './Combobox';
+import { Button, useAsyncAction } from './Button';
+import { ChoiceCards } from './ChoiceCards';
+import { CalendarIcon, PhoneIcon, PlusIcon, UserIcon } from './icons';
 
 const field =
   'w-full min-h-11 rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
@@ -23,16 +26,14 @@ export default function AddStudent({
   const [open, setOpen] = useState(false);
   const [classId, setClassId] = useState('');
   const [gender, setGender] = useState('FEMALE');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
 
-  async function submit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  const submit = useAsyncAction(async (e: React.FormEvent<HTMLFormElement>) => {
+    // Read synchronously: `currentTarget` is gone by the time the fetch below resolves.
     const f = new FormData(e.currentTarget);
-    setBusy(true);
     setError(null);
     const res = await fetch('/api/proxy/students', {
       method: 'POST',
@@ -53,30 +54,31 @@ export default function AddStudent({
       }),
     });
     const body = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (res.ok) {
-      setOpen(false);
-      router.push(`/students/${body.id}`);
-      router.refresh();
-    } else {
+    if (!res.ok) {
       setError(
         Array.isArray(body.message)
           ? body.message.join('. ')
           : (body.message ?? 'Could not enrol.'),
       );
+      // The button may only report failure once the action has actually rejected.
+      throw new Error('rejected');
     }
-  }
+    setOpen(false);
+    router.push(`/students/${body.id}`);
+    router.refresh();
+  });
 
   if (!open) {
     return (
-      <button
+      <Button
         onClick={() => setOpen(true)}
         disabled={atCap}
         data-tip={atCap ? 'Your package is at its student limit' : undefined}
-        className="tip min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition disabled:opacity-50"
+        icon={<PlusIcon />}
+        className="tip"
       >
-        + Add student
-      </button>
+        Add student
+      </Button>
     );
   }
 
@@ -94,7 +96,7 @@ export default function AddStudent({
       onClick={(e) => e.target === e.currentTarget && setOpen(false)}
     >
       <form
-        onSubmit={submit}
+        onSubmit={submit.run}
         className="card w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto"
         onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}
       >
@@ -104,43 +106,51 @@ export default function AddStudent({
         <div className="grid sm:grid-cols-2 gap-3 mt-5">
           <label className="text-[13px]">
             <span className="block text-oat mb-1">First name</span>
-            <input name="firstName" required minLength={2} className={field} />
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                <UserIcon />
+              </span>
+              <input name="firstName" required minLength={2} className={`${field} pl-10`} />
+            </div>
           </label>
           <label className="text-[13px]">
             <span className="block text-oat mb-1">Last name</span>
-            <input name="lastName" required minLength={2} className={field} />
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                <UserIcon />
+              </span>
+              <input name="lastName" required minLength={2} className={`${field} pl-10`} />
+            </div>
           </label>
           <label className="text-[13px] sm:col-span-2">
             <span className="block text-oat mb-1">Other names</span>
-            <input name="otherNames" className={field} />
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                <UserIcon />
+              </span>
+              <input name="otherNames" className={`${field} pl-10`} />
+            </div>
           </label>
           <label className="text-[13px]">
             <span className="block text-oat mb-1">Date of birth</span>
-            <input name="dateOfBirth" type="date" required className={field} />
-          </label>
-          <fieldset className="text-[13px]">
-            <legend className="block text-oat mb-1">Gender</legend>
-            <div className="flex gap-2">
-              {[
-                { v: 'FEMALE', l: 'Female' },
-                { v: 'MALE', l: 'Male' },
-              ].map((g) => (
-                <button
-                  key={g.v}
-                  type="button"
-                  onClick={() => setGender(g.v)}
-                  aria-pressed={gender === g.v}
-                  className={`flex-1 min-h-11 rounded-lg border text-sm transition ${
-                    gender === g.v
-                      ? 'bg-brand text-paper border-brand'
-                      : 'border-mist bg-white hover:border-brand'
-                  }`}
-                >
-                  {g.l}
-                </button>
-              ))}
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                <CalendarIcon />
+              </span>
+              <input name="dateOfBirth" type="date" required className={`${field} pl-10`} />
             </div>
-          </fieldset>
+          </label>
+          <ChoiceCards
+            className="text-[13px]"
+            legend="Gender"
+            name="gender"
+            value={gender}
+            onChange={setGender}
+            options={[
+              { value: 'FEMALE', label: 'Female' },
+              { value: 'MALE', label: 'Male' },
+            ]}
+          />
           <div className="sm:col-span-2">
             <Combobox
               label="Class"
@@ -165,21 +175,36 @@ export default function AddStudent({
         <div className="grid sm:grid-cols-2 gap-3 mt-3">
           <label className="text-[13px]">
             <span className="block text-oat mb-1">First name</span>
-            <input name="guardianFirstName" className={field} />
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                <UserIcon />
+              </span>
+              <input name="guardianFirstName" className={`${field} pl-10`} />
+            </div>
           </label>
           <label className="text-[13px]">
             <span className="block text-oat mb-1">Last name</span>
-            <input name="guardianLastName" className={field} />
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                <UserIcon />
+              </span>
+              <input name="guardianLastName" className={`${field} pl-10`} />
+            </div>
           </label>
           <label className="text-[13px]">
             <span className="block text-oat mb-1">Phone</span>
-            <input
-              name="guardianPhone"
-              type="tel"
-              inputMode="tel"
-              placeholder="024 123 4567"
-              className={field}
-            />
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                <PhoneIcon />
+              </span>
+              <input
+                name="guardianPhone"
+                type="tel"
+                inputMode="tel"
+                placeholder="024 123 4567"
+                className={`${field} pl-10`}
+              />
+            </div>
           </label>
           <label className="text-[13px]">
             <span className="block text-oat mb-1">Relationship</span>
@@ -190,19 +215,21 @@ export default function AddStudent({
         {error && <p className="text-sm text-danger mt-4">{error}</p>}
 
         <div className="flex items-center gap-3 mt-6">
-          <button
-            disabled={busy || !classId}
-            className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition disabled:opacity-50"
+          {/* "Enrol" is not one of the conjugated verbs, so its wording is spelled out. */}
+          <Button
+            type="submit"
+            state={submit.state}
+            disabled={!classId}
+            icon={<UserIcon />}
+            pendingLabel="Enrolling…"
+            doneLabel="Enrolled!"
+            failedLabel="Couldn't enrol"
           >
-            {busy ? 'Enrolling…' : 'Enrol student'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            className="min-h-11 px-3 text-[13px] text-oat hover:text-brand transition"
-          >
+            Enrol student
+          </Button>
+          <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
             Cancel
-          </button>
+          </Button>
           {!classId && <span className="text-[12px] text-oat">Pick a class first.</span>}
         </div>
       </form>

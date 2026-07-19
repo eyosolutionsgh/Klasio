@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Button, useAsyncAction } from '@/components/Button';
+import { PhoneIcon, PlusIcon, PrintIcon, UserIcon } from '@/components/icons';
 
 interface Person {
   kind: 'GUARDIAN' | 'DELEGATE';
@@ -45,9 +47,9 @@ export default function PickupList({ studentId }: { studentId: string }) {
     load();
   }, [load]);
 
-  async function addDelegate(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  const addDelegate = useAsyncAction(async (e: React.FormEvent<HTMLFormElement>) => {
     const f = new FormData(e.currentTarget);
+    // `busy` still gates the per-row controls below, which are not this button's concern.
     setBusy(true);
     setError(null);
     const res = await fetch(`/api/proxy/pickup/students/${studentId}/delegates`, {
@@ -61,14 +63,15 @@ export default function PickupList({ studentId }: { studentId: string }) {
       }),
     });
     setBusy(false);
-    if (res.ok) {
-      setAdding(false);
-      load();
-    } else {
+    if (!res.ok) {
       const d = await res.json().catch(() => ({}));
+      // Kept: the server names what was wrong with the person (duplicate phone, bad date).
       setError(d.message ?? 'Could not add that person.');
+      throw new Error('add rejected');
     }
-  }
+    setAdding(false);
+    load();
+  });
 
   async function issueCard(p: Person) {
     setBusy(true);
@@ -82,19 +85,21 @@ export default function PickupList({ studentId }: { studentId: string }) {
     } else setError(d.message ?? 'Could not issue a gate pass.');
   }
 
-  async function printCard() {
+  const printCard = useAsyncAction(async () => {
     if (!issued) return;
     const res = await fetch(`/api/proxy/pickup/cards/${issued.kind}/${issued.id}/pdf`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pin: issued.pin }),
     });
-    if (!res.ok) return;
+    // Thrown rather than returned quietly: the PIN is shown once, so a pass that failed to
+    // render must not look like it printed.
+    if (!res.ok) throw new Error('pdf rejected');
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     window.open(url, '_blank');
     setTimeout(() => URL.revokeObjectURL(url), 30_000);
-  }
+  });
 
   /**
    * Cancel a printed gate pass.
@@ -161,36 +166,45 @@ export default function PickupList({ studentId }: { studentId: string }) {
       </div>
 
       {adding && (
-        <form onSubmit={addDelegate} className="mt-4 rounded-lg bg-parchment/60 p-4 space-y-3">
+        <form onSubmit={addDelegate.run} className="mt-4 rounded-lg bg-parchment/60 p-4 space-y-3">
           <p className="text-xs text-oat">
             A driver, relative or neighbour. Give an end date if the arrangement is temporary.
           </p>
           <div className="flex flex-wrap gap-2">
-            <input
-              name="name"
-              required
-              minLength={2}
-              placeholder="Full name"
-              className={`${field} w-40`}
-            />
-            <input
-              name="phone"
-              required
-              placeholder="024 123 4567"
-              className={`${field} w-36 tabular`}
-            />
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                <UserIcon />
+              </span>
+              <input
+                name="name"
+                required
+                minLength={2}
+                placeholder="Full name"
+                className={`${field} w-40 pl-10`}
+              />
+            </div>
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                <PhoneIcon />
+              </span>
+              <input
+                name="phone"
+                required
+                placeholder="024 123 4567"
+                className={`${field} w-36 tabular pl-10`}
+              />
+            </div>
+            {/* No icon for the relationship — "Driver" is not a person, a phone or a date. */}
             <input name="relationship" required placeholder="Driver" className={`${field} w-32`} />
             <label className="text-[12px] text-oat flex items-center gap-2">
               until
+              {/* A date input draws its own picker glyph; a second calendar would just crowd it. */}
               <input name="expiresAt" type="date" className={field} />
             </label>
           </div>
-          <button
-            disabled={busy}
-            className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition disabled:opacity-60"
-          >
-            {busy ? 'Saving…' : 'Add to pickup list'}
-          </button>
+          <Button type="submit" state={addDelegate.state} icon={<PlusIcon />}>
+            Add to pickup list
+          </Button>
         </form>
       )}
 
@@ -202,12 +216,16 @@ export default function PickupList({ studentId }: { studentId: string }) {
             once. Print the pass now or write it down.
           </p>
           <div className="flex items-center gap-3 mt-2">
-            <button
-              onClick={printCard}
-              className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition"
+            <Button
+              onClick={printCard.run}
+              state={printCard.state}
+              icon={<PrintIcon />}
+              pendingLabel="Preparing…"
+              doneLabel="Opened"
+              failedLabel="Couldn't print"
             >
               Print gate pass
-            </button>
+            </Button>
             <button onClick={() => setIssued(null)} className="min-h-11 px-2 text-[13px] text-oat">
               Done
             </button>

@@ -1,8 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import FileField from '@/components/FileField';
+import { Button, useAsyncAction } from '@/components/Button';
+import { CashIcon, UploadIcon, UserIcon } from '@/components/icons';
 
 type Kind = 'students' | 'fees' | 'balances';
 
@@ -12,37 +14,49 @@ interface ImportResult {
   errors: { row: number; message: string }[];
 }
 
-const KINDS: { key: Kind; label: string; blurb: string }[] = [
-  { key: 'students', label: 'Students', blurb: 'Bio-data, class and primary guardian.' },
-  { key: 'fees', label: 'Fee structure', blurb: 'Fee items for the current term.' },
-  { key: 'balances', label: 'Opening balances', blurb: 'Arrears carried in from before.' },
+const KINDS: { key: Kind; label: string; blurb: string; icon: ReactNode }[] = [
+  {
+    key: 'students',
+    label: 'Students',
+    blurb: 'Bio-data, class and primary guardian.',
+    icon: <UserIcon />,
+  },
+  {
+    key: 'fees',
+    label: 'Fee structure',
+    blurb: 'Fee items for the current term.',
+    icon: <CashIcon />,
+  },
+  {
+    key: 'balances',
+    label: 'Opening balances',
+    blurb: 'Arrears carried in from before.',
+    icon: <CashIcon />,
+  },
 ];
 
 export default function OnboardingPage() {
   const [kind, setKind] = useState<Kind>('students');
   const [file, setFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function upload() {
+  const importAction = useAsyncAction(async () => {
     if (!file) return;
-    setBusy(true);
     setError(null);
     setResult(null);
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await fetch(`/api/proxy/onboarding/import/${kind}`, { method: 'POST', body: fd });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message ?? 'Import failed');
-      setResult(data);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Import failed');
-    } finally {
-      setBusy(false);
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch(`/api/proxy/onboarding/import/${kind}`, { method: 'POST', body: fd });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      // The button can only say "Couldn't import"; which row and why is the part a school
+      // actually needs in order to fix the spreadsheet and try again.
+      setError(data.message ?? 'Import failed');
+      throw new Error('import rejected');
     }
-  }
+    setResult(data);
+  });
 
   return (
     <div>
@@ -60,6 +74,9 @@ export default function OnboardingPage() {
         {KINDS.map((k) => (
           <button
             key={k.key}
+            type="button"
+            // Selection state, not just a ring: the ring alone says nothing to a screen reader.
+            aria-pressed={kind === k.key}
             onClick={() => {
               setKind(k.key);
               setResult(null);
@@ -67,7 +84,14 @@ export default function OnboardingPage() {
             }}
             className={`card p-4 text-left transition ${kind === k.key ? 'ring-2 ring-brand' : 'hover:border-brand'}`}
           >
-            <p className="font-medium">{k.label}</p>
+            <p className="flex items-center gap-2 font-medium">
+              <span className={kind === k.key ? 'text-brand' : 'text-oat/70'}>{k.icon}</span>
+              {k.label}
+            </p>
+            {/*
+              Kept, unlike the hint lines under a channel picker. Those repeated their label; these
+              say what each import actually contains, which is the whole basis for choosing one.
+            */}
             <p className="text-xs text-oat mt-1">{k.blurb}</p>
           </button>
         ))}
@@ -91,17 +115,20 @@ export default function OnboardingPage() {
               accept=".xlsx"
               value={file}
               onChange={setFile}
-              disabled={busy}
+              disabled={importAction.state === 'pending'}
               hint="The filled-in template, as an .xlsx workbook."
             />
           </div>
-          <button
-            onClick={upload}
-            disabled={busy || !file}
-            className="mt-1 rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2.5 hover:bg-brand-deep transition disabled:opacity-50"
+          <Button
+            type="button"
+            onClick={importAction.run}
+            state={importAction.state}
+            disabled={!file}
+            icon={<UploadIcon />}
+            className="mt-1"
           >
-            {busy ? 'Importing…' : 'Upload & import'}
-          </button>
+            Import
+          </Button>
         </div>
         {error && <p className="text-sm text-danger">{error}</p>}
         {result && (

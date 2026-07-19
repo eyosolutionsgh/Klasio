@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Button, useAsyncAction } from './Button';
+import { CashIcon, TrashIcon } from './icons';
 
 interface Award {
   id: string;
@@ -69,7 +71,6 @@ export default function StudentConcessions({
   const [live, setLive] = useState<Preview | null>(null);
   const [amount, setAmount] = useState(String(balance > 0 ? balance : PROBE));
   const [confirming, setConfirming] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -113,24 +114,23 @@ export default function StudentConcessions({
     return () => clearTimeout(t);
   }, [amount, preview]);
 
-  async function revoke(award: Award) {
-    setBusy(award.id);
+  // Only one award is ever being confirmed at a time, so a single action state serves the list.
+  const revoke = useAsyncAction(async (award: Award) => {
     setError(null);
     const res = await fetch(`/api/proxy/fees/concessions/awards/${award.id}`, { method: 'DELETE' });
-    setBusy(null);
     setConfirming(null);
-    if (res.ok) {
-      load();
-      preview(Number(amount) || PROBE).then(setLive);
-    } else {
+    if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       setError(
         Array.isArray(body.message)
           ? body.message.join('. ')
           : (body.message ?? 'Could not revoke that scholarship.'),
       );
+      throw new Error('rejected');
     }
-  }
+    load();
+    preview(Number(amount) || PROBE).then(setLive);
+  });
 
   if (!loaded || !awards || !probe) return null;
 
@@ -192,34 +192,46 @@ export default function StudentConcessions({
                   <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
                     {confirming === a.id ? (
                       <>
-                        <button
-                          onClick={() => revoke(a)}
-                          disabled={busy === a.id}
-                          className="no-print text-[12.5px] font-medium text-danger hover:underline underline-offset-2 disabled:opacity-60"
+                        {/* "Yes," is not a verb, so the working wording is spelled out. */}
+                        <Button
+                          onClick={() => revoke.run(a)}
+                          state={revoke.state}
+                          variant="danger"
+                          size="sm"
+                          icon={<TrashIcon />}
+                          className="no-print"
+                          pendingLabel="Revoking…"
+                          doneLabel="Revoked!"
+                          failedLabel="Couldn't revoke"
                         >
-                          {busy === a.id ? 'Revoking…' : 'Yes, revoke it'}
-                        </button>
-                        <button
+                          Yes, revoke it
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="no-print"
                           onClick={() => setConfirming(null)}
-                          className="no-print text-[12.5px] text-oat hover:text-brand transition"
                         >
                           Keep it
-                        </button>
+                        </Button>
                         <span className="text-[11px] text-oat">
                           The reason above is not kept once it is revoked.
                         </span>
                       </>
                     ) : (
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={<TrashIcon />}
                         onClick={() => {
                           setError(null);
                           setConfirming(a.id);
                         }}
                         data-tip="Stops it from the next bill; discounts already given stand"
-                        className="tip no-print text-[12.5px] text-clay hover:underline underline-offset-2"
+                        className="tip no-print"
                       >
                         Revoke
-                      </button>
+                      </Button>
                     )}
                   </div>
                 )}
@@ -245,14 +257,19 @@ export default function StudentConcessions({
           <h3 className="text-sm font-medium">What that comes to today</h3>
           <label className="text-[13px]">
             <span className="block text-oat mb-1">Against a bill of ({currency})</span>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className={`${field} w-36 tabular`}
-            />
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                <CashIcon />
+              </span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className={`${field} w-36 pl-10 tabular`}
+              />
+            </div>
           </label>
         </div>
 

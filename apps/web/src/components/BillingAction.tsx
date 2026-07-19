@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Combobox from './Combobox';
+import { Button, useAsyncAction } from './Button';
+import { CashIcon, PhoneIcon } from './icons';
 
 const CHANNELS = [
   { value: 'MOMO', label: 'Mobile money' },
@@ -40,7 +42,6 @@ export default function BillingAction({
   const [confirming, setConfirming] = useState(false);
   const [channel, setChannel] = useState('MOMO');
   const [phone, setPhone] = useState(defaultPhone ?? '');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
@@ -53,9 +54,7 @@ export default function BillingAction({
       })
     : null;
 
-  async function pay(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
+  const pay = useAsyncAction(async () => {
     setError(null);
     const res = await fetch('/api/proxy/billing/subscribe', {
       method: 'POST',
@@ -64,13 +63,13 @@ export default function BillingAction({
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setBusy(false);
       setError(
         Array.isArray(body.message)
           ? body.message.join('. ')
           : (body.message ?? 'Could not start that payment.'),
       );
-      return;
+      // The button may only report failure once the action has actually rejected.
+      throw new Error('rejected');
     }
     if (body.checkoutUrl) {
       // Leaving the portal entirely: the tier still has not moved, and will not until the
@@ -78,15 +77,13 @@ export default function BillingAction({
       window.location.href = body.checkoutUrl;
       return;
     }
-    setBusy(false);
     setNote(
       `Payment ${body.reference} started for ${money}. ${tier} switches on only once the payment is confirmed.`,
     );
     router.refresh();
-  }
+  });
 
-  async function downgrade() {
-    setBusy(true);
+  const downgrade = useAsyncAction(async () => {
     setError(null);
     const res = await fetch('/api/proxy/billing/change-tier', {
       method: 'POST',
@@ -94,38 +91,35 @@ export default function BillingAction({
       body: JSON.stringify({ tier }),
     });
     const body = await res.json().catch(() => ({}));
-    setBusy(false);
     if (!res.ok) {
       setError(
         Array.isArray(body.message)
           ? body.message.join('. ')
           : (body.message ?? 'Could not schedule that change.'),
       );
-      return;
+      throw new Error('rejected');
     }
     setConfirming(false);
     setNote(body.message ?? `Scheduled: you move to ${tier} at the end of the paid period.`);
     router.refresh();
-  }
-
-  const btn =
-    'w-full rounded-lg text-sm font-medium px-4 py-2.5 transition disabled:opacity-50 disabled:cursor-not-allowed';
+  });
 
   if (direction === 'downgrade') {
     return (
       <div className="mt-4">
         {!confirming ? (
-          <button
+          <Button
+            variant="secondary"
             onClick={() => setConfirming(true)}
             data-tip={
               effectiveAt
                 ? `You keep ${currentTier} until ${effectiveAt}`
                 : 'Moves down at the end of the paid period'
             }
-            className={`tip ${btn} border border-mist bg-white hover:border-ink`}
+            className="tip w-full"
           >
-            Move down to {tier}
-          </button>
+            {`Move down to ${tier}`}
+          </Button>
         ) : (
           <div className="rounded-lg border border-clay/30 bg-clay/5 p-3">
             <p className="text-[12.5px] text-ink">
@@ -141,20 +135,33 @@ export default function BillingAction({
               )}
             </p>
             <div className="flex gap-2 mt-3">
-              <button
-                onClick={downgrade}
-                disabled={busy}
-                className={`${btn} bg-ink text-paper hover:bg-ink/90`}
+              {/*
+                "Schedule" is not one of the conjugated verbs, so its wording is spelled out. The
+                ink treatment is kept over the primary variant's brand teal, but only while the
+                button is offering itself — the tick and the alert carry their own colours.
+              */}
+              <Button
+                onClick={downgrade.run}
+                state={downgrade.state}
+                pendingLabel="Scheduling…"
+                doneLabel="Scheduled!"
+                failedLabel="Couldn't schedule"
+                className={`w-full ${
+                  downgrade.state === 'done' || downgrade.state === 'failed'
+                    ? ''
+                    : 'bg-ink! hover:bg-ink/90!'
+                }`}
               >
-                {busy ? 'Scheduling…' : 'Schedule it'}
-              </button>
-              <button
+                Schedule it
+              </Button>
+              <Button
+                variant="secondary"
                 onClick={() => setConfirming(false)}
-                disabled={busy}
-                className={`${btn} border border-mist bg-white hover:border-ink`}
+                disabled={downgrade.state === 'pending'}
+                className="w-full"
               >
-                Keep {currentTier}
-              </button>
+                {`Keep ${currentTier}`}
+              </Button>
             </div>
           </div>
         )}
@@ -163,6 +170,10 @@ export default function BillingAction({
             {error}
           </p>
         )}
+        {/*
+          Kept even though the button now says "Scheduled!": this is the server's own wording for
+          *when* the change lands, which the button has no room to say.
+        */}
         {note && (
           <p role="status" className="text-[12.5px] text-brand mt-2">
             {note}
@@ -175,14 +186,11 @@ export default function BillingAction({
   return (
     <div className="mt-4">
       {!openForm ? (
-        <button
-          onClick={() => setOpenForm(true)}
-          className={`${btn} bg-brand text-paper hover:bg-brand-deep`}
-        >
-          Pay {money} for {tier}
-        </button>
+        <Button onClick={() => setOpenForm(true)} icon={<CashIcon />} className="w-full">
+          {`Pay ${money} for ${tier}`}
+        </Button>
       ) : (
-        <form onSubmit={pay} className="rounded-lg border border-mist bg-parchment/40 p-3">
+        <form onSubmit={pay.run} className="rounded-lg border border-mist bg-parchment/40 p-3">
           <Combobox
             label="Pay by"
             options={CHANNELS}
@@ -196,12 +204,17 @@ export default function BillingAction({
               <span className="block text-[11px] uppercase tracking-wider text-oat mb-1">
                 Mobile money number
               </span>
-              <input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="024 000 0000"
-                className="w-full min-h-11 rounded-lg border border-mist bg-white px-3.5 py-2 text-sm tabular outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
-              />
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                  <PhoneIcon />
+                </span>
+                <input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="024 000 0000"
+                  className="w-full min-h-11 rounded-lg border border-mist bg-white pl-10 pr-3.5 py-2 text-sm tabular outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+                />
+              </div>
             </label>
           )}
           <p className="text-[11.5px] text-oat mt-3">
@@ -209,21 +222,27 @@ export default function BillingAction({
             {money}; the plan changes only when the gateway confirms the money has arrived.
           </p>
           <div className="flex gap-2 mt-3">
-            <button
+            {/* "Continue" is not one of the conjugated verbs, so its wording is spelled out. */}
+            <Button
               type="submit"
-              disabled={busy}
-              className={`${btn} bg-brand text-paper hover:bg-brand-deep`}
+              state={pay.state}
+              icon={<CashIcon />}
+              pendingLabel="Starting…"
+              doneLabel="Started!"
+              failedLabel="Couldn't start"
+              className="w-full"
             >
-              {busy ? 'Starting…' : `Continue to pay ${money}`}
-            </button>
-            <button
+              {`Continue to pay ${money}`}
+            </Button>
+            <Button
               type="button"
+              variant="secondary"
               onClick={() => setOpenForm(false)}
-              disabled={busy}
-              className={`${btn} border border-mist bg-white hover:border-ink`}
+              disabled={pay.state === 'pending'}
+              className="w-full"
             >
               Cancel
-            </button>
+            </Button>
           </div>
         </form>
       )}
@@ -232,6 +251,10 @@ export default function BillingAction({
           {error}
         </p>
       )}
+      {/*
+        Kept: this carries the payment reference and the fact that the tier has *not* moved yet —
+        neither of which fits on the button.
+      */}
       {note && (
         <p role="status" className="text-[12.5px] text-brand mt-2">
           {note}

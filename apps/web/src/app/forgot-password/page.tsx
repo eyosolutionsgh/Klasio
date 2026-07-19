@@ -4,6 +4,8 @@ import { useState } from 'react';
 import Link from 'next/link';
 import AuthShell from '@/components/AuthShell';
 import { AuthButton, AuthError, AuthField, AuthFieldGroup } from '@/components/AuthField';
+import { ChoiceCards } from '@/components/ChoiceCards';
+import { MailIcon, PhoneIcon, SendIcon } from '@/components/icons';
 
 type Channel = 'email' | 'sms';
 
@@ -101,45 +103,26 @@ export default function ForgotPasswordPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@school.edu.gh"
+            icon={<MailIcon />}
           />
         </AuthFieldGroup>
 
-        <fieldset className="mt-5">
-          <legend className="mb-2 text-[13px] font-medium text-ink">Send it by</legend>
-          <div className="flex gap-2" role="radiogroup" aria-label="Send it by">
-            {(
-              [
-                { value: 'email', label: 'Email', hint: 'A link to the address above' },
-                { value: 'sms', label: 'Text message', hint: 'A code to your mobile number' },
-              ] as const
-            ).map((opt) => (
-              <label
-                key={opt.value}
-                className={`flex-1 cursor-pointer rounded-lg border px-4 py-3 transition ${
-                  channel === opt.value
-                    ? 'border-gold bg-gold/10'
-                    : 'border-ink/15 hover:border-ink/30'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="channel"
-                  value={opt.value}
-                  checked={channel === opt.value}
-                  onChange={() => setChannel(opt.value)}
-                  className="sr-only"
-                />
-                <span className="block text-sm font-medium text-ink">{opt.label}</span>
-                <span className="mt-0.5 block text-[12px] text-oat">{opt.hint}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        <ChoiceCards
+          className="mt-5"
+          legend="Send it by"
+          name="channel"
+          value={channel}
+          onChange={setChannel}
+          options={[
+            { value: 'email', label: 'Email', icon: <MailIcon /> },
+            { value: 'sms', label: 'SMS', icon: <PhoneIcon /> },
+          ]}
+        />
 
         {error && <AuthError>{error}</AuthError>}
 
         <div className="mt-7 flex items-center gap-5">
-          <AuthButton busy={busy} busyLabel="Sending…">
+          <AuthButton busy={busy} busyLabel="Sending…" icon={<SendIcon />}>
             {channel === 'sms' ? 'Send code' : 'Send link'}
           </AuthButton>
           <Link href="/login" className="text-sm text-oat hover:text-brand transition">

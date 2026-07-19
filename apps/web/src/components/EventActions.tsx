@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
+import { Button, useAsyncAction } from '@/components/Button';
+import { EditIcon, SaveIcon, TrashIcon } from '@/components/icons';
 
 export interface EventSummary {
   id: string;
@@ -39,7 +41,6 @@ export default function EventActions({
   audiences: { key: string; label: string }[];
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,18 +67,24 @@ export default function EventActions({
     setOpen(true);
   }
 
-  /** Removing an event is one click, so it asks first — families may already have been told. */
-  async function remove() {
-    if (!confirm(`Remove “${event.title}” from the calendar?`)) return;
-    setBusy(true);
+  const removal = useAsyncAction(async () => {
     const res = await fetch(`/api/proxy/calendar/${event.id}`, { method: 'DELETE' });
-    setBusy(false);
-    if (res.ok) router.refresh();
+    if (!res.ok) throw new Error('remove rejected');
+    router.refresh();
+  });
+
+  /**
+   * Removing an event is one click, so it asks first — families may already have been told.
+   *
+   * The question sits outside the action deliberately: run it inside and backing out would settle
+   * the button on "Removed!" for an event still on the calendar.
+   */
+  function askThenRemove() {
+    if (!confirm(`Remove “${event.title}” from the calendar?`)) return;
+    removal.run();
   }
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
+  const save = useAsyncAction(async () => {
     setError(null);
     const res = await fetch(`/api/proxy/calendar/${event.id}`, {
       method: 'PATCH',
@@ -95,37 +102,37 @@ export default function EventActions({
         levelId,
       }),
     });
-    setBusy(false);
     if (!res.ok) {
       const b = await res.json().catch(() => ({}));
+      // The API names the field it rejected — an end date before the start, a title too short.
       setError(
         Array.isArray(b.message)
           ? b.message.join('. ')
           : (b.message ?? 'Could not save the event.'),
       );
-      return;
+      throw new Error('save rejected');
     }
     setOpen(false);
     router.refresh();
-  }
+  });
 
   const controls = (
-    <span className="no-print flex items-center gap-3 shrink-0">
-      <button
-        type="button"
-        onClick={start}
-        className="text-[12px] font-medium text-brand hover:underline underline-offset-2 whitespace-nowrap"
-      >
+    <span className="no-print flex items-center gap-2 shrink-0">
+      <Button type="button" variant="ghost" size="sm" onClick={start} icon={<EditIcon />}>
         Change
-      </button>
-      <button
+      </Button>
+      {/* Danger, not the old quiet link: taking an event off a calendar families have read is
+          not a minor action, whatever the size of the row it sits in. */}
+      <Button
         type="button"
-        onClick={remove}
-        disabled={busy}
-        className="text-[12px] text-clay hover:underline disabled:opacity-50 whitespace-nowrap"
+        variant="danger"
+        size="sm"
+        onClick={askThenRemove}
+        state={removal.state}
+        icon={<TrashIcon />}
       >
-        {busy ? 'Removing…' : 'Remove'}
-      </button>
+        Remove
+      </Button>
     </span>
   );
 
@@ -142,7 +149,10 @@ export default function EventActions({
           className="brand-scope fixed inset-0 z-50 grid place-items-center bg-ink/50 p-4"
           onClick={(e) => e.target === e.currentTarget && setOpen(false)}
         >
-          <form onSubmit={save} className="card w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+          <form
+            onSubmit={save.run}
+            className="card w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto"
+          >
             <h2 className="font-display text-2xl">Change this event</h2>
             <p className="text-sm text-oat mt-1.5">
               The entry is amended in place, so anyone who has already seen it gets the correction
@@ -256,20 +266,12 @@ export default function EventActions({
             )}
 
             <div className="flex items-center gap-3 mt-5">
-              <button
-                type="submit"
-                disabled={busy}
-                className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition disabled:opacity-60"
-              >
-                {busy ? 'Saving…' : 'Save event'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                className="min-h-11 px-3 text-[13px] text-oat hover:text-brand transition"
-              >
+              <Button type="submit" state={save.state} icon={<SaveIcon />}>
+                Save event
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
                 Cancel
-              </button>
+              </Button>
             </div>
           </form>
         </div>,

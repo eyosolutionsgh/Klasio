@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { Button } from '@/components/Button';
 
 /**
  * Camera scanning for the gate.
@@ -87,17 +88,18 @@ export default function QrScanner({ onScan }: { onScan: (value: string) => void 
 
   return (
     <div className="mt-3">
+      {/* No icon on either control: nothing in the set means "camera". */}
       {!open ? (
-        <button
+        <Button
           type="button"
+          variant="secondary"
           onClick={() => {
             setError('');
             setOpen(true);
           }}
-          className="min-h-11 rounded-lg border border-mist px-4 text-sm font-medium hover:border-brand transition"
         >
           Scan a card
-        </button>
+        </Button>
       ) : (
         <div className="space-y-2">
           <video
@@ -106,13 +108,9 @@ export default function QrScanner({ onScan }: { onScan: (value: string) => void 
             playsInline
             className="w-full max-w-sm rounded-lg border border-mist bg-ink/5 aspect-[4/3] object-cover"
           />
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            className="min-h-11 px-3 text-[13px] text-oat"
-          >
+          <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
             Stop scanning
-          </button>
+          </Button>
         </div>
       )}
       {error && <p className="text-sm text-danger mt-2">{error}</p>}

@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
+import { Button, useAsyncAction } from './Button';
+import { RefreshIcon } from './icons';
 
 const field =
   'w-full min-h-11 rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
@@ -26,16 +28,13 @@ export default function ReverseEntry({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
 
-  async function submit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  const submit = useAsyncAction(async (e: React.FormEvent<HTMLFormElement>) => {
     const f = new FormData(e.currentTarget);
-    setBusy(true);
     setError(null);
     const res = await fetch(`/api/proxy/fees/ledger/${entryId}/reverse`, {
       method: 'POST',
@@ -43,18 +42,17 @@ export default function ReverseEntry({
       body: JSON.stringify({ reason: String(f.get('reason') ?? '').trim() }),
     });
     const body = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (res.ok) {
-      setOpen(false);
-      router.refresh();
-    } else {
+    if (!res.ok) {
       setError(
         Array.isArray(body.message)
           ? body.message.join('. ')
           : (body.message ?? 'Could not reverse this entry.'),
       );
+      throw new Error('rejected');
     }
-  }
+    setOpen(false);
+    router.refresh();
+  });
 
   if (!open) {
     return (
@@ -76,7 +74,7 @@ export default function ReverseEntry({
       className="brand-scope fixed inset-0 z-50 grid place-items-center bg-ink/50 p-4"
       onClick={(e) => e.target === e.currentTarget && setOpen(false)}
     >
-      <form onSubmit={submit} className="card w-full max-w-md p-6">
+      <form onSubmit={submit.run} className="card w-full max-w-md p-6">
         <h2 className="font-display text-2xl">Reverse this entry</h2>
         <p className="text-sm text-oat mt-1.5">
           Cancels <span className="font-medium text-ink">{label}</span> of{' '}
@@ -101,19 +99,22 @@ export default function ReverseEntry({
         {error && <p className="text-sm text-danger mt-3">{error}</p>}
 
         <div className="flex items-center gap-3 mt-5">
-          <button
-            disabled={busy}
-            className="min-h-11 rounded-lg bg-danger text-paper text-sm font-medium px-5 hover:opacity-90 transition disabled:opacity-60"
+          {/* "Reverse" is not a verb the labels conjugate, so its wording is given outright.
+              RefreshIcon rather than a trash can: nothing is deleted, the entry is undone. */}
+          <Button
+            type="submit"
+            state={submit.state}
+            variant="danger"
+            icon={<RefreshIcon />}
+            pendingLabel="Reversing…"
+            doneLabel="Reversed!"
+            failedLabel="Couldn't reverse"
           >
-            {busy ? 'Reversing…' : 'Reverse entry'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            className="min-h-11 px-3 text-[13px] text-oat hover:text-brand transition"
-          >
+            Reverse entry
+          </Button>
+          <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
             Cancel
-          </button>
+          </Button>
         </div>
       </form>
     </div>,

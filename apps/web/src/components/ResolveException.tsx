@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
+import { Button, useAsyncAction } from './Button';
+import { SaveIcon } from './icons';
 
 const field =
   'w-full min-h-11 rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
@@ -53,17 +55,14 @@ export default function ResolveException({
   const [mounted, setMounted] = useState(false);
   const [status, setStatus] = useState<'MATCHED' | 'DISPUTED' | 'IGNORED'>('MATCHED');
   const [reason, setReason] = useState('');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => setMounted(true), []);
 
   const short = reason.trim().length < MIN_NOTE;
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  const submit = useAsyncAction(async () => {
     if (short) return;
-    setBusy(true);
     setError(null);
     const res = await fetch(`/api/proxy/reconciliation/rows/${id}`, {
       method: 'PATCH',
@@ -71,17 +70,16 @@ export default function ResolveException({
       body: JSON.stringify({ status, note: reason.trim() }),
     });
     const body = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (res.ok) {
-      setOpen(false);
-      setReason('');
-      router.refresh();
-    } else {
+    if (!res.ok) {
       setError(
         Array.isArray(body.message) ? body.message.join('. ') : (body.message ?? 'Could not save.'),
       );
+      throw new Error('rejected');
     }
-  }
+    setOpen(false);
+    setReason('');
+    router.refresh();
+  });
 
   if (!open) {
     return (
@@ -105,7 +103,7 @@ export default function ResolveException({
       className="brand-scope fixed inset-0 z-50 grid place-items-center bg-ink/50 p-4"
       onClick={(e) => e.target === e.currentTarget && setOpen(false)}
     >
-      <form onSubmit={submit} className="card w-full max-w-md p-6">
+      <form onSubmit={submit.run} className="card w-full max-w-md p-6">
         <h2 className="font-display text-2xl">Resolve exception</h2>
         <p className="text-sm text-oat mt-1.5">
           Reference <span className="tabular text-ink">{reference}</span>
@@ -162,19 +160,14 @@ export default function ResolveException({
         {error && <p className="text-sm text-danger mt-3">{error}</p>}
 
         <div className="flex items-center gap-3 mt-5">
-          <button
-            disabled={busy || short}
-            className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition disabled:opacity-60"
-          >
-            {busy ? 'Saving…' : short ? 'Add a reason to save' : 'Save resolution'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            className="min-h-11 px-3 text-[13px] text-oat hover:text-brand transition"
-          >
+          {/* The label still names what is missing while the note is too short; the button is
+              disabled then, so the "Adding…" conjugation of that wording is never reached. */}
+          <Button type="submit" state={submit.state} icon={<SaveIcon />} disabled={short}>
+            {short ? 'Add a reason to save' : 'Save resolution'}
+          </Button>
+          <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
             Cancel
-          </button>
+          </Button>
         </div>
       </form>
     </div>,

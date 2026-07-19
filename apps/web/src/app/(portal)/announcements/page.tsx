@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Button, useAsyncAction } from '@/components/Button';
+import { SendIcon } from '@/components/icons';
 
 interface Notice {
   id: string;
@@ -13,7 +15,6 @@ export default function AnnouncementsPage() {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -25,25 +26,22 @@ export default function AnnouncementsPage() {
     load();
   }, [load]);
 
-  async function post(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
+  const post = useAsyncAction(async () => {
     setError(null);
     const res = await fetch('/api/proxy/announcements', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title, body }),
     });
-    setBusy(false);
-    if (res.ok) {
-      setTitle('');
-      setBody('');
-      load();
-    } else {
+    if (!res.ok) {
       const b = await res.json().catch(() => ({}));
       setError(b.message ?? 'Could not post the notice.');
+      throw new Error('rejected');
     }
-  }
+    setTitle('');
+    setBody('');
+    await load();
+  });
 
   return (
     <div>
@@ -55,7 +53,7 @@ export default function AnnouncementsPage() {
       </div>
 
       <div className="grid lg:grid-cols-[1fr_1.3fr] gap-6 mt-8">
-        <form onSubmit={post} className="card p-6 h-fit rise rise-2">
+        <form onSubmit={post.run} className="card p-6 h-fit rise rise-2">
           <h2 className="font-display text-xl">Post a notice</h2>
           <label className="block text-sm font-medium mt-5 mb-1.5" htmlFor="title">
             Title
@@ -87,13 +85,18 @@ export default function AnnouncementsPage() {
               {error}
             </p>
           )}
-          <button
+          {/* "Post" is not one of the conjugated verbs, so the wording is spelled out. */}
+          <Button
             type="submit"
-            disabled={busy}
-            className="mt-5 rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2.5 hover:bg-brand-deep transition disabled:opacity-60"
+            state={post.state}
+            icon={<SendIcon />}
+            pendingLabel="Posting…"
+            doneLabel="Posted!"
+            failedLabel="Couldn't post"
+            className="mt-5"
           >
-            {busy ? 'Posting…' : 'Post notice'}
-          </button>
+            Post notice
+          </Button>
         </form>
 
         <section className="space-y-4">

@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Button, useAsyncAction } from '@/components/Button';
+import { CashIcon, CloseIcon } from '@/components/icons';
 
 interface Deposit {
   id: string;
@@ -28,8 +30,13 @@ const fmt = (d: string) =>
  */
 export default function DepositQueue({ onSettled }: { onSettled: () => void }) {
   const [deposits, setDeposits] = useState<Deposit[]>([]);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  /**
+   * Confirming a deposit the ledger already carries succeeds without posting anything — an
+   * outcome the button's tick cannot describe, and the one thing a bursar needs told, so it
+   * survives the removal of the other success notes.
+   */
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch('/api/proxy/fees/deposits?status=PENDING');
@@ -40,32 +47,30 @@ export default function DepositQueue({ onSettled }: { onSettled: () => void }) {
     load();
   }, [load]);
 
-  async function review(id: string, action: 'confirm' | 'reject') {
-    setBusy(id);
-    setMessage(null);
-    const body =
-      action === 'reject' ? JSON.stringify({ reason: 'Proof did not match the deposit' }) : '{}';
-    const res = await fetch(`/api/proxy/fees/deposits/${id}/${action}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-    });
-    const data = await res.json().catch(() => ({}));
-    setBusy(null);
-    if (res.ok) {
-      setMessage(
-        action === 'confirm'
-          ? data.alreadyApplied
-            ? 'Already credited — no double posting.'
-            : 'Confirmed and credited to the student ledger.'
-          : 'Deposit rejected.',
-      );
+  const review = useCallback(
+    async (id: string, action: 'confirm' | 'reject') => {
+      setError(null);
+      setNotice(null);
+      const body =
+        action === 'reject' ? JSON.stringify({ reason: 'Proof did not match the deposit' }) : '{}';
+      const res = await fetch(`/api/proxy/fees/deposits/${id}/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // The API's own reason — a deposit already reviewed, a missing proof — is the useful part.
+        setError(data.message ?? 'Could not review that deposit.');
+        throw new Error('review rejected');
+      }
+      if (action === 'confirm' && data.alreadyApplied)
+        setNotice('Already credited — no double posting.');
       load();
       onSettled();
-    } else {
-      setMessage(data.message ?? 'Could not review that deposit.');
-    }
-  }
+    },
+    [load, onSettled],
+  );
 
   if (deposits.length === 0) return null;
 
@@ -89,52 +94,86 @@ export default function DepositQueue({ onSettled }: { onSettled: () => void }) {
         </thead>
         <tbody>
           {deposits.map((d) => (
-            <tr key={d.id} className="border-b border-mist/60 last:border-0">
-              <td className="px-6 py-2.5">
-                <p className="font-medium">{d.student}</p>
-                <p className="text-[11px] text-oat tabular">
-                  {d.admissionNo} · {d.reference}
-                </p>
-              </td>
-              <td className="px-3 py-2.5 text-oat text-xs">
-                {d.bankName ?? '—'}
-                {d.bankRef && <span className="block tabular">{d.bankRef}</span>}
-                <span className="block">{fmt(d.depositedAt)}</span>
-              </td>
-              <td className="px-3 py-2.5 text-right tabular font-medium">{money(d.amount)}</td>
-              <td className="px-3 py-2.5">
-                {d.hasProof ? (
-                  <a
-                    href={`/api/proxy/fees/deposits/${d.id}/proof`}
-                    className="text-[12.5px] text-brand hover:underline underline-offset-2"
-                  >
-                    View proof
-                  </a>
-                ) : (
-                  <span className="text-xs text-clay">none attached</span>
-                )}
-              </td>
-              <td className="px-6 py-2.5 text-right whitespace-nowrap">
-                <button
-                  onClick={() => review(d.id, 'confirm')}
-                  disabled={busy === d.id}
-                  className="text-[12.5px] font-medium text-brand border border-brand/40 rounded-full px-3 py-1 hover:bg-brand-mist transition disabled:opacity-50 mr-1.5"
-                >
-                  Confirm
-                </button>
-                <button
-                  onClick={() => review(d.id, 'reject')}
-                  disabled={busy === d.id}
-                  className="text-[12.5px] font-medium text-clay border border-clay/40 rounded-full px-3 py-1 hover:bg-clay/5 transition disabled:opacity-50"
-                >
-                  Reject
-                </button>
-              </td>
-            </tr>
+            <DepositRow key={d.id} deposit={d} review={review} />
           ))}
         </tbody>
       </table>
-      {message && <p className="px-6 py-3 text-sm text-brand">{message}</p>}
+      {notice && <p className="px-6 py-3 text-sm text-brand">{notice}</p>}
+      {error && <p className="px-6 py-3 text-sm text-danger">{error}</p>}
     </section>
+  );
+}
+
+/**
+ * One claim, with its own pair of buttons.
+ *
+ * A row rather than inline markup because each row runs its own action: the pending/outcome state
+ * belongs to the deposit being reviewed, not to the queue.
+ */
+function DepositRow({
+  deposit: d,
+  review,
+}: {
+  deposit: Deposit;
+  review: (id: string, action: 'confirm' | 'reject') => Promise<void>;
+}) {
+  const confirm = useAsyncAction(() => review(d.id, 'confirm'));
+  const reject = useAsyncAction(() => review(d.id, 'reject'));
+
+  return (
+    <tr className="border-b border-mist/60 last:border-0">
+      <td className="px-6 py-2.5">
+        <p className="font-medium">{d.student}</p>
+        <p className="text-[11px] text-oat tabular">
+          {d.admissionNo} · {d.reference}
+        </p>
+      </td>
+      <td className="px-3 py-2.5 text-oat text-xs">
+        {d.bankName ?? '—'}
+        {d.bankRef && <span className="block tabular">{d.bankRef}</span>}
+        <span className="block">{fmt(d.depositedAt)}</span>
+      </td>
+      <td className="px-3 py-2.5 text-right tabular font-medium">{money(d.amount)}</td>
+      <td className="px-3 py-2.5">
+        {d.hasProof ? (
+          <a
+            href={`/api/proxy/fees/deposits/${d.id}/proof`}
+            className="text-[12.5px] text-brand hover:underline underline-offset-2"
+          >
+            View proof
+          </a>
+        ) : (
+          <span className="text-xs text-clay">none attached</span>
+        )}
+      </td>
+      <td className="px-6 py-2.5">
+        <div className="flex items-center justify-end gap-1.5">
+          {/* Cash, not a tick: confirming is what puts the money on the student's ledger. */}
+          <Button
+            size="sm"
+            onClick={confirm.run}
+            state={confirm.state}
+            icon={<CashIcon />}
+            pendingLabel="Confirming…"
+            doneLabel="Confirmed!"
+            failedLabel="Couldn't confirm"
+          >
+            Confirm
+          </Button>
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={reject.run}
+            state={reject.state}
+            icon={<CloseIcon />}
+            pendingLabel="Rejecting…"
+            doneLabel="Rejected!"
+            failedLabel="Couldn't reject"
+          >
+            Reject
+          </Button>
+        </div>
+      </td>
+    </tr>
   );
 }

@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Button, useAsyncAction } from './Button';
+import { TrashIcon } from './icons';
 
 /**
  * Publishing is the moment a file becomes visible to families, so it is its own button rather
@@ -17,36 +18,44 @@ export default function ResourceActions({
   published: boolean;
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState(false);
 
   async function call(path: string, method = 'POST') {
-    setBusy(true);
     const res = await fetch(`/api/proxy/resources/${id}${path}`, { method });
-    setBusy(false);
-    if (res.ok) router.refresh();
+    // The button may only show a tick for a request that actually landed.
+    if (!res.ok) throw new Error('rejected');
+    router.refresh();
   }
 
-  async function remove() {
-    if (!confirm(`Delete “${title}”? Anyone with the link loses it too.`)) return;
-    call('', 'DELETE');
-  }
+  const publish = useAsyncAction(() => call(published ? '/unpublish' : '/publish'));
+  const remove = useAsyncAction(() => call('', 'DELETE'));
 
   return (
     <span className="flex items-center gap-3 whitespace-nowrap">
-      <button
-        onClick={() => call(published ? '/unpublish' : '/publish')}
-        disabled={busy}
-        className="text-[12px] text-brand hover:underline disabled:opacity-50"
+      {/* "Unpublish" is not a verb the labels know, so its wording is spelled out. */}
+      <Button
+        onClick={publish.run}
+        state={publish.state}
+        variant="ghost"
+        size="sm"
+        pendingLabel={published ? 'Unpublishing…' : 'Publishing…'}
+        doneLabel={published ? 'Unpublished!' : 'Published!'}
+        failedLabel={published ? "Couldn't unpublish" : "Couldn't publish"}
       >
         {published ? 'Unpublish' : 'Publish'}
-      </button>
-      <button
-        onClick={remove}
-        disabled={busy}
-        className="text-[12px] text-clay hover:underline disabled:opacity-50"
+      </Button>
+      {/* The confirm stays outside `run`, so backing out of it does not read as a success. */}
+      <Button
+        onClick={() => {
+          if (!confirm(`Delete “${title}”? Anyone with the link loses it too.`)) return;
+          remove.run();
+        }}
+        state={remove.state}
+        variant="danger"
+        size="sm"
+        icon={<TrashIcon />}
       >
         Delete
-      </button>
+      </Button>
     </span>
   );
 }

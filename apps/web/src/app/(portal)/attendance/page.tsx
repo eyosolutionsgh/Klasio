@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import Combobox from '@/components/Combobox';
 import OfflineBar from '@/components/OfflineBar';
+import { Button, useAsyncAction } from '@/components/Button';
+import { CalendarIcon, CheckIcon, SaveIcon } from '@/components/icons';
 import { submitOrQueue } from '@/lib/offline';
 import Link from 'next/link';
 
@@ -31,9 +33,15 @@ export default function AttendancePage() {
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [rows, setRows] = useState<RosterRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [queued, setQueued] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  /**
+   * Null until a save lands, then whether it only reached this device.
+   *
+   * The button's tick says "saved" but not *where*: offline the register is on this phone alone,
+   * and online the absence texts go out on the back of it. Neither is something the button says,
+   * so the note stays — with the redundant "Register saved." lead dropped.
+   */
+  const [savedQueued, setSavedQueued] = useState<boolean | null>(null);
 
   useEffect(() => {
     fetch('/api/proxy/school/structure')
@@ -59,16 +67,17 @@ export default function AttendancePage() {
 
   function setStatus(studentId: string, status: string) {
     setRows((rs) => rs.map((r) => (r.id === studentId ? { ...r, status } : r)));
-    setSaveState('idle');
+    setSavedQueued(null);
   }
 
   function markAll(status: string) {
     setRows((rs) => rs.map((r) => ({ ...r, status })));
-    setSaveState('idle');
+    setSavedQueued(null);
   }
 
-  async function save() {
-    setSaveState('saving');
+  const saveAction = useAsyncAction(async () => {
+    setErrorMsg('');
+    setSavedQueued(null);
     const entries = rows
       .filter((r) => r.status)
       .map((r) => ({ studentId: r.id, status: r.status }));
@@ -79,10 +88,12 @@ export default function AttendancePage() {
       { classId, date, entries },
       `${className} register · ${date}`,
     );
-    setQueued(res.queued);
-    setSaveState(res.ok ? 'saved' : 'error');
-    if (!res.ok) setErrorMsg(res.message ?? 'That did not save.');
-  }
+    if (!res.ok) {
+      setErrorMsg(res.message ?? 'That did not save.');
+      throw new Error('rejected');
+    }
+    setSavedQueued(res.queued);
+  });
 
   const marked = rows.filter((r) => r.status).length;
 
@@ -113,50 +124,60 @@ export default function AttendancePage() {
           value={classId}
           onChange={setClassId}
         />
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          aria-label="Date"
-          className="rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-brand tabular"
-        />
-        <button
+        <div className="relative">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+            <CalendarIcon />
+          </span>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            aria-label="Date"
+            className="rounded-lg border border-mist bg-white px-3.5 py-2 pl-10 text-sm outline-none focus:border-brand tabular"
+          />
+        </div>
+        {/* Not an async action — it only fills the rows in, the save is still a separate press. */}
+        <Button
+          variant="secondary"
           onClick={() => markAll('PRESENT')}
           data-tip="Set every child to Present, then adjust exceptions"
-          className="tip rounded-lg border border-brand text-brand text-sm font-medium px-4 py-2 hover:bg-brand-mist transition"
+          className="tip"
+          icon={<CheckIcon />}
         >
           All present
-        </button>
+        </Button>
         <div className="ml-auto flex items-center gap-3">
           <p className="text-[13px] text-oat tabular">
             {marked}/{rows.length} marked
           </p>
-          <button
-            onClick={save}
-            disabled={saveState === 'saving' || marked === 0}
-            className="rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition disabled:opacity-50"
+          <Button
+            onClick={saveAction.run}
+            state={saveAction.state}
+            disabled={marked === 0}
+            icon={<SaveIcon />}
           >
-            {saveState === 'saving' ? 'Saving…' : 'Save register'}
-          </button>
+            Save register
+          </Button>
         </div>
       </div>
 
-      {saveState === 'saved' && (
+      {savedQueued !== null && (
         <p
           role="status"
           className="mt-3 text-sm text-leaf bg-leaf/10 border border-leaf/20 rounded-lg px-3 py-2 rise"
         >
-          {queued
-            ? 'Register saved on this device — it will sync when the connection returns.'
-            : 'Register saved. Guardians of absent children are texted automatically.'}
+          {savedQueued
+            ? 'Held on this device — it will sync when the connection returns.'
+            : 'Guardians of absent children are texted automatically.'}
         </p>
       )}
-      {saveState === 'error' && (
+      {/* The button can only say it failed; the server's reason is the part worth reading. */}
+      {errorMsg && (
         <p
           role="alert"
           className="mt-3 text-sm text-danger bg-danger/5 border border-danger/20 rounded-lg px-3 py-2"
         >
-          {errorMsg || 'Could not save the register — please try again.'}
+          {errorMsg}
         </p>
       )}
 

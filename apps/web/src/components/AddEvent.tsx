@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Button, useAsyncAction } from './Button';
+import { CalendarIcon, PlusIcon } from './icons';
 
 const field =
   'w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
@@ -25,12 +27,9 @@ export default function AddEvent({
   const [location, setLocation] = useState('');
   const [audience, setAudience] = useState('ALL');
   const [levelId, setLevelId] = useState('');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
+  const action = useAsyncAction(async () => {
     setError(null);
     const res = await fetch('/api/proxy/calendar', {
       method: 'POST',
@@ -46,23 +45,23 @@ export default function AddEvent({
         levelId: levelId || undefined,
       }),
     });
-    setBusy(false);
-    if (res.ok) {
-      setTitle('');
-      setDetails('');
-      setStartsAt('');
-      setEndsAt('');
-      setLocation('');
-      setLevelId('');
-      router.refresh();
-    } else {
+    if (!res.ok) {
       const b = await res.json().catch(() => ({}));
       setError(b.message ?? 'Could not save the event.');
+      // The button may only report failure once the action has actually rejected.
+      throw new Error('rejected');
     }
-  }
+    setTitle('');
+    setDetails('');
+    setStartsAt('');
+    setEndsAt('');
+    setLocation('');
+    setLevelId('');
+    router.refresh();
+  });
 
   return (
-    <form onSubmit={submit} className="card p-6 h-fit rise rise-2">
+    <form onSubmit={action.run} className="card p-6 h-fit rise rise-2">
       <h2 className="font-display text-xl">Add an event</h2>
 
       <label className="block text-sm font-medium mt-5 mb-1.5" htmlFor="ev-title">
@@ -83,26 +82,36 @@ export default function AddEvent({
           <label className="block text-sm font-medium mb-1.5" htmlFor="ev-start">
             Starts
           </label>
-          <input
-            id="ev-start"
-            type="date"
-            required
-            value={startsAt}
-            onChange={(e) => setStartsAt(e.target.value)}
-            className={field}
-          />
+          <div className="relative">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+              <CalendarIcon />
+            </span>
+            <input
+              id="ev-start"
+              type="date"
+              required
+              value={startsAt}
+              onChange={(e) => setStartsAt(e.target.value)}
+              className={`${field} pl-10`}
+            />
+          </div>
         </div>
         <div>
           <label className="block text-sm font-medium mb-1.5" htmlFor="ev-end">
             Ends <span className="text-oat font-normal">(optional)</span>
           </label>
-          <input
-            id="ev-end"
-            type="date"
-            value={endsAt}
-            onChange={(e) => setEndsAt(e.target.value)}
-            className={field}
-          />
+          <div className="relative">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+              <CalendarIcon />
+            </span>
+            <input
+              id="ev-end"
+              type="date"
+              value={endsAt}
+              onChange={(e) => setEndsAt(e.target.value)}
+              className={`${field} pl-10`}
+            />
+          </div>
         </div>
       </div>
 
@@ -172,13 +181,9 @@ export default function AddEvent({
           {error}
         </p>
       )}
-      <button
-        type="submit"
-        disabled={busy}
-        className="mt-5 rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2.5 hover:bg-brand-deep transition disabled:opacity-60"
-      >
-        {busy ? 'Saving…' : 'Add to calendar'}
-      </button>
+      <Button type="submit" state={action.state} icon={<PlusIcon />} className="mt-5">
+        Add to calendar
+      </Button>
     </form>
   );
 }

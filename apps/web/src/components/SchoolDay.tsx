@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Button, useAsyncAction } from './Button';
+import { EditIcon, PlusIcon, SaveIcon, TrashIcon } from './icons';
 
 export interface Period {
   id: string;
@@ -66,7 +68,6 @@ export default function SchoolDay({
   const [newDraft, setNewDraft] = useState<Draft>(BLANK);
   /** The row whose removal has been asked for but not yet confirmed. */
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** Something changed while the panel was open, so the timetable behind it is stale. */
   const [dirty, setDirty] = useState(false);
@@ -121,9 +122,13 @@ export default function SchoolDay({
     );
   }
 
-  /** POST or PATCH, then reload — the list is always what the API holds, never what was typed. */
-  async function submit(d: Draft, id?: string) {
-    setBusy(true);
+  /**
+   * POST or PATCH, then reload — the list is always what the API holds, never what was typed.
+   *
+   * One action state is enough: only one period is ever being added or changed at a time, so the
+   * two places that render the form can never both be showing a button mid-flight.
+   */
+  const submit = useAsyncAction(async (d: Draft, id?: string) => {
     setError(null);
     const body = JSON.stringify({
       name: d.name.trim(),
@@ -136,35 +141,31 @@ export default function SchoolDay({
       { method: id ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body },
     );
     if (!res.ok) {
-      setBusy(false);
       setError(errorText(await res.json().catch(() => ({})), 'Could not save that period.'));
-      return;
+      throw new Error('rejected');
     }
     const fresh = await fetch('/api/proxy/timetable/periods');
     if (fresh.ok) await resequence(await fresh.json());
     await load();
-    setBusy(false);
     setDirty(true);
     reset();
     setNewDraft(BLANK);
-  }
+  });
 
-  async function remove(p: Period) {
-    setBusy(true);
+  const remove = useAsyncAction(async (p: Period) => {
     setError(null);
     const res = await fetch(`/api/proxy/timetable/periods/${p.id}`, { method: 'DELETE' });
-    setBusy(false);
     if (!res.ok) {
       // The API counts the lessons standing in the way and says so. That count is the whole
       // answer to "what would I lose", so it is shown exactly as it arrives.
       setError(errorText(await res.json().catch(() => ({})), 'Could not remove that period.'));
       setConfirmingId(null);
-      return;
+      throw new Error('rejected');
     }
     setDirty(true);
     setConfirmingId(null);
     await load();
-  }
+  });
 
   function startEdit(p: Period) {
     setEditingId(p.id);
@@ -174,24 +175,16 @@ export default function SchoolDay({
     setDraft({ name: p.name, startsAt: p.startsAt, endsAt: p.endsAt, isBreak: p.isBreak });
   }
 
-  const trigger =
-    variant === 'primary' ? (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition"
-      >
-        {label}
-      </button>
-    ) : (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="min-h-11 px-3 text-[12.5px] font-medium text-brand hover:underline underline-offset-2"
-      >
-        {label}
-      </button>
-    );
+  const trigger = (
+    <Button
+      type="button"
+      variant={variant === 'primary' ? 'primary' : 'ghost'}
+      size={variant === 'primary' ? 'md' : 'sm'}
+      onClick={() => setOpen(true)}
+    >
+      {label}
+    </Button>
+  );
 
   if (!open || !mounted) return trigger;
 
@@ -202,7 +195,7 @@ export default function SchoolDay({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        submit(d, id);
+        submit.run(d, id);
       }}
       className="flex flex-wrap items-end gap-3"
     >
@@ -245,20 +238,12 @@ export default function SchoolDay({
         />
         <span>Break — no lessons</span>
       </label>
-      <button
-        type="submit"
-        disabled={busy}
-        className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition disabled:opacity-50"
-      >
-        {busy ? 'Saving…' : id ? 'Save' : 'Add period'}
-      </button>
-      <button
-        type="button"
-        onClick={reset}
-        className="min-h-11 px-2 text-[13px] text-oat hover:text-brand transition"
-      >
+      <Button type="submit" state={submit.state} icon={id ? <SaveIcon /> : <PlusIcon />}>
+        {id ? 'Save' : 'Add period'}
+      </Button>
+      <Button type="button" variant="ghost" onClick={reset}>
         Cancel
-      </button>
+      </Button>
     </form>
   );
 
@@ -308,42 +293,49 @@ export default function SchoolDay({
                             lessons are timetabled in it, they must be cleared first — nothing is
                             deleted behind your back.
                           </p>
-                          <button
+                          <Button
                             type="button"
-                            onClick={() => remove(p)}
-                            disabled={busy}
-                            className="min-h-11 rounded-lg bg-danger text-paper text-[13px] font-medium px-4 disabled:opacity-50"
+                            onClick={() => remove.run(p)}
+                            state={remove.state}
+                            variant="danger"
+                            icon={<TrashIcon />}
                           >
-                            {busy ? 'Removing…' : 'Remove'}
-                          </button>
-                          <button
+                            Remove
+                          </Button>
+                          <Button
                             type="button"
+                            variant="ghost"
                             onClick={() => setConfirmingId(null)}
-                            className="min-h-11 px-2 text-[13px] text-oat hover:text-brand transition"
                           >
                             Keep it
-                          </button>
+                          </Button>
                         </div>
                       ) : (
                         <>
-                          <button
+                          <Button
                             type="button"
+                            variant="ghost"
+                            size="sm"
+                            icon={<EditIcon />}
                             onClick={() => startEdit(p)}
-                            className="min-h-11 px-3 text-[12.5px] font-medium text-brand hover:underline underline-offset-2"
                           >
                             Change
-                          </button>
-                          <button
+                          </Button>
+                          {/* Only opens the confirmation beside the row — the danger treatment
+                              belongs to the button that actually removes. */}
+                          <Button
                             type="button"
+                            variant="ghost"
+                            size="sm"
+                            icon={<TrashIcon />}
                             onClick={() => {
                               setConfirmingId(p.id);
                               setEditingId(null);
                               setError(null);
                             }}
-                            className="min-h-11 px-3 text-[12.5px] text-danger hover:underline underline-offset-2"
                           >
                             Remove
-                          </button>
+                          </Button>
                         </>
                       )}
                     </div>
@@ -362,8 +354,9 @@ export default function SchoolDay({
               {adding ? (
                 form(newDraft, setNewDraft, undefined)
               ) : (
-                <button
+                <Button
                   type="button"
+                  icon={<PlusIcon />}
                   onClick={() => {
                     setAdding(true);
                     setEditingId(null);
@@ -385,10 +378,9 @@ export default function SchoolDay({
                         : BLANK,
                     );
                   }}
-                  className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition"
                 >
                   Add a period
-                </button>
+                </Button>
               )}
             </div>
 
@@ -417,13 +409,9 @@ export default function SchoolDay({
             </div>
 
             <div className="mt-5 flex items-center gap-3">
-              <button
-                type="button"
-                onClick={close}
-                className="min-h-11 rounded-lg border border-mist text-sm font-medium px-5 hover:border-brand transition"
-              >
+              <Button type="button" variant="secondary" onClick={close}>
                 Done
-              </button>
+              </Button>
             </div>
           </div>
         </div>,

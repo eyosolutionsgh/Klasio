@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Button, useAsyncAction } from '@/components/Button';
 
 /**
  * Move a class up a year, or graduate it.
@@ -27,44 +28,52 @@ export default function PromoteClass({
   const [open, setOpen] = useState(false);
   const [confirmingGraduation, setConfirmingGraduation] = useState(false);
   const [toClassId, setToClassId] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  /**
+   * The count, and what happened to the money.
+   *
+   * Kept even though the button reports itself, because success closes the panel and unmounts
+   * that button before "Promoted!" can be read — and "Moved 24 student(s). Outstanding fees
+   * carried forward." says more than a tick ever could.
+   */
+  const [outcome, setOutcome] = useState<string | null>(null);
 
   async function submit(graduate: boolean) {
+    setError(null);
+    setOutcome(null);
     if (!graduate && !toClassId) {
-      setMsg('Choose a destination class or graduate.');
-      return;
+      setError('Choose a destination class or graduate.');
+      // Thrown so the button shows the refusal rather than a tick for a request never sent.
+      throw new Error('no destination');
     }
-    setBusy(true);
-    setMsg(null);
-    try {
-      const res = await fetch('/api/proxy/students/promote', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fromClassId,
-          toClassId: graduate ? undefined : toClassId,
-          // Stated, not inferred from the absent destination — the API refuses to graduate a
-          // class without it, so a dropped field can no longer end a year group by accident.
-          ...(graduate ? { graduate: true } : {}),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message ?? 'Promotion failed');
-      setMsg(
-        data.graduated
-          ? `Graduated ${data.moved} student(s).`
-          : `Moved ${data.moved} student(s). Outstanding fees carried forward.`,
-      );
-      setOpen(false);
-      setConfirmingGraduation(false);
-      router.refresh();
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Promotion failed');
-    } finally {
-      setBusy(false);
+    const res = await fetch('/api/proxy/students/promote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fromClassId,
+        toClassId: graduate ? undefined : toClassId,
+        // Stated, not inferred from the absent destination — the API refuses to graduate a
+        // class without it, so a dropped field can no longer end a year group by accident.
+        ...(graduate ? { graduate: true } : {}),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.message ?? 'Promotion failed');
+      throw new Error('promote rejected');
     }
+    setOutcome(
+      data.graduated
+        ? `Graduated ${data.moved} student(s).`
+        : `Moved ${data.moved} student(s). Outstanding fees carried forward.`,
+    );
+    setOpen(false);
+    setConfirmingGraduation(false);
+    router.refresh();
   }
+
+  const promote = useAsyncAction(() => submit(false));
+  const graduateClass = useAsyncAction(() => submit(true));
 
   return (
     <div className="card p-4">
@@ -74,12 +83,9 @@ export default function PromoteClass({
             End of term for <span className="font-medium text-ink">{fromClassName}</span>? Promote
             the class or graduate its students.
           </p>
-          <button
-            onClick={() => setOpen(true)}
-            className="rounded-lg bg-brand text-paper text-sm font-medium px-4 py-2 hover:bg-brand-deep transition shrink-0"
-          >
-            Promote {fromClassName}
-          </button>
+          <Button onClick={() => setOpen(true)} className="shrink-0">
+            {`Promote ${fromClassName}`}
+          </Button>
         </div>
       ) : confirmingGraduation ? (
         /* The stop: names the class, counts the children, says plainly that it cannot be undone. */
@@ -94,13 +100,16 @@ export default function PromoteClass({
             move them up a year, choose a class instead.
           </p>
           <div className="flex flex-wrap items-center gap-3 mt-4">
-            <button
-              onClick={() => submit(true)}
-              disabled={busy}
-              className="min-h-11 rounded-lg bg-danger text-paper text-sm font-medium px-4 hover:opacity-90 transition disabled:opacity-50"
+            <Button
+              onClick={graduateClass.run}
+              state={graduateClass.state}
+              variant="danger"
+              pendingLabel="Graduating…"
+              doneLabel="Graduated!"
+              failedLabel="Couldn't graduate"
             >
-              {busy ? 'Working…' : `Yes, graduate ${studentCount}`}
-            </button>
+              {`Yes, graduate ${studentCount}`}
+            </Button>
             <button
               onClick={() => setConfirmingGraduation(false)}
               className="min-h-11 px-3 text-sm text-oat hover:text-brand transition"
@@ -128,21 +137,24 @@ export default function PromoteClass({
                 </option>
               ))}
           </select>
-          <button
-            onClick={() => submit(false)}
-            disabled={busy}
-            className="rounded-lg bg-brand text-paper text-sm font-medium px-4 py-2 hover:bg-brand-deep transition disabled:opacity-50"
+          <Button
+            onClick={promote.run}
+            state={promote.state}
+            pendingLabel="Promoting…"
+            doneLabel="Promoted!"
+            failedLabel="Couldn't promote"
           >
-            {busy ? 'Working…' : 'Promote'}
-          </button>
+            Promote
+          </Button>
           {/* Muted, and ellipsised: it opens a question rather than doing the thing. */}
-          <button
+          <Button
+            variant="secondary"
+            disabled={promote.state === 'pending'}
             onClick={() => setConfirmingGraduation(true)}
-            disabled={busy}
-            className="rounded-lg border border-mist text-oat text-sm font-medium px-4 py-2 hover:border-danger hover:text-danger transition disabled:opacity-50"
+            className="text-oat hover:border-danger hover:text-danger"
           >
             Graduate class…
-          </button>
+          </Button>
           <button
             onClick={() => setOpen(false)}
             className="text-sm text-oat hover:text-brand transition"
@@ -151,7 +163,8 @@ export default function PromoteClass({
           </button>
         </div>
       )}
-      {msg && <p className="text-xs text-brand mt-2">{msg}</p>}
+      {error && <p className="text-xs text-danger mt-2">{error}</p>}
+      {outcome && <p className="text-xs text-brand mt-2">{outcome}</p>}
     </div>
   );
 }

@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Button, useAsyncAction } from './Button';
+import { SaveIcon } from './icons';
 
 type RemarkKind = 'TEACHER' | 'HEAD' | 'CONDUCT' | 'INTEREST';
 
@@ -122,12 +124,10 @@ export default function ReportRemarks({
   const [interest, setInterest] = useState(initial.interest ?? '');
   const [teacherRemark, setTeacherRemark] = useState(initial.teacherRemark ?? '');
   const [headRemark, setHeadRemark] = useState(initial.headRemark ?? '');
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  async function save() {
-    setBusy(true);
-    setMessage(null);
+  const save = useAsyncAction(async () => {
+    setError(null);
     const body: Record<string, string> = { conduct, interest, teacherRemark };
     if (isHead) body.headRemark = headRemark;
     const res = await fetch(`/api/proxy/assessment/reports/${studentId}/${termId}`, {
@@ -136,14 +136,12 @@ export default function ReportRemarks({
       body: JSON.stringify(body),
     });
     const data = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (res.ok) {
-      setMessage('Saved.');
-      router.refresh();
-    } else {
-      setMessage(data.message ?? 'Could not save.');
+    if (!res.ok) {
+      setError(data.message ?? 'Could not save.');
+      throw new Error('rejected');
     }
-  }
+    router.refresh();
+  });
 
   if (published) {
     return (
@@ -211,14 +209,11 @@ export default function ReportRemarks({
         {isHead && <RemarkPicker kind="HEAD" score={score} onPick={setHeadRemark} />}
       </div>
       <div className="flex items-center gap-3 mt-4">
-        <button
-          onClick={save}
-          disabled={busy}
-          className="rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition disabled:opacity-50"
-        >
-          {busy ? 'Saving…' : 'Save remarks'}
-        </button>
-        {message && <p className="text-sm text-brand">{message}</p>}
+        <Button onClick={save.run} state={save.state} icon={<SaveIcon />}>
+          Save remarks
+        </Button>
+        {/* Only the reason a save failed — the button already says whether it worked. */}
+        {error && <p className="text-sm text-danger">{error}</p>}
       </div>
     </div>
   );

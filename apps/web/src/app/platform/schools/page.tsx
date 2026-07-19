@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import PlatformSchoolActions from '@/components/PlatformSchoolActions';
+import { Button, useAsyncAction } from '@/components/Button';
+import { MailIcon, PlusIcon, SearchIcon, TrashIcon } from '@/components/icons';
 import { day, isSignedOut, platformCall } from '@/lib/platform-client';
 
 /**
@@ -60,7 +62,8 @@ export default function PlatformSchoolsPage() {
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState('');
 
-  const [busy, setBusy] = useState(false);
+  // Still page-level: `PlatformSchoolActions` reports its outcome through `onDone`, and its
+  // buttons are too far from this banner for one to stand in for the other.
   const [flash, setFlash] = useState<string | null>(null);
 
   // New invitation, and the token it produced. The token is shown once and never again.
@@ -89,23 +92,7 @@ export default function PlatformSchoolsPage() {
     load();
   }, [load]);
 
-  async function act(fn: () => Promise<unknown>, note: string) {
-    setBusy(true);
-    setError(null);
-    try {
-      await fn();
-      setFlash(note);
-      await load();
-    } catch (e) {
-      if (!isSignedOut(e)) setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function invite(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
+  const invite = useAsyncAction(async () => {
     setError(null);
     try {
       const created = await platformCall<{ token: string; email: string }>('invitations', {
@@ -121,27 +108,47 @@ export default function PlatformSchoolsPage() {
       await load();
     } catch (err) {
       if (!isSignedOut(err)) setError((err as Error).message);
-    } finally {
-      setBusy(false);
+      // Rethrown so the button settles on failed. A signed-out error is deliberately not shown —
+      // `platformCall` is already redirecting — but the invitation still was not created.
+      throw err;
     }
-  }
+  });
 
-  function revoke(inv: Invitation) {
+  // Which row is in flight. One action drives every Withdraw button, so the pending state has to
+  // be pinned to the row that was actually pressed rather than lighting up the whole column.
+  const [revoking, setRevoking] = useState<string | null>(null);
+
+  const revoke = useAsyncAction(async (inv: Invitation) => {
+    setError(null);
+    try {
+      await platformCall(`invitations/${inv.id}/revoke`, { method: 'POST' });
+      await load();
+    } catch (e) {
+      if (!isSignedOut(e)) setError((e as Error).message);
+      throw e;
+    }
+  });
+
+  // The confirm stays outside the action: declining it must not settle the button at all, and a
+  // bare `return` inside would read as success.
+  function confirmRevoke(inv: Invitation) {
     if (!window.confirm(`Withdraw the invitation for ${inv.schoolName}? The link stops working.`))
       return;
-    act(
-      () => platformCall(`invitations/${inv.id}/revoke`, { method: 'POST' }),
-      `Invitation for ${inv.schoolName} withdrawn.`,
-    );
+    setRevoking(inv.id);
+    revoke.run(inv).catch(() => {});
   }
+
+  const copy = useAsyncAction(async (link: string) => {
+    // Guarded rather than optional-chained: `?.` on a missing clipboard resolves quietly, and the
+    // button would claim "Copied!" over an empty clipboard.
+    if (!navigator.clipboard) throw new Error('no clipboard');
+    await navigator.clipboard.writeText(link);
+  });
 
   async function signOut() {
     await fetch('/api/platform-session', { method: 'DELETE' });
     router.push('/platform/login');
   }
-
-  const btn =
-    'min-h-11 rounded-lg text-sm font-medium px-4 transition disabled:opacity-50 disabled:cursor-not-allowed';
 
   return (
     <main className="min-h-dvh">
@@ -198,12 +205,17 @@ export default function PlatformSchoolsPage() {
         {!loading && tab === 'schools' && (
           <>
             <div className="mt-6 flex items-center gap-3">
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Search by name or email"
-                className="min-h-11 w-full max-w-sm rounded-lg border border-mist bg-white px-3.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
-              />
+              <div className="relative w-full max-w-sm">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                  <SearchIcon />
+                </span>
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Search by name or email"
+                  className="min-h-11 w-full rounded-lg border border-mist bg-white px-3.5 pl-10 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+                />
+              </div>
               <span className="text-[13px] text-oat whitespace-nowrap">
                 {schools.length} school{schools.length === 1 ? '' : 's'}
               </span>
@@ -281,7 +293,7 @@ export default function PlatformSchoolsPage() {
 
         {!loading && tab === 'invitations' && (
           <>
-            <form onSubmit={invite} className="card p-6 mt-6">
+            <form onSubmit={invite.run} className="card p-6 mt-6">
               <h2 className="font-display text-xl">Invite a school</h2>
               <p className="text-[12.5px] text-oat mt-1 leading-relaxed">
                 Nobody can put a school on Klasio without one of these. The proprietor sets their
@@ -296,14 +308,20 @@ export default function PlatformSchoolsPage() {
                   placeholder="School name"
                   className="min-h-11 rounded-lg border border-mist bg-white px-3.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
                 />
-                <input
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  required
-                  type="email"
-                  placeholder="Proprietor's email"
-                  className="min-h-11 rounded-lg border border-mist bg-white px-3.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
-                />
+                {/* Only the email gets an icon — there is no sensible glyph for a school's name. */}
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                    <MailIcon />
+                  </span>
+                  <input
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    required
+                    type="email"
+                    placeholder="Proprietor's email"
+                    className="min-h-11 w-full rounded-lg border border-mist bg-white px-3.5 pl-10 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+                  />
+                </div>
                 <select
                   value={inviteTier}
                   onChange={(e) => setInviteTier(e.target.value)}
@@ -316,13 +334,11 @@ export default function PlatformSchoolsPage() {
                   ))}
                 </select>
               </div>
-              <button
-                type="submit"
-                disabled={busy}
-                className={`${btn} bg-brand text-paper hover:bg-brand-deep mt-3`}
-              >
-                {busy ? 'Creating…' : 'Create invitation'}
-              </button>
+              <div className="mt-3">
+                <Button type="submit" state={invite.state} icon={<PlusIcon />}>
+                  Create invitation
+                </Button>
+              </div>
             </form>
 
             {issued && (
@@ -335,12 +351,18 @@ export default function PlatformSchoolsPage() {
                 <code className="block mt-3 text-[12.5px] break-all bg-parchment/70 rounded-lg px-3 py-2">
                   {issued.link}
                 </code>
-                <button
-                  onClick={() => navigator.clipboard?.writeText(issued.link)}
-                  className={`${btn} border border-mist bg-white hover:border-ink mt-3`}
-                >
-                  Copy link
-                </button>
+                <div className="mt-3">
+                  <Button
+                    onClick={() => copy.run(issued.link)}
+                    state={copy.state}
+                    variant="secondary"
+                    pendingLabel="Copying…"
+                    doneLabel="Copied!"
+                    failedLabel="Couldn't copy"
+                  >
+                    Copy link
+                  </Button>
+                </div>
               </div>
             )}
 
@@ -371,13 +393,32 @@ export default function PlatformSchoolsPage() {
                           {i.state}
                         </span>
                         {i.state === 'OPEN' && (
-                          <button
-                            onClick={() => revoke(i)}
-                            disabled={busy}
-                            className="ml-3 text-[12.5px] text-danger hover:underline"
+                          <Button
+                            onClick={() => confirmRevoke(i)}
+                            // Only the pressed row shows progress; the rest just lock.
+                            state={revoking === i.id ? revoke.state : 'idle'}
+                            disabled={revoke.state === 'pending' && revoking !== i.id}
+                            variant="ghost"
+                            size="sm"
+                            icon={<TrashIcon />}
+                            pendingLabel="Withdrawing…"
+                            doneLabel="Withdrawn!"
+                            failedLabel="Couldn't withdraw"
+                            /*
+                              Kept as a text link rather than a solid danger button: withdrawing an
+                              invitation nobody has accepted is minor. Important, because the ghost
+                              variant sets `text-oat` on the same property — and dropped once the
+                              action settles, so the button's own outcome colours are legible.
+                            */
+                            className={`ml-3 ${
+                              revoking === i.id &&
+                              (revoke.state === 'done' || revoke.state === 'failed')
+                                ? ''
+                                : 'text-danger! hover:text-danger!'
+                            }`}
                           >
                             Withdraw
-                          </button>
+                          </Button>
                         )}
                       </td>
                     </tr>

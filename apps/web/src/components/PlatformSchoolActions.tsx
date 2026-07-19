@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { isSignedOut, platformCall } from '@/lib/platform-client';
+import { Button, useAsyncAction } from '@/components/Button';
+import { KeyIcon, LockIcon, RefreshIcon, SendIcon } from '@/components/icons';
 
 export interface ActionableSchool {
   id: string;
@@ -34,24 +36,73 @@ export default function PlatformSchoolActions({
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [level, setLevel] = useState<'INFO' | 'WARNING'>('INFO');
-  const [busy, setBusy] = useState(false);
   /** Shown once, never fetchable again — so it lives here until the page is left. */
   const [issued, setIssued] = useState<{ email: string; password: string } | null>(null);
 
-  const btn =
-    'min-h-11 rounded-lg text-sm font-medium px-4 transition disabled:opacity-50 disabled:cursor-not-allowed';
-
-  async function run(fn: () => Promise<unknown>, note: string) {
-    setBusy(true);
+  /**
+   * Run one console action, tell the caller how it went, then rethrow.
+   *
+   * The rethrow is what lets the button that started it settle on a failure rather than a tick:
+   * `useAsyncAction` reads a rejection, not a return value.
+   */
+  async function call(fn: () => Promise<unknown>, note: string) {
     try {
       await fn();
       onDone(note);
     } catch (e) {
       if (!isSignedOut(e)) onError((e as Error).message);
-    } finally {
-      setBusy(false);
+      throw e;
     }
   }
+
+  const suspendAction = useAsyncAction((reason: string) =>
+    call(
+      () =>
+        platformCall(`schools/${school.id}/suspend`, {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        }),
+      `${school.name} suspended.`,
+    ),
+  );
+
+  const restoreAction = useAsyncAction(() =>
+    call(
+      () => platformCall(`schools/${school.id}/restore`, { method: 'POST' }),
+      `${school.name} restored.`,
+    ),
+  );
+
+  const resetAction = useAsyncAction(() =>
+    call(async () => {
+      const res = await platformCall<{
+        owner: { name: string; email: string };
+        temporaryPassword: string;
+      }>(`schools/${school.id}/reset-owner-password`, { method: 'POST' });
+      setIssued({ email: res.owner.email, password: res.temporaryPassword });
+    }, `A new owner password was issued for ${school.name}.`),
+  );
+
+  const sendAction = useAsyncAction(async () => {
+    await call(
+      () =>
+        platformCall(`schools/${school.id}/contact`, {
+          method: 'POST',
+          body: JSON.stringify({ subject, body, level }),
+        }),
+      `Notice sent to ${school.name}.`,
+    );
+    // Only reached when the send actually landed, so a rejected notice keeps its typing.
+    setContacting(false);
+    setSubject('');
+    setBody('');
+    setLevel('INFO');
+  });
+
+  /** One action at a time, as before — the console talks to a live school. */
+  const busy = [suspendAction, restoreAction, resetAction, sendAction].some(
+    (a) => a.state === 'pending',
+  );
 
   function suspend() {
     // `window.confirm`/`prompt` is the house pattern for destructive confirmation here, and the
@@ -59,24 +110,17 @@ export default function PlatformSchoolActions({
     const reason = window.prompt(
       `Suspend ${school.name}?\n\nNobody at the school will be able to sign in, and anyone already signed in stops at their next click. No records are deleted and nothing is downgraded.\n\nReason (the school is shown this):`,
     );
+    // Answered before the action starts, so backing out of the prompt leaves the button idle
+    // rather than ticking for something that never ran. The catch is only there to keep a
+    // rejection from going unhandled — `call` has already shown the reason.
     if (!reason?.trim()) return;
-    run(
-      () =>
-        platformCall(`schools/${school.id}/suspend`, {
-          method: 'POST',
-          body: JSON.stringify({ reason: reason.trim() }),
-        }),
-      `${school.name} suspended.`,
-    );
+    void suspendAction.run(reason.trim()).catch(() => {});
   }
 
   function restore() {
     if (!window.confirm(`Restore access for ${school.name}? They will be able to sign in again.`))
       return;
-    run(
-      () => platformCall(`schools/${school.id}/restore`, { method: 'POST' }),
-      `${school.name} restored.`,
-    );
+    void restoreAction.run().catch(() => {});
   }
 
   /**
@@ -95,65 +139,58 @@ export default function PlatformSchoolActions({
         `Type the school's name to confirm:`,
     );
     if (typed?.trim().toLowerCase() !== school.name.trim().toLowerCase()) return;
-    run(async () => {
-      const res = await platformCall<{
-        owner: { name: string; email: string };
-        temporaryPassword: string;
-      }>(`schools/${school.id}/reset-owner-password`, { method: 'POST' });
-      setIssued({ email: res.owner.email, password: res.temporaryPassword });
-    }, `A new owner password was issued for ${school.name}.`);
-  }
-
-  function send(e: React.FormEvent) {
-    e.preventDefault();
-    run(
-      () =>
-        platformCall(`schools/${school.id}/contact`, {
-          method: 'POST',
-          body: JSON.stringify({ subject, body, level }),
-        }),
-      `Notice sent to ${school.name}.`,
-    ).then(() => {
-      setContacting(false);
-      setSubject('');
-      setBody('');
-      setLevel('INFO');
-    });
+    void resetAction.run().catch(() => {});
   }
 
   return (
     <div className={compact ? '' : 'mt-4'}>
       <div className="flex gap-2 flex-wrap">
-        <button
+        <Button
+          variant="secondary"
           disabled={busy}
           onClick={() => setContacting((c) => !c)}
-          className={`${btn} border border-mist bg-white hover:border-ink`}
+          // No icon: this writes a notice inside their portal, and a mail glyph would promise
+          // an email the school never gets.
         >
           Contact
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="secondary"
+          icon={<KeyIcon />}
           disabled={busy}
+          state={resetAction.state}
           onClick={resetOwner}
-          className={`${btn} border border-mist bg-white hover:border-ink`}
+          pendingLabel="Resetting…"
+          doneLabel="New password issued"
+          failedLabel="Couldn't reset"
         >
           Reset owner password
-        </button>
+        </Button>
         {school.suspended ? (
-          <button
+          <Button
+            icon={<RefreshIcon />}
             disabled={busy}
+            state={restoreAction.state}
             onClick={restore}
-            className={`${btn} bg-ink text-paper hover:bg-ink/90`}
+            pendingLabel="Restoring…"
+            doneLabel="Restored!"
+            failedLabel="Couldn't restore"
           >
             Restore
-          </button>
+          </Button>
         ) : (
-          <button
+          <Button
+            variant="danger"
+            icon={<LockIcon />}
             disabled={busy}
+            state={suspendAction.state}
             onClick={suspend}
-            className={`${btn} border border-danger/40 text-danger bg-white hover:bg-danger/5`}
+            pendingLabel="Suspending…"
+            doneLabel="Suspended"
+            failedLabel="Couldn't suspend"
           >
             Suspend
-          </button>
+          </Button>
         )}
       </div>
 
@@ -166,17 +203,14 @@ export default function PlatformSchoolActions({
           <p className="mt-3 font-mono text-lg tracking-wider text-ink select-all">
             {issued.password}
           </p>
-          <button
-            onClick={() => setIssued(null)}
-            className={`${btn} border border-mist bg-white hover:border-ink mt-4`}
-          >
+          <Button variant="secondary" className="mt-4" onClick={() => setIssued(null)}>
             Done
-          </button>
+          </Button>
         </div>
       )}
 
       {contacting && (
-        <form onSubmit={send} className={compact ? 'card p-5 mt-3' : 'mt-4'}>
+        <form onSubmit={sendAction.run} className={compact ? 'card p-5 mt-3' : 'mt-4'}>
           <p className="text-[12.5px] text-oat leading-relaxed">
             This appears inside their portal, marked as coming from Klasio. It is not an
             announcement in their own name, and it does not spend their SMS credits.
@@ -210,20 +244,12 @@ export default function PlatformSchoolActions({
               Needs their attention
             </label>
             <div className="flex gap-2 ml-auto">
-              <button
-                type="button"
-                onClick={() => setContacting(false)}
-                className={`${btn} border border-mist bg-white hover:border-ink`}
-              >
+              <Button type="button" variant="secondary" onClick={() => setContacting(false)}>
                 Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={busy}
-                className={`${btn} bg-brand text-paper hover:bg-brand-deep`}
-              >
-                {busy ? 'Sending…' : 'Send notice'}
-              </button>
+              </Button>
+              <Button type="submit" icon={<SendIcon />} state={sendAction.state}>
+                Send notice
+              </Button>
             </div>
           </div>
         </form>

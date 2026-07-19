@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Button, useAsyncAction } from './Button';
+import { CashIcon, EditIcon, PlusIcon, SaveIcon, TrashIcon } from './icons';
 
 interface Part {
   id: string;
@@ -52,7 +54,6 @@ export default function InstallmentPlan({
   const [loaded, setLoaded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [rows, setRows] = useState<Draft[]>([]);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -82,8 +83,7 @@ export default function InstallmentPlan({
     setEditing(true);
   }
 
-  async function save() {
-    setBusy(true);
+  const save = useAsyncAction(async () => {
     setError(null);
     const res = await fetch('/api/proxy/fees/installments', {
       method: 'POST',
@@ -100,7 +100,6 @@ export default function InstallmentPlan({
       }),
     });
     const body = await res.json().catch(() => ({}));
-    setBusy(false);
     if (res.ok) {
       setPlan(body);
       setEditing(false);
@@ -111,7 +110,8 @@ export default function InstallmentPlan({
     setError(
       Array.isArray(body.message) ? body.message.join('. ') : (body.message ?? 'Could not save.'),
     );
-  }
+    throw new Error('plan rejected');
+  });
 
   if (!loaded || !plan) return null;
 
@@ -123,12 +123,15 @@ export default function InstallmentPlan({
       <div className="flex items-center justify-between gap-3">
         <h2 className="font-display text-xl">Payment plan</h2>
         {canEdit && !editing && (
-          <button
+          <Button
             onClick={startEditing}
-            className="no-print text-[12.5px] font-medium text-brand hover:underline underline-offset-2"
+            variant="ghost"
+            size="sm"
+            icon={has ? <EditIcon /> : <PlusIcon />}
+            className="no-print"
           >
-            {has ? 'Replace plan' : '+ Set up a plan'}
-          </button>
+            {has ? 'Replace plan' : 'Set up a plan'}
+          </Button>
         )}
       </div>
       <p className="text-sm text-oat mt-1.5">
@@ -143,17 +146,27 @@ export default function InstallmentPlan({
               <div key={i} className="flex flex-wrap items-end gap-2">
                 <label className="text-[13px]">
                   {i === 0 && <span className="block text-oat mb-1">Amount (GHS)</span>}
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={r.amount}
-                    onChange={(e) =>
-                      setRows(rows.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))
-                    }
-                    className={`${field} w-32 tabular`}
-                  />
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                      <CashIcon />
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={r.amount}
+                      onChange={(e) =>
+                        setRows(
+                          rows.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)),
+                        )
+                      }
+                      // A shade wider than before so the figure still fits beside the icon.
+                      className={`${field} w-36 tabular pl-10`}
+                    />
+                  </div>
                 </label>
+                {/* No calendar icon on the date box: the native date control draws its own
+                    picker indicator, and two calendars in one field read as a mistake. */}
                 <label className="text-[13px]">
                   {i === 0 && <span className="block text-oat mb-1">Due</span>}
                   <input
@@ -176,23 +189,30 @@ export default function InstallmentPlan({
                     className={`${field} w-full`}
                   />
                 </label>
-                <button
+                {/* Ghost rather than danger: this drops a row from a draft, nothing on file. */}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  icon={<TrashIcon />}
                   onClick={() => setRows(rows.filter((_, j) => j !== i))}
                   disabled={rows.length === 1}
-                  className="min-h-11 px-2 text-[13px] text-oat hover:text-clay transition disabled:opacity-40"
                 >
                   Remove
-                </button>
+                </Button>
               </div>
             ))}
           </div>
 
-          <button
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            icon={<PlusIcon />}
             onClick={() => setRows([...rows, { amount: '', dueDate: '', note: '' }])}
-            className="mt-3 text-[12.5px] font-medium text-brand hover:underline underline-offset-2"
+            className="mt-3"
           >
-            + Add an instalment
-          </button>
+            Add an instalment
+          </Button>
 
           <p className="text-[13px] mt-3 pt-3 border-t border-mist/60">
             Plan totals <span className="tabular font-medium">{money(draftTotal)}</span> · the
@@ -200,22 +220,28 @@ export default function InstallmentPlan({
           </p>
 
           <div className="flex items-center gap-3 mt-3">
-            <button
-              onClick={save}
-              disabled={busy}
-              className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition disabled:opacity-60"
+            <Button
+              type="button"
+              onClick={save.run}
+              state={save.state}
+              icon={<SaveIcon />}
+              // The label swaps between "Replace"/"Save", so both spellings are given here.
+              pendingLabel="Saving…"
+              doneLabel="Saved!"
+              failedLabel="Couldn't save"
             >
-              {busy ? 'Saving…' : has ? 'Replace plan' : 'Save plan'}
-            </button>
-            <button
+              {has ? 'Replace plan' : 'Save plan'}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
               onClick={() => {
                 setEditing(false);
                 setError(null);
               }}
-              className="min-h-11 px-2 text-[13px] text-oat hover:text-brand transition"
             >
               Cancel
-            </button>
+            </Button>
           </div>
           {error && <p className="text-sm text-danger mt-2">{error}</p>}
           {has && (

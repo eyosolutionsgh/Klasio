@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import AuthShell from '@/components/AuthShell';
 import { AuthButton, AuthError, AuthField, AuthFieldGroup } from '@/components/AuthField';
+import { useAsyncAction } from '@/components/Button';
+import { LockIcon, MailIcon } from '@/components/icons';
 
 /**
  * EYO's own sign-in.
@@ -18,32 +20,29 @@ export default function PlatformLoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
+  const signIn = useAsyncAction(async () => {
     setError(null);
     const res = await fetch('/api/platform-session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
-    setBusy(false);
-    if (res.ok) {
-      router.push('/platform/schools');
-      router.refresh();
-    } else {
+    if (!res.ok) {
       setError('That email or password is not right.');
+      // Thrown so the button settles on failed rather than claiming a sign-in that did not happen.
+      throw new Error('rejected');
     }
-  }
+    router.push('/platform/schools');
+    router.refresh();
+  });
 
   return (
     <AuthShell
       title="Klasio Platform"
       subtitle="Klasio staff sign-in. This is not a school account."
     >
-      <form onSubmit={submit} aria-label="Platform sign in">
+      <form onSubmit={signIn.run} aria-label="Platform sign in">
         <AuthFieldGroup>
           <AuthField
             label="Email address"
@@ -54,9 +53,11 @@ export default function PlatformLoginPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@eyo.gh"
+            icon={<MailIcon />}
           />
           <AuthField
             label="Password"
+            icon={<LockIcon />}
             revealable
             required
             autoComplete="current-password"
@@ -69,7 +70,12 @@ export default function PlatformLoginPage() {
         {error && <AuthError>{error}</AuthError>}
 
         <div className="mt-7">
-          <AuthButton busy={busy} busyLabel="Signing in…">
+          <AuthButton
+            state={signIn.state}
+            busyLabel="Signing in…"
+            doneLabel="Signed in!"
+            icon={<LockIcon />}
+          >
             Log in
           </AuthButton>
         </div>

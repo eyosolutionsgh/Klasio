@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import Combobox from './Combobox';
+import { Button, useAsyncAction } from './Button';
+import { SaveIcon } from './icons';
 
 interface Template {
   kind: string;
@@ -48,6 +50,79 @@ const field =
   'rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
 
 /**
+ * One reminder's wording and its own save button.
+ *
+ * A component per template rather than a `busy === kind` string in the parent: the button state
+ * belongs to the row that owns it, and `useAsyncAction` is a hook, so it cannot be called inside
+ * the map.
+ */
+function TemplateEditor({
+  template,
+  draft,
+  onDraftChange,
+  onSaved,
+}: {
+  template: Template;
+  draft: string;
+  onDraftChange: (next: string) => void;
+  onSaved: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+
+  const save = useAsyncAction(async () => {
+    setError(null);
+    const res = await fetch('/api/proxy/fees/reminders/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: template.kind, body: draft }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(body.message ?? 'Could not save that wording.');
+      throw new Error('rejected');
+    }
+    onSaved();
+  });
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 className="text-sm font-medium">{TITLES[template.kind]?.title ?? template.kind}</h3>
+        {!template.customised && (
+          <span className="text-[10px] uppercase tracking-wider bg-parchment text-oat rounded-full px-2 py-0.5">
+            Default wording
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-oat mt-1">{TITLES[template.kind]?.blurb}</p>
+      <textarea
+        value={draft}
+        onChange={(e) => onDraftChange(e.target.value)}
+        rows={3}
+        className={`${field} w-full mt-2`}
+      />
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 mt-2">
+        <p className="text-xs text-oat">
+          Placeholders: {template.placeholders.map((p) => `{${p}}`).join(' · ')} — anything else is
+          sent as typed.
+        </p>
+        <Button
+          onClick={save.run}
+          state={save.state}
+          icon={<SaveIcon />}
+          size="sm"
+          disabled={draft === template.body}
+        >
+          Save wording
+        </Button>
+      </div>
+      {/* The server's reason, which the button cannot carry — it can only say "Couldn't save". */}
+      {error && <p className="text-xs text-danger mt-1.5">{error}</p>}
+    </div>
+  );
+}
+
+/**
  * The wording of fee reminders and when they go out automatically.
  *
  * The schedule is only a stored intent: it is read by a background worker that needs Redis, and
@@ -59,8 +134,8 @@ export default function ReminderSettings() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [schedule, setSchedule] = useState<Schedule | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const [t, s] = await Promise.all([
@@ -81,8 +156,8 @@ export default function ReminderSettings() {
     if (!schedule) return;
     const merged = { ...schedule, ...next };
     setSchedule(merged);
-    setBusy('schedule');
-    setMessage(null);
+    setSavingSchedule(true);
+    setScheduleError(null);
     const res = await fetch('/api/proxy/fees/reminders/schedule', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -93,25 +168,9 @@ export default function ReminderSettings() {
       }),
     });
     const body = await res.json().catch(() => ({}));
-    setBusy(null);
+    setSavingSchedule(false);
     if (res.ok) setSchedule(body);
-    else setMessage(body.message ?? 'Could not save the schedule.');
-  }
-
-  async function saveTemplate(kind: string) {
-    setBusy(kind);
-    setMessage(null);
-    const res = await fetch('/api/proxy/fees/reminders/templates', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind, body: drafts[kind] }),
-    });
-    const body = await res.json().catch(() => ({}));
-    setBusy(null);
-    if (res.ok) {
-      setMessage('Saved.');
-      load();
-    } else setMessage(body.message ?? 'Could not save that wording.');
+    else setScheduleError(body.message ?? 'Could not save the schedule.');
   }
 
   if (!schedule) return null;
@@ -129,7 +188,7 @@ export default function ReminderSettings() {
           <input
             type="checkbox"
             checked={schedule.enabled}
-            disabled={busy === 'schedule'}
+            disabled={savingSchedule}
             onChange={(e) => saveSchedule({ enabled: e.target.checked })}
             className="w-4 h-4 mt-0.5"
           />
@@ -189,44 +248,22 @@ export default function ReminderSettings() {
             <span className="block mt-1.5">It has not run yet.</span>
           )}
         </p>
+
+        {/* The schedule saves itself off a toggle, so there is no button to carry a failure. */}
+        {scheduleError && <p className="text-sm text-danger mt-3">{scheduleError}</p>}
       </div>
 
       <div className="mt-5 pt-5 border-t border-mist/60 space-y-5">
         {templates.map((t) => (
-          <div key={t.kind}>
-            <div className="flex items-baseline justify-between gap-3">
-              <h3 className="text-sm font-medium">{TITLES[t.kind]?.title ?? t.kind}</h3>
-              {!t.customised && (
-                <span className="text-[10px] uppercase tracking-wider bg-parchment text-oat rounded-full px-2 py-0.5">
-                  Default wording
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-oat mt-1">{TITLES[t.kind]?.blurb}</p>
-            <textarea
-              value={drafts[t.kind] ?? ''}
-              onChange={(e) => setDrafts({ ...drafts, [t.kind]: e.target.value })}
-              rows={3}
-              className={`${field} w-full mt-2`}
-            />
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 mt-2">
-              <p className="text-xs text-oat">
-                Placeholders: {t.placeholders.map((p) => `{${p}}`).join(' · ')} — anything else is
-                sent as typed.
-              </p>
-              <button
-                onClick={() => saveTemplate(t.kind)}
-                disabled={busy === t.kind || (drafts[t.kind] ?? '') === t.body}
-                className="rounded-lg bg-brand text-paper text-sm font-medium px-4 py-2 hover:bg-brand-deep transition disabled:opacity-50"
-              >
-                {busy === t.kind ? 'Saving…' : 'Save wording'}
-              </button>
-            </div>
-          </div>
+          <TemplateEditor
+            key={t.kind}
+            template={t}
+            draft={drafts[t.kind] ?? ''}
+            onDraftChange={(next) => setDrafts({ ...drafts, [t.kind]: next })}
+            onSaved={load}
+          />
         ))}
       </div>
-
-      {message && <p className="text-sm mt-3">{message}</p>}
     </section>
   );
 }

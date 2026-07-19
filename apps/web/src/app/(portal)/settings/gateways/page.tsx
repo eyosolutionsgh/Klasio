@@ -1,6 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Button, useAsyncAction } from '@/components/Button';
+import { ChoiceCards } from '@/components/ChoiceCards';
+import { CashIcon, KeyIcon, LockIcon } from '@/components/icons';
 
 interface Gateway {
   id: string;
@@ -13,6 +16,16 @@ interface Gateway {
   updatedAt: string;
 }
 
+/** Labels stay as the enum spells them — a bursar matches these against the gateway's own portal. */
+const PROVIDERS = [
+  { value: 'PAYSTACK', label: 'PAYSTACK' },
+  { value: 'HUBTEL', label: 'HUBTEL' },
+] as const;
+const MODES = [
+  { value: 'TEST', label: 'TEST' },
+  { value: 'LIVE', label: 'LIVE' },
+] as const;
+
 export default function GatewaysPage() {
   const [gateways, setGateways] = useState<Gateway[]>([]);
   const [provider, setProvider] = useState<'PAYSTACK' | 'HUBTEL'>('PAYSTACK');
@@ -20,8 +33,9 @@ export default function GatewaysPage() {
   const [secret, setSecret] = useState('');
   const [publicKey, setPublicKey] = useState('');
   const [merchantNumber, setMerchantNumber] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  // Only the failure reason: the button carries the outcome, and on success the table above
+  // reloads to show the provider and mode that were just connected.
+  const [error, setError] = useState<string | null>(null);
 
   async function load() {
     const res = await fetch('/api/proxy/payments/gateway');
@@ -31,10 +45,8 @@ export default function GatewaysPage() {
     load();
   }, []);
 
-  async function connect(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setMessage(null);
+  const connect = useAsyncAction(async () => {
+    setError(null);
     const res = await fetch('/api/proxy/payments/gateway', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -47,15 +59,13 @@ export default function GatewaysPage() {
       }),
     });
     const data = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (res.ok) {
-      setMessage(`${provider} connected in ${mode} mode.`);
-      setSecret('');
-      load();
-    } else {
-      setMessage(data.message ?? 'Could not save gateway credentials.');
+    if (!res.ok) {
+      setError(data.message ?? 'Could not save gateway credentials.');
+      throw new Error('rejected');
     }
-  }
+    setSecret('');
+    load();
+  });
 
   return (
     <div>
@@ -106,56 +116,54 @@ export default function GatewaysPage() {
         </table>
       </div>
 
-      <form onSubmit={connect} className="card p-6 mt-6 rise rise-3 max-w-xl space-y-4">
+      <form onSubmit={connect.run} className="card p-6 mt-6 rise rise-3 max-w-xl space-y-4">
         <h2 className="font-display text-xl">Connect a gateway</h2>
-        <div className="flex gap-2">
-          {(['PAYSTACK', 'HUBTEL'] as const).map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => setProvider(p)}
-              className={`text-[13px] rounded-full px-3.5 py-1.5 border transition ${provider === p ? 'bg-brand text-paper border-brand' : 'border-mist bg-white hover:border-brand'}`}
-            >
-              {p}
-            </button>
-          ))}
-          <span className="flex-1" />
-          {(['TEST', 'LIVE'] as const).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => setMode(m)}
-              className={`text-[13px] rounded-full px-3.5 py-1.5 border transition ${mode === m ? 'bg-ink text-paper border-ink' : 'border-mist bg-white hover:border-ink'}`}
-            >
-              {m}
-            </button>
-          ))}
+        <div className="grid sm:grid-cols-2 gap-4">
+          <ChoiceCards
+            legend="Provider"
+            name="provider"
+            value={provider}
+            onChange={setProvider}
+            options={PROVIDERS}
+          />
+          <ChoiceCards legend="Mode" name="mode" value={mode} onChange={setMode} options={MODES} />
         </div>
 
         <div>
           <label className="block text-sm font-medium mb-1.5" htmlFor="secret">
             {provider === 'PAYSTACK' ? 'Secret key' : 'Client secret'}
           </label>
-          <input
-            id="secret"
-            type="password"
-            required
-            value={secret}
-            onChange={(e) => setSecret(e.target.value)}
-            placeholder={provider === 'PAYSTACK' ? 'sk_live_…' : 'client secret'}
-            className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
-          />
+          <div className="relative">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+              <LockIcon />
+            </span>
+            <input
+              id="secret"
+              type="password"
+              required
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+              placeholder={provider === 'PAYSTACK' ? 'sk_live_…' : 'client secret'}
+              className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 pl-10 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+            />
+          </div>
         </div>
         <div>
           <label className="block text-sm font-medium mb-1.5" htmlFor="pk">
             {provider === 'PAYSTACK' ? 'Public key' : 'Client ID'}
           </label>
-          <input
-            id="pk"
-            value={publicKey}
-            onChange={(e) => setPublicKey(e.target.value)}
-            className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand"
-          />
+          {/* KeyIcon, not LockIcon: this half of the pair is the public one, nothing to guard. */}
+          <div className="relative">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+              <KeyIcon />
+            </span>
+            <input
+              id="pk"
+              value={publicKey}
+              onChange={(e) => setPublicKey(e.target.value)}
+              className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 pl-10 text-sm outline-none focus:border-brand"
+            />
+          </div>
         </div>
         {provider === 'HUBTEL' && (
           <div>
@@ -171,14 +179,19 @@ export default function GatewaysPage() {
           </div>
         )}
 
-        <button
+        {/* "Connect" is not one of the conjugated verbs, so the three states are spelled out. */}
+        <Button
           type="submit"
-          disabled={busy || !secret}
-          className="rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2.5 hover:bg-brand-deep transition disabled:opacity-50"
+          state={connect.state}
+          disabled={!secret}
+          icon={<CashIcon />}
+          pendingLabel="Connecting…"
+          doneLabel="Connected!"
+          failedLabel="Couldn't connect"
         >
-          {busy ? 'Saving…' : 'Connect gateway'}
-        </button>
-        {message && <p className="text-sm text-brand">{message}</p>}
+          Connect gateway
+        </Button>
+        {error && <p className="text-sm text-danger">{error}</p>}
       </form>
     </div>
   );

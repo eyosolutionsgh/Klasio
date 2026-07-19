@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import AuthShell from '@/components/AuthShell';
 import { AuthButton, AuthError, AuthField, AuthFieldGroup } from '@/components/AuthField';
+import { useAsyncAction } from '@/components/Button';
+import { LockIcon, MailIcon, PlusIcon, UserIcon } from '@/components/icons';
 
 /** Matches the API's `@MinLength(8)`, so the form can say so before the round trip. */
 const MIN_PASSWORD = 8;
@@ -31,7 +33,6 @@ function Register() {
   const [ownerName, setOwnerName] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!token) {
@@ -50,13 +51,13 @@ function Register() {
       .finally(() => setChecking(false));
   }, [token]);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  const submit = useAsyncAction(async () => {
     if (password.length < MIN_PASSWORD) {
       setError(`Choose a password of at least ${MIN_PASSWORD} characters.`);
-      return;
+      // Thrown rather than returned so the button does not settle on "Created!" for a school
+      // that was never sent.
+      throw new Error('too short');
     }
-    setBusy(true);
     setError(null);
     const res = await fetch('/api/register', {
       method: 'POST',
@@ -64,16 +65,15 @@ function Register() {
       body: JSON.stringify({ token, schoolName, ownerName, email: invitation?.email, password }),
     });
     const body = await res.json().catch(() => ({}));
-    setBusy(false);
     if (!res.ok) {
       setError(body.error ?? 'Could not create that school.');
-      return;
+      throw new Error('rejected');
     }
     // Straight into Setup rather than the dashboard: a school with no terms or classes yet has
     // an empty dashboard, and the first useful thing to do is tell us its year and its levels.
     router.push('/settings/school');
     router.refresh();
-  }
+  });
 
   const footer = (
     <p className="text-[13px] text-oat">
@@ -113,7 +113,7 @@ function Register() {
       subtitle={`Invitation confirmed for ${invitation.email}. A few details to get started — you can change any of them later.`}
       footer={footer}
     >
-      <form onSubmit={submit} aria-label="Register your school">
+      <form onSubmit={submit.run} aria-label="Register your school">
         <AuthFieldGroup>
           <AuthField
             label="School name"
@@ -126,6 +126,7 @@ function Register() {
           />
           <AuthField
             label="Your name"
+            icon={<UserIcon />}
             required
             autoComplete="name"
             maxLength={80}
@@ -141,12 +142,14 @@ function Register() {
           <AuthField
             label="Email address"
             type="email"
+            icon={<MailIcon />}
             readOnly
             value={invitation.email}
             className="text-oat"
           />
           <AuthField
             label="Password"
+            icon={<LockIcon />}
             revealable
             required
             autoComplete="new-password"
@@ -164,7 +167,9 @@ function Register() {
         {error && <AuthError>{error}</AuthError>}
 
         <div className="mt-7">
-          <AuthButton busy={busy} busyLabel="Creating your school…">
+          {/* "Creating your school…" is kept over the derived "Creating…" — it is the one wait on
+              this page long enough to be worth naming. */}
+          <AuthButton state={submit.state} busyLabel="Creating your school…" icon={<PlusIcon />}>
             Create school
           </AuthButton>
         </div>

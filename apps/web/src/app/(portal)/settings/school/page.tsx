@@ -1,6 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Button, useAsyncAction } from '@/components/Button';
+import { ChoiceCards } from '@/components/ChoiceCards';
+import { CalendarIcon, PlusIcon, SaveIcon } from '@/components/icons';
 
 interface Term {
   id: string;
@@ -84,7 +87,6 @@ export default function SchoolSetupPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [idFormat, setIdFormat] = useState('{YYYY}-{####}');
   const [idNext, setIdNext] = useState('1');
-  const [idSaved, setIdSaved] = useState<string | null>(null);
   const [held, setHeld] = useState<string[]>([]);
 
   // Every write on this page — creating, correcting and removing — is `school.settings`.
@@ -156,6 +158,101 @@ export default function SchoolSetupPage() {
   const [subjCode, setSubjCode] = useState('');
   const [subjCore, setSubjCore] = useState(false);
 
+  // ── actions ──────────────────────────────────────────────────────
+  // One per form. Each throws when `send` reports a rejection so the button lands on "failed";
+  // the reason itself stays in `message`, which `send` has already set. The three correction
+  // forms take a single action apiece because only one row is ever open for editing.
+  const idAction = useAsyncAction(async () => {
+    const ok = await send(
+      'settings',
+      { admissionNoFormat: idFormat, admissionNoNext: Number(idNext) },
+      'PATCH',
+    );
+    if (!ok) throw new Error('rejected');
+  });
+
+  const editTermAction = useAsyncAction(async () => {
+    if (!editTerm) return;
+    const ok = await send(
+      `terms/${editTerm.id}`,
+      {
+        name: editTerm.name,
+        startDate: editTerm.startDate,
+        endDate: editTerm.endDate,
+        // Null rather than "" clears it: @IsOptional() waves null past
+        // @IsDateString(), and the service reads it as "no date set".
+        nextTermBegins: editTerm.nextTermBegins || null,
+      },
+      'PATCH',
+    );
+    if (!ok) throw new Error('rejected');
+    setEditTerm(null);
+  });
+
+  const yearAction = useAsyncAction(async () => {
+    const ok = await send('years', { name: yearName, startDate: yearStart, endDate: yearEnd });
+    if (!ok) throw new Error('rejected');
+    setYearName('');
+  });
+
+  const termAction = useAsyncAction(async () => {
+    const ok = await send(`years/${termYearId}/terms`, {
+      name: termName,
+      startDate: termStart,
+      endDate: termEnd,
+      nextTermBegins: termNext || undefined,
+    });
+    if (!ok) throw new Error('rejected');
+    setTermName('');
+  });
+
+  const editLevelAction = useAsyncAction(async () => {
+    if (!editLevel) return;
+    const ok = await send(
+      `levels/${editLevel.id}`,
+      { name: editLevel.name, category: editLevel.category },
+      'PATCH',
+    );
+    if (!ok) throw new Error('rejected');
+    setEditLevel(null);
+  });
+
+  const levelAction = useAsyncAction(async () => {
+    const ok = await send('levels', {
+      name: levelName,
+      category: levelCat,
+      order: levels.length + 1,
+    });
+    if (!ok) throw new Error('rejected');
+    setLevelName('');
+  });
+
+  const editClassAction = useAsyncAction(async () => {
+    if (!editClass) return;
+    // The PATCH route validates against the full class DTO, so the level goes
+    // with the name every time, even when only the name was retyped.
+    const ok = await send(
+      `classes/${editClass.id}`,
+      { name: editClass.name, levelId: editClass.levelId },
+      'PATCH',
+    );
+    if (!ok) throw new Error('rejected');
+    setEditClass(null);
+  });
+
+  const classAction = useAsyncAction(async () => {
+    const ok = await send('classes', { name: className, levelId: classLevelId });
+    if (!ok) throw new Error('rejected');
+    setClassName('');
+  });
+
+  const subjectAction = useAsyncAction(async () => {
+    const ok = await send('subjects', { name: subjName, code: subjCode, isCore: subjCore });
+    if (!ok) throw new Error('rejected');
+    setSubjName('');
+    setSubjCode('');
+  });
+
   return (
     <div className="space-y-8">
       <div className="rise rise-1">
@@ -176,19 +273,7 @@ export default function SchoolSetupPage() {
           have to keep two sets of numbers.
         </p>
 
-        <form
-          className="mt-4 flex flex-wrap items-end gap-3"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setIdSaved(null);
-            const ok = await send(
-              'settings',
-              { admissionNoFormat: idFormat, admissionNoNext: Number(idNext) },
-              'PATCH',
-            );
-            if (ok) setIdSaved('Saved. New admission numbers will be issued this way.');
-          }}
-        >
+        <form className="mt-4 flex flex-wrap items-end gap-3" onSubmit={idAction.run}>
           <label className="text-[13px]">
             <span className="block text-oat mb-1">Format</span>
             <input
@@ -208,9 +293,9 @@ export default function SchoolSetupPage() {
               className="w-28 min-h-11 rounded-lg border border-mist bg-white px-3 py-2 text-sm tabular outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
             />
           </label>
-          <button className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
+          <Button type="submit" state={idAction.state} icon={<SaveIcon />}>
             Save
-          </button>
+          </Button>
         </form>
 
         <div className="mt-4 rounded-lg bg-parchment/60 p-4">
@@ -246,7 +331,6 @@ export default function SchoolSetupPage() {
             Anything else you type is kept exactly as it is. Changing the format never renumbers
             students already enrolled, and the next number cannot be set below one already issued.
           </p>
-          {idSaved && <p className="text-sm text-leaf mt-2">{idSaved}</p>}
         </div>
       </section>
 
@@ -256,23 +340,23 @@ export default function SchoolSetupPage() {
           GES keeps the familiar statutory look. Modern is a cleaner layout with a coloured masthead
           — the same marks, grades and remarks either way.
         </p>
-        <div className="flex gap-2 mt-4">
-          {(['GES', 'MODERN'] as const).map((t) => (
-            <button
-              key={t}
-              onClick={async () => {
-                if (await send('settings', { reportTemplate: t }, 'PATCH')) setTemplate(t);
-              }}
-              className={`text-[13px] rounded-full px-4 py-1.5 border transition ${
-                template === t
-                  ? 'bg-brand text-paper border-brand'
-                  : 'border-mist bg-white hover:border-brand'
-              }`}
-            >
-              {t === 'GES' ? 'GES classic' : 'Modern'}
-            </button>
-          ))}
-        </div>
+        {/*
+          The choice only sticks once the server has taken it, so `template` still moves on the
+          reply rather than on the click — a rejected write leaves the cards where they were.
+        */}
+        <ChoiceCards
+          className="mt-4"
+          legend="Layout"
+          name="reportTemplate"
+          value={template}
+          onChange={async (t) => {
+            if (await send('settings', { reportTemplate: t }, 'PATCH')) setTemplate(t);
+          }}
+          options={[
+            { value: 'GES', label: 'GES classic' },
+            { value: 'MODERN', label: 'Modern' },
+          ]}
+        />
       </section>
 
       {/* Academic years & terms */}
@@ -297,22 +381,7 @@ export default function SchoolSetupPage() {
                   <li key={t.id}>
                     <form
                       className="flex flex-wrap items-end gap-2 rounded-lg bg-parchment/50 p-3"
-                      onSubmit={async (e) => {
-                        e.preventDefault();
-                        const ok = await send(
-                          `terms/${editTerm.id}`,
-                          {
-                            name: editTerm.name,
-                            startDate: editTerm.startDate,
-                            endDate: editTerm.endDate,
-                            // Null rather than "" clears it: @IsOptional() waves null past
-                            // @IsDateString(), and the service reads it as "no date set".
-                            nextTermBegins: editTerm.nextTermBegins || null,
-                          },
-                          'PATCH',
-                        );
-                        if (ok) setEditTerm(null);
-                      }}
+                      onSubmit={editTermAction.run}
                     >
                       <label className="text-[12px] text-oat">
                         Name
@@ -325,45 +394,58 @@ export default function SchoolSetupPage() {
                       </label>
                       <label className="text-[12px] text-oat">
                         Starts
-                        <input
-                          required
-                          type="date"
-                          value={dateValue(editTerm.startDate)}
-                          onChange={(e) => setEditTerm({ ...editTerm, startDate: e.target.value })}
-                          className={`${field} min-h-11 mt-1 block text-ink`}
-                        />
+                        <div className="relative mt-1">
+                          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                            <CalendarIcon />
+                          </span>
+                          <input
+                            required
+                            type="date"
+                            value={dateValue(editTerm.startDate)}
+                            onChange={(e) =>
+                              setEditTerm({ ...editTerm, startDate: e.target.value })
+                            }
+                            className={`${field} min-h-11 block text-ink pl-10`}
+                          />
+                        </div>
                       </label>
                       <label className="text-[12px] text-oat">
                         Ends
-                        <input
-                          required
-                          type="date"
-                          value={dateValue(editTerm.endDate)}
-                          onChange={(e) => setEditTerm({ ...editTerm, endDate: e.target.value })}
-                          className={`${field} min-h-11 mt-1 block text-ink`}
-                        />
+                        <div className="relative mt-1">
+                          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                            <CalendarIcon />
+                          </span>
+                          <input
+                            required
+                            type="date"
+                            value={dateValue(editTerm.endDate)}
+                            onChange={(e) => setEditTerm({ ...editTerm, endDate: e.target.value })}
+                            className={`${field} min-h-11 block text-ink pl-10`}
+                          />
+                        </div>
                       </label>
                       <label className="text-[12px] text-oat">
                         Next term begins
-                        <input
-                          type="date"
-                          value={dateValue(editTerm.nextTermBegins)}
-                          onChange={(e) =>
-                            setEditTerm({ ...editTerm, nextTermBegins: e.target.value || null })
-                          }
-                          className={`${field} min-h-11 mt-1 block text-ink`}
-                        />
+                        <div className="relative mt-1">
+                          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                            <CalendarIcon />
+                          </span>
+                          <input
+                            type="date"
+                            value={dateValue(editTerm.nextTermBegins)}
+                            onChange={(e) =>
+                              setEditTerm({ ...editTerm, nextTermBegins: e.target.value || null })
+                            }
+                            className={`${field} min-h-11 block text-ink pl-10`}
+                          />
+                        </div>
                       </label>
-                      <button className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
+                      <Button type="submit" state={editTermAction.state} icon={<SaveIcon />}>
                         Save term
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditTerm(null)}
-                        className="min-h-11 px-2 text-[13px] text-oat hover:text-brand transition"
-                      >
+                      </Button>
+                      <Button type="button" variant="ghost" onClick={() => setEditTerm(null)}>
                         Cancel
-                      </button>
+                      </Button>
                       <p className="w-full text-[11px] text-oat">
                         Term dates decide which register a date belongs to, what &ldquo;this
                         term&rdquo; means for invoicing, and the reopening date printed on report
@@ -409,13 +491,7 @@ export default function SchoolSetupPage() {
         ))}
 
         <div className="grid md:grid-cols-2 gap-6 mt-6 pt-5 border-t border-mist">
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              if (await send('years', { name: yearName, startDate: yearStart, endDate: yearEnd }))
-                setYearName('');
-            }}
-          >
+          <form onSubmit={yearAction.run}>
             <p className="text-[13px] font-medium mb-2">Add an academic year</p>
             <div className="space-y-2">
               <input
@@ -426,41 +502,39 @@ export default function SchoolSetupPage() {
                 className={`${field} w-full`}
               />
               <div className="flex gap-2">
-                <input
-                  required
-                  type="date"
-                  value={yearStart}
-                  onChange={(e) => setYearStart(e.target.value)}
-                  className={`${field} flex-1`}
-                />
-                <input
-                  required
-                  type="date"
-                  value={yearEnd}
-                  onChange={(e) => setYearEnd(e.target.value)}
-                  className={`${field} flex-1`}
-                />
+                {/* These two carry no label of their own, so the icon is doing real work here. */}
+                <div className="relative flex-1">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                    <CalendarIcon />
+                  </span>
+                  <input
+                    required
+                    type="date"
+                    value={yearStart}
+                    onChange={(e) => setYearStart(e.target.value)}
+                    className={`${field} w-full pl-10`}
+                  />
+                </div>
+                <div className="relative flex-1">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                    <CalendarIcon />
+                  </span>
+                  <input
+                    required
+                    type="date"
+                    value={yearEnd}
+                    onChange={(e) => setYearEnd(e.target.value)}
+                    className={`${field} w-full pl-10`}
+                  />
+                </div>
               </div>
-              <button className="rounded-lg bg-brand text-paper text-sm font-medium px-4 py-2 hover:bg-brand-deep transition">
+              <Button type="submit" state={yearAction.state} icon={<PlusIcon />}>
                 Add year
-              </button>
+              </Button>
             </div>
           </form>
 
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              if (
-                await send(`years/${termYearId}/terms`, {
-                  name: termName,
-                  startDate: termStart,
-                  endDate: termEnd,
-                  nextTermBegins: termNext || undefined,
-                })
-              )
-                setTermName('');
-            }}
-          >
+          <form onSubmit={termAction.run}>
             <p className="text-[13px] font-medium mb-2">Add a term</p>
             <div className="space-y-2">
               <select
@@ -484,33 +558,48 @@ export default function SchoolSetupPage() {
                 className={`${field} w-full`}
               />
               <div className="flex gap-2">
-                <input
-                  required
-                  type="date"
-                  value={termStart}
-                  onChange={(e) => setTermStart(e.target.value)}
-                  className={`${field} flex-1`}
-                />
-                <input
-                  required
-                  type="date"
-                  value={termEnd}
-                  onChange={(e) => setTermEnd(e.target.value)}
-                  className={`${field} flex-1`}
-                />
+                <div className="relative flex-1">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                    <CalendarIcon />
+                  </span>
+                  <input
+                    required
+                    type="date"
+                    value={termStart}
+                    onChange={(e) => setTermStart(e.target.value)}
+                    className={`${field} w-full pl-10`}
+                  />
+                </div>
+                <div className="relative flex-1">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                    <CalendarIcon />
+                  </span>
+                  <input
+                    required
+                    type="date"
+                    value={termEnd}
+                    onChange={(e) => setTermEnd(e.target.value)}
+                    className={`${field} w-full pl-10`}
+                  />
+                </div>
               </div>
               <label className="block text-[12px] text-oat">
                 Next term begins (printed on terminal reports)
-                <input
-                  type="date"
-                  value={termNext}
-                  onChange={(e) => setTermNext(e.target.value)}
-                  className={`${field} w-full mt-1`}
-                />
+                <div className="relative mt-1">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                    <CalendarIcon />
+                  </span>
+                  <input
+                    type="date"
+                    value={termNext}
+                    onChange={(e) => setTermNext(e.target.value)}
+                    className={`${field} w-full pl-10`}
+                  />
+                </div>
               </label>
-              <button className="rounded-lg bg-brand text-paper text-sm font-medium px-4 py-2 hover:bg-brand-deep transition">
+              <Button type="submit" state={termAction.state} icon={<PlusIcon />}>
                 Add term
-              </button>
+              </Button>
             </div>
           </form>
         </div>
@@ -528,15 +617,7 @@ export default function SchoolSetupPage() {
                   <li key={l.id}>
                     <form
                       className="flex flex-wrap items-center gap-2 rounded-lg bg-parchment/50 p-2"
-                      onSubmit={async (e) => {
-                        e.preventDefault();
-                        const ok = await send(
-                          `levels/${editLevel.id}`,
-                          { name: editLevel.name, category: editLevel.category },
-                          'PATCH',
-                        );
-                        if (ok) setEditLevel(null);
-                      }}
+                      onSubmit={editLevelAction.run}
                     >
                       <input
                         required
@@ -555,16 +636,12 @@ export default function SchoolSetupPage() {
                           </option>
                         ))}
                       </select>
-                      <button className="min-h-11 rounded-lg bg-brand text-paper text-sm px-3 hover:bg-brand-deep transition">
+                      <Button type="submit" state={editLevelAction.state} icon={<SaveIcon />}>
                         Save
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditLevel(null)}
-                        className="min-h-11 px-2 text-[12px] text-oat hover:text-brand transition"
-                      >
+                      </Button>
+                      <Button type="button" variant="ghost" onClick={() => setEditLevel(null)}>
                         Cancel
-                      </button>
+                      </Button>
                     </form>
                   </li>
                 ) : (
@@ -598,20 +675,7 @@ export default function SchoolSetupPage() {
                 ),
               )}
             </ul>
-            <form
-              className="flex gap-2 mt-3"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                if (
-                  await send('levels', {
-                    name: levelName,
-                    category: levelCat,
-                    order: levels.length + 1,
-                  })
-                )
-                  setLevelName('');
-              }}
-            >
+            <form className="flex gap-2 mt-3" onSubmit={levelAction.run}>
               <input
                 required
                 value={levelName}
@@ -630,9 +694,9 @@ export default function SchoolSetupPage() {
                   </option>
                 ))}
               </select>
-              <button className="rounded-lg bg-brand text-paper text-sm px-3 hover:bg-brand-deep transition">
+              <Button type="submit" state={levelAction.state} icon={<PlusIcon />}>
                 Add
-              </button>
+              </Button>
             </form>
           </div>
 
@@ -644,17 +708,7 @@ export default function SchoolSetupPage() {
                   <li key={c.id}>
                     <form
                       className="flex flex-wrap items-center gap-2 rounded-lg bg-parchment/50 p-2"
-                      onSubmit={async (e) => {
-                        e.preventDefault();
-                        // The PATCH route validates against the full class DTO, so the level goes
-                        // with the name every time, even when only the name was retyped.
-                        const ok = await send(
-                          `classes/${editClass.id}`,
-                          { name: editClass.name, levelId: editClass.levelId },
-                          'PATCH',
-                        );
-                        if (ok) setEditClass(null);
-                      }}
+                      onSubmit={editClassAction.run}
                     >
                       <input
                         required
@@ -674,16 +728,12 @@ export default function SchoolSetupPage() {
                           </option>
                         ))}
                       </select>
-                      <button className="min-h-11 rounded-lg bg-brand text-paper text-sm px-3 hover:bg-brand-deep transition">
+                      <Button type="submit" state={editClassAction.state} icon={<SaveIcon />}>
                         Save
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditClass(null)}
-                        className="min-h-11 px-2 text-[12px] text-oat hover:text-brand transition"
-                      >
+                      </Button>
+                      <Button type="button" variant="ghost" onClick={() => setEditClass(null)}>
                         Cancel
-                      </button>
+                      </Button>
                       <p className="w-full text-[11px] text-oat">
                         Renaming keeps the {c.studentCount}{' '}
                         {c.studentCount === 1 ? 'child' : 'children'} enrolled here, along with
@@ -720,14 +770,7 @@ export default function SchoolSetupPage() {
                 ),
               )}
             </ul>
-            <form
-              className="flex gap-2 mt-3"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                if (await send('classes', { name: className, levelId: classLevelId }))
-                  setClassName('');
-              }}
-            >
+            <form className="flex gap-2 mt-3" onSubmit={classAction.run}>
               <input
                 required
                 value={className}
@@ -748,9 +791,9 @@ export default function SchoolSetupPage() {
                   </option>
                 ))}
               </select>
-              <button className="rounded-lg bg-brand text-paper text-sm px-3 hover:bg-brand-deep transition">
+              <Button type="submit" state={classAction.state} icon={<PlusIcon />}>
                 Add
-              </button>
+              </Button>
             </form>
           </div>
         </div>
@@ -778,16 +821,7 @@ export default function SchoolSetupPage() {
             </li>
           ))}
         </ul>
-        <form
-          className="flex flex-wrap gap-2 mt-4"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (await send('subjects', { name: subjName, code: subjCode, isCore: subjCore })) {
-              setSubjName('');
-              setSubjCode('');
-            }
-          }}
-        >
+        <form className="flex flex-wrap gap-2 mt-4" onSubmit={subjectAction.run}>
           <input
             required
             value={subjName}
@@ -810,9 +844,9 @@ export default function SchoolSetupPage() {
             />
             Core
           </label>
-          <button className="rounded-lg bg-brand text-paper text-sm px-4 hover:bg-brand-deep transition">
+          <Button type="submit" state={subjectAction.state} icon={<PlusIcon />}>
             Add subject
-          </button>
+          </Button>
         </form>
       </section>
     </div>

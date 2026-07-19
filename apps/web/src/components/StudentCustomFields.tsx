@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Button, useAsyncAction } from './Button';
+import { EditIcon, SaveIcon } from './icons';
 
 interface Field {
   id: string;
@@ -26,7 +28,6 @@ export default function StudentCustomFields({ studentId }: { studentId: string }
   const [fields, setFields] = useState<Field[]>([]);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const apply = useCallback((rows: Field[]) => {
@@ -43,8 +44,7 @@ export default function StudentCustomFields({ studentId }: { studentId: string }
     load();
   }, [load]);
 
-  async function save() {
-    setBusy(true);
+  const save = useAsyncAction(async () => {
     setError(null);
     const res = await fetch(`/api/proxy/records/students/${studentId}/fields`, {
       method: 'PUT',
@@ -54,14 +54,13 @@ export default function StudentCustomFields({ studentId }: { studentId: string }
       }),
     });
     const data = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (res.ok) {
-      apply(data);
-      setEditing(false);
-    } else {
+    if (!res.ok) {
       setError(data.message ?? 'Could not save.');
+      throw new Error('rejected');
     }
-  }
+    apply(data);
+    setEditing(false);
+  });
 
   // Nothing to show until the school sets some up — an empty card is just noise on the page.
   if (fields.length === 0) return null;
@@ -77,12 +76,15 @@ export default function StudentCustomFields({ studentId }: { studentId: string }
       <div className="flex items-center justify-between gap-3">
         <h2 className="font-display text-xl">Other details</h2>
         {!editing && (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<EditIcon />}
+            className="no-print"
             onClick={() => setEditing(true)}
-            className="no-print text-[12.5px] font-medium text-brand hover:underline underline-offset-2"
           >
             Edit
-          </button>
+          </Button>
         )}
       </div>
 
@@ -130,23 +132,19 @@ export default function StudentCustomFields({ studentId }: { studentId: string }
             </label>
           ))}
           <div className="flex items-center gap-3">
-            <button
-              onClick={save}
-              disabled={busy}
-              className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition disabled:opacity-60"
-            >
-              {busy ? 'Saving…' : 'Save'}
-            </button>
-            <button
+            <Button onClick={save.run} state={save.state} icon={<SaveIcon />}>
+              Save
+            </Button>
+            <Button
+              variant="ghost"
               onClick={() => {
                 setEditing(false);
                 setError(null);
                 apply(fields);
               }}
-              className="min-h-11 px-2 text-[13px] text-oat hover:text-brand transition"
             >
               Cancel
-            </button>
+            </Button>
           </div>
           {error && <p className="text-sm text-danger">{error}</p>}
         </div>

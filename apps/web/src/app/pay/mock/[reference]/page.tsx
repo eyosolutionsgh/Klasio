@@ -2,6 +2,8 @@
 
 import { Suspense, use, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { Button, useAsyncAction } from '@/components/Button';
+import { CheckIcon, CloseIcon } from '@/components/icons';
 
 /** Which service settles this reference. Anything else is treated as a school fee payment. */
 const ROUTES = ['payments', 'billing'] as const;
@@ -20,11 +22,9 @@ function MockCheckout({ params }: { params: Promise<{ reference: string }> }) {
   const search = useSearchParams();
   const requested = search.get('via');
   const via = ROUTES.includes(requested as (typeof ROUTES)[number]) ? requested : 'payments';
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function complete(outcome: 'success' | 'failed') {
-    setBusy(true);
     setError(null);
     const res = await fetch(`/api/pay/${via}/mock/${encodeURIComponent(reference)}/complete`, {
       method: 'POST',
@@ -33,9 +33,9 @@ function MockCheckout({ params }: { params: Promise<{ reference: string }> }) {
     });
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
+      // The gateway's own message is the useful half — the button can only say it failed.
       setError(d.message ?? 'Could not complete');
-      setBusy(false);
-      return;
+      throw new Error('rejected');
     }
     // Back where that kind of payer belongs: a guardian to the public return page, a school
     // owner to their own subscription page, which reads `ref` to report what happened.
@@ -43,6 +43,9 @@ function MockCheckout({ params }: { params: Promise<{ reference: string }> }) {
     window.location.href =
       via === 'billing' ? `/settings/billing?ref=${ref}` : `/pay/return?ref=${ref}`;
   }
+
+  const approve = useAsyncAction(() => complete('success'));
+  const decline = useAsyncAction(() => complete('failed'));
 
   return (
     <main className="min-h-dvh flex items-center justify-center p-6">
@@ -53,21 +56,45 @@ function MockCheckout({ params }: { params: Promise<{ reference: string }> }) {
           No real money moves here. This school has not connected a live payment gateway.
         </p>
         <p className="text-[11px] text-oat mt-4 tabular">{reference}</p>
+        {/*
+          Each button carries its own state, but either one in flight disables the other: the two
+          outcomes settle the same reference, so letting both be pressed would race.
+        */}
         <div className="mt-6 space-y-2">
-          <button
-            onClick={() => complete('success')}
-            disabled={busy}
-            className="w-full rounded-lg bg-forest text-paper font-medium py-3 hover:bg-forest-deep transition disabled:opacity-60"
+          <Button
+            onClick={approve.run}
+            state={approve.state}
+            disabled={decline.state === 'pending'}
+            icon={<CheckIcon />}
+            /*
+              Forest, not the default brand teal: the public payer surfaces (pay, apply, family)
+              are navy throughout. Marked important because `bg-forest` and the variant's
+              `bg-brand` are both plain background utilities — which one wins is decided by
+              Tailwind's own sort order, not by the order they appear here. Dropped once the
+              action settles, so the button's own green/red outcome colour still comes through.
+            */
+            className={`w-full ${
+              approve.state === 'done' || approve.state === 'failed'
+                ? ''
+                : 'bg-forest! text-paper hover:bg-forest-deep!'
+            }`}
           >
-            {busy ? 'Working…' : 'Approve payment'}
-          </button>
-          <button
-            onClick={() => complete('failed')}
-            disabled={busy}
-            className="w-full rounded-lg border border-mist py-2.5 text-sm hover:border-oat transition disabled:opacity-60"
+            Approve payment
+          </Button>
+          <Button
+            onClick={decline.run}
+            state={decline.state}
+            disabled={approve.state === 'pending'}
+            variant="secondary"
+            size="sm"
+            icon={<CloseIcon />}
+            pendingLabel="Declining…"
+            doneLabel="Declined!"
+            failedLabel="Couldn't decline"
+            className="w-full"
           >
             Decline
-          </button>
+          </Button>
         </div>
         {error && <p className="mt-3 text-sm text-danger">{error}</p>}
       </div>

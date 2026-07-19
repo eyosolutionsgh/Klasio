@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { Button, useAsyncAction } from '@/components/Button';
+import { DownloadIcon } from '@/components/icons';
 
 /**
  * Downloads a binary file from an API path through the session-aware proxy.
@@ -19,46 +21,45 @@ export default function DownloadButton({
   tip?: string;
   variant?: 'solid' | 'ghost';
 }) {
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function download() {
-    setBusy(true);
+  const download = useAsyncAction(async () => {
     setError(null);
-    try {
-      const res = await fetch(`/api/proxy${path}`);
-      if (!res.ok) throw new Error(`Download failed (${res.status})`);
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Download failed');
-    } finally {
-      setBusy(false);
+    const res = await fetch(`/api/proxy${path}`);
+    if (!res.ok) {
+      // The button can only say "Couldn't download"; the status is what tells a bursar whether
+      // the report simply is not published yet or their session has gone.
+      setError(`Download failed (${res.status})`);
+      throw new Error('download rejected');
     }
-  }
-
-  const cls =
-    variant === 'solid'
-      ? 'rounded-lg bg-brand text-paper hover:bg-brand-deep'
-      : 'rounded-lg border border-mist text-brand hover:bg-brand-mist';
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
 
   return (
     <span className="inline-flex items-center gap-2">
-      <button
-        onClick={download}
-        disabled={busy}
+      <Button
+        onClick={download.run}
+        state={download.state}
+        variant={variant === 'solid' ? 'primary' : 'secondary'}
+        icon={<DownloadIcon />}
         data-tip={tip}
-        className={`tip text-sm font-medium px-4 py-2 transition disabled:opacity-50 ${cls}`}
+        className="tip"
+        // "Download" is not one of the conjugated verbs, and callers pass their own label
+        // ("Print sheet", "PDF"), so the outcome wording is stated rather than derived.
+        pendingLabel="Preparing…"
+        doneLabel="Downloaded!"
+        failedLabel="Couldn't download"
       >
-        {busy ? 'Preparing…' : label}
-      </button>
+        {label}
+      </Button>
       {error && <span className="text-xs text-danger">{error}</span>}
     </span>
   );

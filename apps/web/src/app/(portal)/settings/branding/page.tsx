@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Button, useAsyncAction } from '@/components/Button';
+import { SaveIcon, TrashIcon, UploadIcon } from '@/components/icons';
 
 interface Profile {
   name: string;
@@ -35,7 +37,8 @@ const field =
 export default function BrandingPage() {
   const router = useRouter();
   const [p, setP] = useState<Profile | null>(null);
-  const [busy, setBusy] = useState(false);
+  // Only ever a failure now. Success is narrated by the button itself, so a "Saved." beside a
+  // button already reading "Saved!" was just the same word twice.
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const [logoStamp, setLogoStamp] = useState(0);
@@ -54,10 +57,8 @@ export default function BrandingPage() {
     setP((cur) => (cur ? { ...cur, [key]: value } : cur));
   }
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
+  const saveAction = useAsyncAction(async () => {
     if (!p) return;
-    setBusy(true);
     setNote(null);
     const res = await fetch('/api/proxy/school/profile', {
       method: 'PATCH',
@@ -74,41 +75,47 @@ export default function BrandingPage() {
       }),
     });
     const body = await res.json().catch(() => ({}));
-    setBusy(false);
     setError(!res.ok);
-    setNote(res.ok ? 'Saved.' : (body.message ?? 'Could not save.'));
+    if (!res.ok) {
+      setNote(body.message ?? 'Could not save.');
+      // Thrown so the button settles on "Couldn't save" rather than a tick — the request came
+      // back, but the school's profile did not change.
+      throw new Error(body.message ?? 'save rejected');
+    }
     // Chrome is server-rendered from /me, so the new colour and name need a refresh to appear.
-    if (res.ok) router.refresh();
-  }
+    router.refresh();
+  });
 
-  async function uploadLogo(file: File) {
-    setBusy(true);
+  const upload = useAsyncAction(async (file: File) => {
     setNote(null);
     const fd = new FormData();
     fd.append('file', file);
     const res = await fetch('/api/proxy/school/logo', { method: 'POST', body: fd });
     const body = await res.json().catch(() => ({}));
-    setBusy(false);
     setError(!res.ok);
-    setNote(res.ok ? 'Logo updated.' : (body.message ?? 'Could not upload that image.'));
-    if (res.ok) {
-      setLogoStamp(Date.now()); // bust the <img> cache so the new crest shows immediately
-      await load();
-      router.refresh();
+    if (!res.ok) {
+      // The button can only say "Couldn't upload"; the server's reason is the useful part —
+      // which format, which size limit — so that one stays on screen.
+      setNote(body.message ?? 'Could not upload that image.');
+      throw new Error('upload rejected');
     }
-  }
+    setLogoStamp(Date.now()); // bust the <img> cache so the new crest shows immediately
+    await load();
+    router.refresh();
+  });
 
-  async function removeLogo() {
-    setBusy(true);
+  const removeCrest = useAsyncAction(async () => {
     const res = await fetch('/api/proxy/school/logo', { method: 'DELETE' });
-    setBusy(false);
-    if (res.ok) {
-      setNote('Logo removed.');
-      setError(false);
-      await load();
-      router.refresh();
+    if (!res.ok) {
+      setError(true);
+      setNote('Could not remove the crest.');
+      throw new Error('remove rejected');
     }
-  }
+    setError(false);
+    setNote(null);
+    await load();
+    router.refresh();
+  });
 
   if (!p) return <p className="text-sm text-oat">Loading…</p>;
 
@@ -150,31 +157,38 @@ export default function BrandingPage() {
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];
-                if (f) uploadLogo(f);
+                if (f) upload.run(f);
                 e.target.value = '';
               }}
             />
-            <button
+            <Button
+              type="button"
+              variant="secondary"
               onClick={() => fileRef.current?.click()}
-              disabled={busy}
-              className="min-h-11 rounded-lg border border-brand/40 text-brand text-sm font-medium px-4 hover:bg-brand-mist transition disabled:opacity-60"
+              state={upload.state}
+              icon={<UploadIcon />}
+              pendingLabel="Uploading…"
+              doneLabel="Uploaded!"
+              failedLabel="Couldn't upload"
             >
               {p.hasLogo ? 'Replace crest' : 'Upload crest'}
-            </button>
+            </Button>
             {p.hasLogo && (
-              <button
-                onClick={removeLogo}
-                disabled={busy}
-                className="min-h-11 px-3 text-[13px] text-clay hover:underline underline-offset-2 disabled:opacity-60"
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={removeCrest.run}
+                state={removeCrest.state}
+                icon={<TrashIcon />}
               >
                 Remove
-              </button>
+              </Button>
             )}
           </div>
         </div>
       </section>
 
-      <form onSubmit={save} className="card p-6 mt-6 rise rise-3">
+      <form onSubmit={saveAction.run} className="card p-6 mt-6 rise rise-3">
         <h2 className="font-display text-xl">Colour</h2>
         <p className="text-sm text-oat mt-1.5">
           Used for the sidebar, top bar and buttons. Text and page backgrounds stay as they are, so
@@ -301,13 +315,10 @@ export default function BrandingPage() {
         </div>
 
         <div className="flex items-center gap-3 mt-6">
-          <button
-            disabled={busy}
-            className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition disabled:opacity-60"
-          >
-            {busy ? 'Saving…' : 'Save changes'}
-          </button>
-          {note && <span className={`text-sm ${error ? 'text-danger' : 'text-leaf'}`}>{note}</span>}
+          <Button type="submit" state={saveAction.state} icon={<SaveIcon />}>
+            Save changes
+          </Button>
+          {error && note && <span className="text-sm text-danger">{note}</span>}
         </div>
       </form>
     </div>

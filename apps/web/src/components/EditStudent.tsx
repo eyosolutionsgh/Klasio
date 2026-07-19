@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import Combobox from '@/components/Combobox';
+import { Button, useAsyncAction } from '@/components/Button';
+import { ChoiceCards } from '@/components/ChoiceCards';
+import { EditIcon, SaveIcon, UserIcon } from '@/components/icons';
 
 const field =
   'w-full min-h-11 rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
@@ -41,7 +44,6 @@ export default function EditStudent({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gender, setGender] = useState(student.gender);
   const [classId, setClassId] = useState(student.classId ?? '');
@@ -57,10 +59,8 @@ export default function EditStudent({
       .catch(() => undefined);
   }, [open]);
 
-  async function submit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  const submit = useAsyncAction(async (e: React.FormEvent<HTMLFormElement>) => {
     const f = new FormData(e.currentTarget);
-    setBusy(true);
     setError(null);
     const res = await fetch(`/api/proxy/students/${studentId}`, {
       method: 'PATCH',
@@ -76,27 +76,30 @@ export default function EditStudent({
       }),
     });
     const body = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (res.ok) {
-      setOpen(false);
-      router.refresh();
-    } else {
+    if (!res.ok) {
+      // The API's wording names the field that was wrong, which "Couldn't save" cannot.
       setError(
         Array.isArray(body.message)
           ? body.message.join('. ')
           : (body.message ?? 'Could not save those changes.'),
       );
+      throw new Error('save rejected');
     }
-  }
+    setOpen(false);
+    router.refresh();
+  });
 
   if (!open) {
     return (
-      <button
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={() => setOpen(true)}
-        className="no-print text-[12.5px] font-medium text-brand hover:underline underline-offset-2"
+        icon={<EditIcon />}
+        className="no-print"
       >
         Edit details
-      </button>
+      </Button>
     );
   }
   if (!mounted) return null;
@@ -109,7 +112,7 @@ export default function EditStudent({
       className="brand-scope fixed inset-0 z-50 grid place-items-center bg-ink/50 p-4 overflow-y-auto"
       onClick={(e) => e.target === e.currentTarget && setOpen(false)}
     >
-      <form onSubmit={submit} className="card w-full max-w-lg p-6">
+      <form onSubmit={submit.run} className="card w-full max-w-lg p-6">
         <h2 className="font-display text-2xl">Edit details</h2>
         <p className="text-sm text-oat mt-1.5">
           These appear on terminal reports, receipts and the ID card. The admission number cannot be
@@ -119,27 +122,46 @@ export default function EditStudent({
         <div className="grid sm:grid-cols-2 gap-3 mt-5">
           <label className="text-[13px]">
             <span className="block text-oat mb-1">First name</span>
-            <input
-              name="firstName"
-              required
-              minLength={2}
-              defaultValue={student.firstName}
-              className={field}
-            />
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                <UserIcon />
+              </span>
+              <input
+                name="firstName"
+                required
+                minLength={2}
+                defaultValue={student.firstName}
+                className={`${field} pl-10`}
+              />
+            </div>
           </label>
           <label className="text-[13px]">
             <span className="block text-oat mb-1">Last name</span>
-            <input
-              name="lastName"
-              required
-              minLength={2}
-              defaultValue={student.lastName}
-              className={field}
-            />
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                <UserIcon />
+              </span>
+              <input
+                name="lastName"
+                required
+                minLength={2}
+                defaultValue={student.lastName}
+                className={`${field} pl-10`}
+              />
+            </div>
           </label>
           <label className="text-[13px] sm:col-span-2">
             <span className="block text-oat mb-1">Other names</span>
-            <input name="otherNames" defaultValue={student.otherNames ?? ''} className={field} />
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                <UserIcon />
+              </span>
+              <input
+                name="otherNames"
+                defaultValue={student.otherNames ?? ''}
+                className={`${field} pl-10`}
+              />
+            </div>
           </label>
           <label className="text-[13px]">
             <span className="block text-oat mb-1">Date of birth</span>
@@ -151,29 +173,16 @@ export default function EditStudent({
               className={field}
             />
           </label>
-          <fieldset className="text-[13px]">
-            <legend className="block text-oat mb-1">Gender</legend>
-            <div className="flex gap-2">
-              {[
-                { v: 'FEMALE', l: 'Female' },
-                { v: 'MALE', l: 'Male' },
-              ].map((g) => (
-                <button
-                  key={g.v}
-                  type="button"
-                  onClick={() => setGender(g.v)}
-                  aria-pressed={gender === g.v}
-                  className={`flex-1 min-h-11 rounded-lg border text-sm transition ${
-                    gender === g.v
-                      ? 'bg-brand text-paper border-brand'
-                      : 'border-mist bg-white hover:border-brand'
-                  }`}
-                >
-                  {g.l}
-                </button>
-              ))}
-            </div>
-          </fieldset>
+          <ChoiceCards
+            legend="Gender"
+            name="gender"
+            value={gender}
+            onChange={setGender}
+            options={[
+              { value: 'FEMALE', label: 'Female' },
+              { value: 'MALE', label: 'Male' },
+            ]}
+          />
           <div className="sm:col-span-2">
             <Combobox
               label="Class"
@@ -192,19 +201,12 @@ export default function EditStudent({
         {error && <p className="text-sm text-danger mt-4">{error}</p>}
 
         <div className="flex items-center gap-3 mt-5">
-          <button
-            disabled={busy}
-            className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition disabled:opacity-60"
-          >
-            {busy ? 'Saving…' : 'Save changes'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            className="min-h-11 px-3 text-[13px] text-oat hover:text-brand transition"
-          >
+          <Button type="submit" state={submit.state} icon={<SaveIcon />}>
+            Save changes
+          </Button>
+          <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
             Cancel
-          </button>
+          </Button>
         </div>
       </form>
     </div>,

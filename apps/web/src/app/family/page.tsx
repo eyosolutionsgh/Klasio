@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import GuardianPay from '@/components/GuardianPay';
 import { useRouter } from 'next/navigation';
+import { Button, useAsyncAction } from '@/components/Button';
+import { CalendarIcon, SendIcon } from '@/components/icons';
 import { fileKind, fileSize } from '@/lib/files';
 
 /**
@@ -116,7 +118,9 @@ export default function FamilyPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
-  const [dismissalNote, setDismissalNote] = useState<string | null>(null);
+  // Failure only. The button itself now says "Sent!", so a success note beside it said it twice —
+  // but "could not send" still has to be visible after the button has settled back to idle.
+  const [dismissalError, setDismissalError] = useState<string | null>(null);
 
   const money = (n: number) =>
     `${me?.school.currency ?? 'GHS'} ${n.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -163,6 +167,27 @@ export default function FamilyPage() {
     await fetch('/api/guardian-session', { method: 'DELETE' });
     router.push('/family/login');
   }
+
+  const requestDismissal = useAsyncAction(async (e: React.FormEvent<HTMLFormElement>) => {
+    // Both read before the first await: `currentTarget` is cleared once the event has finished
+    // dispatching, so the form is gone by the time the response lands.
+    const form = e.currentTarget;
+    const f = new FormData(form);
+    setDismissalError(null);
+    const res = await fetch(`/api/family/guardian/wards/${wardId}/dismissal-requests`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        forDate: String(f.get('forDate')),
+        details: String(f.get('details')),
+      }),
+    });
+    if (!res.ok) {
+      setDismissalError('Could not send that just now.');
+      throw new Error('rejected');
+    }
+    form.reset();
+  });
 
   if (loading || !me) {
     return <main className="min-h-dvh flex items-center justify-center text-oat">Loading…</main>;
@@ -342,38 +367,28 @@ export default function FamilyPage() {
         {overview && (
           <section className="card p-6">
             <h2 className="font-display text-xl">Change today&apos;s collection</h2>
+            {/*
+              "by text" moved up here from the old success note. It is the one thing that note
+              said which the button's "Sent!" cannot, and a parent deciding whether to use this
+              form at all is better told before they send than after.
+            */}
             <p className="text-sm text-oat mt-1.5">
-              Someone else collecting, or an early finish? Tell the school here. They will confirm —
-              nothing changes until they do.
+              Someone else collecting, or an early finish? Tell the school here. They will confirm
+              by text — nothing changes until they do.
             </p>
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const f = new FormData(e.currentTarget);
-                const res = await fetch(`/api/family/guardian/wards/${wardId}/dismissal-requests`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    forDate: String(f.get('forDate')),
-                    details: String(f.get('details')),
-                  }),
-                });
-                setDismissalNote(
-                  res.ok
-                    ? 'Sent to the school. You will get a text once they confirm.'
-                    : 'Could not send that just now.',
-                );
-                if (res.ok) (e.target as HTMLFormElement).reset();
-              }}
-              className="mt-4 space-y-3"
-            >
-              <input
-                name="forDate"
-                type="date"
-                required
-                defaultValue={new Date().toISOString().slice(0, 10)}
-                className="w-full min-h-11 rounded-lg border border-mist bg-white px-3.5 py-2 text-base outline-none focus:border-forest focus:ring-2 focus:ring-forest/15"
-              />
+            <form onSubmit={requestDismissal.run} className="mt-4 space-y-3">
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                  <CalendarIcon />
+                </span>
+                <input
+                  name="forDate"
+                  type="date"
+                  required
+                  defaultValue={new Date().toISOString().slice(0, 10)}
+                  className="w-full min-h-11 rounded-lg border border-mist bg-white px-3.5 pl-10 py-2 text-base outline-none focus:border-forest focus:ring-2 focus:ring-forest/15"
+                />
+              </div>
               <textarea
                 name="details"
                 required
@@ -382,11 +397,30 @@ export default function FamilyPage() {
                 placeholder="My brother Kofi Mensah will collect Ama today at 2pm."
                 className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-base outline-none focus:border-forest focus:ring-2 focus:ring-forest/15"
               />
-              <button className="w-full min-h-11 rounded-lg bg-forest text-paper font-medium hover:bg-forest-deep transition">
+              <Button
+                type="submit"
+                state={requestDismissal.state}
+                icon={<SendIcon />}
+                /*
+                  Forest rather than the default brand teal, as everywhere on the guardian
+                  surfaces. Important because the variant sets `bg-brand` on the same property and
+                  Tailwind's sort order, not source order, decides between them — and dropped once
+                  the action settles so the outcome colour reads.
+                */
+                className={`w-full ${
+                  requestDismissal.state === 'done' || requestDismissal.state === 'failed'
+                    ? ''
+                    : 'bg-forest! text-paper hover:bg-forest-deep!'
+                }`}
+              >
                 Send to the school
-              </button>
+              </Button>
             </form>
-            {dismissalNote && <p className="text-sm text-leaf mt-3">{dismissalNote}</p>}
+            {dismissalError && (
+              <p role="alert" className="text-sm text-danger mt-3">
+                {dismissalError}
+              </p>
+            )}
           </section>
         )}
 

@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Button, useAsyncAction } from './Button';
+import { EditIcon, PlusIcon, SaveIcon, TrashIcon } from './icons';
 
 export interface Band {
   min: number;
@@ -55,7 +57,6 @@ export default function SchemeActions({
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState(scheme.name);
   const [kind, setKind] = useState(scheme.kind);
@@ -81,9 +82,7 @@ export default function SchemeActions({
     setBands((rows) => rows.map((b, x) => (x === i ? { ...b, ...patch } : b)));
   }
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
+  const save = useAsyncAction(async () => {
     setError(null);
     // The PATCH route validates against the full scheme DTO, so all three fields go every time.
     const res = await fetch(`/api/proxy/assessment/schemes/${scheme.id}`, {
@@ -100,49 +99,46 @@ export default function SchemeActions({
         })),
       }),
     });
-    setBusy(false);
     if (!res.ok) {
       setError(errorText(await res.json().catch(() => ({})), 'Could not save that scheme.'));
-      return;
+      throw new Error('rejected');
     }
     setOpen(false);
     onDone();
-  }
+  });
 
-  async function remove() {
-    setBusy(true);
+  const remove = useAsyncAction(async () => {
     setError(null);
     const res = await fetch(`/api/proxy/assessment/schemes/${scheme.id}`, { method: 'DELETE' });
-    setBusy(false);
     if (!res.ok) {
       // The API refuses while any level still points here, and says so. That refusal is the
       // whole answer, so it is shown as it arrives rather than guessed at beforehand.
       setError(errorText(await res.json().catch(() => ({})), 'Could not remove that scheme.'));
-      return;
+      throw new Error('rejected');
     }
     setConfirming(false);
     onDone();
-  }
+  });
 
   const controls = (
     <span className="flex items-center gap-1 shrink-0">
-      <button
-        type="button"
-        onClick={start}
-        className="min-h-11 px-2 text-[12.5px] font-medium text-brand hover:underline underline-offset-2"
-      >
+      {/* Both merely open something — the work happens in the dialog and the confirmation, so
+          neither carries an action state here. */}
+      <Button type="button" variant="ghost" size="sm" icon={<EditIcon />} onClick={start}>
         Change
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
+        variant="ghost"
+        size="sm"
+        icon={<TrashIcon />}
         onClick={() => {
           setConfirming(true);
           setError(null);
         }}
-        className="min-h-11 px-2 text-[12.5px] text-clay hover:underline underline-offset-2"
       >
         Remove
-      </button>
+      </Button>
     </span>
   );
 
@@ -165,24 +161,25 @@ export default function SchemeActions({
           )}
         </p>
         <div className="flex items-center gap-3 mt-1">
-          <button
+          <Button
             type="button"
-            onClick={remove}
-            disabled={busy}
-            className="min-h-11 rounded-lg bg-danger text-paper text-[13px] font-medium px-4 disabled:opacity-50"
+            onClick={remove.run}
+            state={remove.state}
+            variant="danger"
+            icon={<TrashIcon />}
           >
-            {busy ? 'Removing…' : 'Remove'}
-          </button>
-          <button
+            Remove
+          </Button>
+          <Button
             type="button"
+            variant="ghost"
             onClick={() => {
               setConfirming(false);
               setError(null);
             }}
-            className="min-h-11 px-2 text-[13px] text-oat hover:text-brand transition"
           >
             Keep it
-          </button>
+          </Button>
         </div>
         {error && (
           <p role="alert" className="text-sm text-danger mt-1">
@@ -206,7 +203,10 @@ export default function SchemeActions({
           className="brand-scope fixed inset-0 z-50 grid place-items-center bg-ink/50 p-4"
           onClick={(e) => e.target === e.currentTarget && setOpen(false)}
         >
-          <form onSubmit={save} className="card w-full max-w-3xl p-6 max-h-[90vh] overflow-y-auto">
+          <form
+            onSubmit={save.run}
+            className="card w-full max-w-3xl p-6 max-h-[90vh] overflow-y-auto"
+          >
             <h2 className="font-display text-2xl">Change grading scheme</h2>
             <p className="text-sm text-oat mt-1.5">
               These bands turn a total into the grade and remark printed on every terminal report
@@ -299,14 +299,18 @@ export default function SchemeActions({
                         />
                       </td>
                       <td className="py-2 text-right">
-                        <button
+                        {/* Only drops the row from the draft — nothing is saved until the form
+                            is submitted, so this stays ghost rather than danger. */}
+                        <Button
                           type="button"
+                          variant="ghost"
+                          size="sm"
+                          icon={<TrashIcon />}
                           onClick={() => setBands((rows) => rows.filter((_, x) => x !== i))}
                           aria-label={`Remove the ${b.grade || 'unnamed'} band`}
-                          className="min-h-11 px-2 text-[12.5px] text-clay hover:underline underline-offset-2"
                         >
                           Remove
-                        </button>
+                        </Button>
                       </td>
                     </tr>
                   ))}
@@ -321,8 +325,12 @@ export default function SchemeActions({
               </table>
             </div>
 
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="sm"
+              icon={<PlusIcon />}
+              className="mt-3"
               onClick={() => {
                 // Start the next band one above the highest ceiling so far, which is how a table
                 // is written out and saves retyping the number just entered.
@@ -332,10 +340,9 @@ export default function SchemeActions({
                   { min: Math.min(top + 1, 100), max: 100, grade: '', remark: '' },
                 ]);
               }}
-              className="mt-3 min-h-11 px-2 text-[12.5px] font-medium text-brand hover:underline underline-offset-2"
             >
-              + Add a band
-            </button>
+              Add a band
+            </Button>
 
             {error && (
               <p
@@ -354,20 +361,12 @@ export default function SchemeActions({
             </p>
 
             <div className="flex items-center gap-3 mt-5">
-              <button
-                type="submit"
-                disabled={busy}
-                className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition disabled:opacity-50"
-              >
-                {busy ? 'Saving…' : 'Save scheme'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                className="min-h-11 px-3 text-[13px] text-oat hover:text-brand transition"
-              >
+              <Button type="submit" state={save.state} icon={<SaveIcon />}>
+                Save scheme
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
                 Cancel
-              </button>
+              </Button>
             </div>
           </form>
         </div>,

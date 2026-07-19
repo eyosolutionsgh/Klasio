@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Button, useAsyncAction } from '@/components/Button';
+import { SaveIcon } from '@/components/icons';
 
 /**
  * Allergies, conditions and medication the office must know about in a hurry. Edited in place
@@ -17,26 +19,24 @@ export default function MedicalNotes({
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(notes ?? '');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function save() {
-    setBusy(true);
+  const save = useAsyncAction(async () => {
     setError(null);
     const res = await fetch(`/api/proxy/students/${studentId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ medicalNotes: value }),
     });
-    setBusy(false);
-    if (res.ok) {
-      setEditing(false);
-      router.refresh();
-    } else {
+    if (!res.ok) {
       const d = await res.json().catch(() => ({}));
+      // The button can only say "Couldn't save"; the server's reason is the useful half.
       setError(d.message ?? 'Could not save.');
+      throw new Error('save rejected');
     }
-  }
+    setEditing(false);
+    router.refresh();
+  });
 
   return (
     <section className="card p-6 rise rise-3">
@@ -63,13 +63,9 @@ export default function MedicalNotes({
             className="w-full rounded-lg border border-mist bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
           />
           <div className="flex items-center gap-3 mt-2">
-            <button
-              onClick={save}
-              disabled={busy}
-              className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition disabled:opacity-60"
-            >
-              {busy ? 'Saving…' : 'Save'}
-            </button>
+            <Button onClick={save.run} state={save.state} icon={<SaveIcon />}>
+              Save
+            </Button>
             <button
               onClick={() => {
                 setEditing(false);

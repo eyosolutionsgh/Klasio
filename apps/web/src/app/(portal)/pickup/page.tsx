@@ -6,6 +6,8 @@ import DismissalInbox from '@/components/DismissalInbox';
 import QrScanner from '@/components/QrScanner';
 import { submitOrQueue } from '@/lib/offline';
 import OfflineBar from '@/components/OfflineBar';
+import { Button, useAsyncAction } from '@/components/Button';
+import { KeyIcon, LockIcon } from '@/components/icons';
 
 interface Verdict {
   allowed: boolean;
@@ -70,7 +72,6 @@ export default function PickupPage() {
   const [token, setToken] = useState('');
   const [pin, setPin] = useState('');
   const [pinFor, setPinFor] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [log, setLog] = useState<ReleaseRow[]>([]);
@@ -108,7 +109,6 @@ export default function PickupPage() {
   }, [studentId]);
 
   async function verify(body: Record<string, unknown>) {
-    setBusy(true);
     setError(null);
     const res = await fetch('/api/proxy/pickup/verify', {
       method: 'POST',
@@ -116,14 +116,27 @@ export default function PickupPage() {
       body: JSON.stringify({ studentId, ...body }),
     });
     const d = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (res.ok) setCheck(d);
-    else setError(d.message ?? 'Could not identify that person.');
+    if (!res.ok) {
+      setError(d.message ?? 'Could not identify that person.');
+      throw new Error('rejected');
+    }
+    setCheck(d);
   }
 
-  async function release() {
+  /** The three ways to name the collector: a scanned/typed pass, their PIN, or picking them. */
+  const checkPass = useAsyncAction((value: string) => verify({ token: value }));
+  const checkPin = useAsyncAction((p: { id: string; kind: string }) =>
+    verify({ pin, collectorId: p.id, collectorKind: p.kind }),
+  );
+  const pick = useAsyncAction((p: { id: string; kind: string }) =>
+    verify({ collectorId: p.id, collectorKind: p.kind }),
+  );
+  // The gate makes one decision at a time: a check in flight still locks the other routes to it.
+  const busy =
+    checkPass.state === 'pending' || checkPin.state === 'pending' || pick.state === 'pending';
+
+  const releaseAction = useAsyncAction(async () => {
     if (!check) return;
-    setBusy(true);
     setError(null);
     // The gate mints the key, not the server: it has to survive the request failing and being
     // replayed later, which is the whole point of it.
@@ -139,7 +152,6 @@ export default function PickupPage() {
       },
       `${check.student.name} collected by ${check.collector.name}`,
     );
-    setBusy(false);
 
     if (result.queued) {
       // Released on the ground; the record catches up. Saying so plainly matters — staff must
@@ -169,8 +181,9 @@ export default function PickupPage() {
       loadLog();
     } else {
       setError(result.message ?? d.message ?? 'Could not release.');
+      throw new Error('rejected');
     }
-  }
+  });
 
   const people = [...(auth?.guardians ?? []), ...(auth?.delegates ?? [])];
 
@@ -209,28 +222,40 @@ export default function PickupPage() {
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  if (token.trim()) verify({ token: token.trim() });
+                  // Guard here rather than in the action, so an empty Enter is a no-op instead of
+                  // a tick on a check that never ran.
+                  if (token.trim()) checkPass.run(token.trim());
                 }}
                 className="flex flex-wrap gap-2 mt-3"
               >
-                <input
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                  placeholder="Pass code from the QR"
-                  autoFocus
-                  className="flex-1 min-w-[12rem] min-h-11 rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
-                />
-                <button
+                {/* A gate pass is a key, not a search box. */}
+                <div className="relative flex-1 min-w-[12rem]">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                    <KeyIcon />
+                  </span>
+                  <input
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                    placeholder="Pass code from the QR"
+                    autoFocus
+                    className="w-full min-h-11 rounded-lg border border-mist bg-white px-3.5 py-2 pl-10 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  state={checkPass.state}
                   disabled={busy || !token.trim()}
-                  className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition disabled:opacity-50"
+                  pendingLabel="Checking…"
+                  doneLabel="Verified!"
+                  failedLabel="No match"
                 >
                   Check pass
-                </button>
+                </Button>
               </form>
               <QrScanner
                 onScan={(value) => {
                   setToken(value);
-                  verify({ token: value });
+                  checkPass.run(value);
                 }}
               />
             </div>
@@ -246,7 +271,7 @@ export default function PickupPage() {
                       onClick={() =>
                         pinFor === `${p.kind}-${p.id}`
                           ? undefined
-                          : verify({ collectorId: p.id, collectorKind: p.kind })
+                          : pick.run({ id: p.id, kind: p.kind })
                       }
                       disabled={busy || !p.verdict.allowed}
                       className={`w-full text-left rounded-lg border px-4 py-3 transition disabled:opacity-60 ${
@@ -282,31 +307,44 @@ export default function PickupPage() {
                           <form
                             onSubmit={(e) => {
                               e.preventDefault();
-                              verify({ pin, collectorId: p.id, collectorKind: p.kind });
+                              checkPin.run({ id: p.id, kind: p.kind });
                             }}
                             className="flex gap-2"
                           >
-                            <input
-                              value={pin}
-                              onChange={(e) => setPin(e.target.value)}
-                              inputMode="numeric"
-                              autoFocus
-                              placeholder="6-digit PIN"
-                              className="w-32 min-h-11 rounded-lg border border-mist bg-white px-3 py-2 text-sm tabular outline-none focus:border-brand"
-                            />
-                            <button
+                            {/* A PIN is a secret, so the lock rather than the key. Widened to
+                                w-40 to leave the digits room once the icon takes the left. */}
+                            <div className="relative">
+                              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                                <LockIcon />
+                              </span>
+                              <input
+                                value={pin}
+                                onChange={(e) => setPin(e.target.value)}
+                                inputMode="numeric"
+                                autoFocus
+                                placeholder="6-digit PIN"
+                                className="w-40 min-h-11 rounded-lg border border-mist bg-white px-3 py-2 pl-10 text-sm tabular outline-none focus:border-brand"
+                              />
+                            </div>
+                            <Button
+                              type="submit"
+                              variant="secondary"
+                              state={checkPin.state}
                               disabled={busy || pin.length < 4}
-                              className="min-h-11 rounded-lg border border-brand/40 text-brand text-sm font-medium px-3 disabled:opacity-50"
+                              pendingLabel="Checking…"
+                              doneLabel="Verified!"
+                              failedLabel="No match"
                             >
                               Check PIN
-                            </button>
-                            <button
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               type="button"
                               onClick={() => setPinFor(null)}
-                              className="min-h-11 px-2 text-[12px] text-oat"
                             >
                               Cancel
-                            </button>
+                            </Button>
                           </form>
                         ) : (
                           <button
@@ -399,24 +437,29 @@ export default function PickupPage() {
               )}
 
               <div className="flex items-center gap-3 mt-4">
-                <button
-                  onClick={release}
+                <Button
+                  onClick={releaseAction.run}
+                  state={releaseAction.state}
                   disabled={busy || !check.verdict.allowed || !!check.alreadyReleasedToday}
-                  className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition disabled:opacity-50"
+                  pendingLabel="Releasing…"
+                  doneLabel="Released!"
+                  failedLabel="Couldn't release"
                 >
-                  {busy ? 'Releasing…' : 'Release child'}
-                </button>
-                <button
-                  onClick={() => setCheck(null)}
-                  className="min-h-11 px-3 text-[13px] text-oat hover:text-brand transition"
-                >
+                  Release child
+                </Button>
+                <Button variant="ghost" size="sm" type="button" onClick={() => setCheck(null)}>
                   Back
-                </button>
+                </Button>
               </div>
             </div>
           )}
 
           {error && <p className="text-sm text-danger mt-3">{error}</p>}
+          {/*
+            Not the button repeating itself: releasing clears the whole panel, so this note is the
+            only record on screen of *which* child went with *whom* — and offline it says the thing
+            the tick cannot, that the gate let the child go before the record did.
+          */}
           {done && (
             <p className="text-sm text-leaf bg-leaf/10 border border-leaf/20 rounded-lg px-3 py-2 mt-3">
               {done}

@@ -4,6 +4,8 @@ import PromoteClass from '@/components/PromoteClass';
 import DownloadButton from '@/components/DownloadButton';
 import StudentFilters from '@/components/StudentFilters';
 import AddStudent from '@/components/AddStudent';
+import { Button } from '@/components/Button';
+import { SearchIcon } from '@/components/icons';
 
 interface StudentRow {
   id: string;
@@ -88,16 +90,20 @@ export default async function StudentsPage({
           <form className="flex gap-2 flex-1 min-w-[15rem]" action="/students" method="get">
             {classId && <input type="hidden" name="classId" value={classId} />}
             <input type="hidden" name="status" value={status} />
-            <input
-              type="search"
-              name="q"
-              defaultValue={q}
-              placeholder="Search name or admission no."
-              className="rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15 flex-1 min-w-0 sm:w-64 sm:flex-none"
-            />
-            <button className="rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
-              Search
-            </button>
+            {/* The magnifier rides the field, not the button — one per form is the affordance. */}
+            <div className="relative flex-1 min-w-0 sm:w-64 sm:flex-none">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                <SearchIcon />
+              </span>
+              <input
+                type="search"
+                name="q"
+                defaultValue={q}
+                placeholder="Search name or admission no."
+                className="w-full rounded-lg border border-mist bg-white pl-10 pr-3.5 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+              />
+            </div>
+            <Button type="submit">Search</Button>
           </form>
         </div>
       </div>

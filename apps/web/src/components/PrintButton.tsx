@@ -1,13 +1,17 @@
 'use client';
 
+import { Button } from '@/components/Button';
+import { PrintIcon } from '@/components/icons';
+
 export default function PrintButton() {
   return (
-    <button
+    <Button
       onClick={() => window.print()}
+      icon={<PrintIcon />}
       data-tip="Prints exactly as shown — A4 portrait"
-      className="tip rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition"
+      className="tip"
     >
       Print terminal report
-    </button>
+    </Button>
   );
 }

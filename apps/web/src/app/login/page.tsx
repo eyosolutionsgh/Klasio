@@ -5,35 +5,34 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import AuthShell from '@/components/AuthShell';
 import { AuthButton, AuthError, AuthField, AuthFieldGroup } from '@/components/AuthField';
+import { useAsyncAction } from '@/components/Button';
+import { LockIcon, MailIcon } from '@/components/icons';
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
+  const signIn = useAsyncAction(async () => {
     setError(null);
     const res = await fetch('/api/session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
-    setBusy(false);
-    if (res.ok) {
-      router.push('/dashboard');
-      router.refresh();
-    } else {
+    if (!res.ok) {
       setError('That email or password is not right. Please try again.');
+      // Thrown so the button settles on failed rather than claiming a sign-in that did not happen.
+      throw new Error('rejected');
     }
-  }
+    router.push('/dashboard');
+    router.refresh();
+  });
 
   return (
     <AuthShell title="Sign in">
-      <form onSubmit={submit} aria-label="Sign in">
+      <form onSubmit={signIn.run} aria-label="Sign in">
         <AuthFieldGroup>
           <AuthField
             label="Email address"
@@ -44,9 +43,11 @@ export default function LoginPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@school.edu.gh"
+            icon={<MailIcon />}
           />
           <AuthField
             label="Password"
+            icon={<LockIcon />}
             revealable
             required
             autoComplete="current-password"
@@ -68,7 +69,12 @@ export default function LoginPage() {
         {error && <AuthError>{error}</AuthError>}
 
         <div className="mt-7">
-          <AuthButton busy={busy} busyLabel="Signing in…">
+          <AuthButton
+            state={signIn.state}
+            busyLabel="Signing in…"
+            doneLabel="Signed in!"
+            icon={<LockIcon />}
+          >
             Log in
           </AuthButton>
         </div>

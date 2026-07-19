@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Combobox from '@/components/Combobox';
 import SchoolDay, { type Period } from '@/components/SchoolDay';
+import { Button, useAsyncAction } from '@/components/Button';
+import { ChoiceCards } from '@/components/ChoiceCards';
+import { SaveIcon, TrashIcon } from '@/components/icons';
 
 interface Slot {
   id: string;
@@ -44,7 +47,6 @@ export default function TimetablePage() {
   const [draftSubject, setDraftSubject] = useState('');
   const [draftTeacher, setDraftTeacher] = useState('');
   const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -93,9 +95,8 @@ export default function TimetablePage() {
     setError('');
   }
 
-  async function save() {
+  const saveAction = useAsyncAction(async () => {
     if (!editing) return;
-    setSaving(true);
     setError('');
     // PATCH an existing lesson, POST a new one — the clash check runs either way, and only the
     // edit path can tell the API that the row in the way is the row being changed.
@@ -119,7 +120,6 @@ export default function TimetablePage() {
             teacherId: draftTeacher || undefined,
           }),
         });
-    setSaving(false);
     if (res.ok) {
       await load();
       return;
@@ -131,15 +131,16 @@ export default function TimetablePage() {
         ? d.message.join('. ')
         : (d.message ?? 'Could not save that lesson.'),
     );
-  }
+    throw new Error('rejected');
+  });
 
-  async function clear() {
+  const clearAction = useAsyncAction(async () => {
     if (!editing?.slot) return;
-    setSaving(true);
-    await fetch(`/api/proxy/timetable/slots/${editing.slot.id}`, { method: 'DELETE' });
-    setSaving(false);
+    const res = await fetch(`/api/proxy/timetable/slots/${editing.slot.id}`, { method: 'DELETE' });
+    // Reload either way, as before — but the button must not tick for a delete that was refused.
     await load();
-  }
+    if (!res.ok) throw new Error('rejected');
+  });
 
   const weekdays = options?.weekdays ?? [];
 
@@ -154,24 +155,18 @@ export default function TimetablePage() {
       </div>
 
       <div className="mt-6 flex flex-wrap items-end gap-3 rise rise-2">
-        <div>
-          <span className="block text-[11px] uppercase tracking-wider text-oat mb-1">View</span>
-          <div className="inline-flex rounded-lg border border-mist bg-white p-0.5" role="group">
-            {(['CLASS', 'TEACHER'] as View[]).map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => setView(v)}
-                aria-pressed={view === v}
-                className={`min-h-10 rounded-md px-4 text-sm transition ${
-                  view === v ? 'bg-brand text-paper font-medium' : 'text-oat hover:text-ink'
-                }`}
-              >
-                {v === 'CLASS' ? 'By class' : 'By teacher'}
-              </button>
-            ))}
-          </div>
-        </div>
+        {/* No icons: nothing in the set means "a class", and one icon on two cards reads as odd. */}
+        <ChoiceCards
+          legend="View"
+          name="timetable-view"
+          className="w-full sm:w-72"
+          value={view}
+          onChange={setView}
+          options={[
+            { value: 'CLASS', label: 'By class' },
+            { value: 'TEACHER', label: 'By teacher' },
+          ]}
+        />
 
         {view === 'CLASS' ? (
           <Combobox
@@ -237,29 +232,28 @@ export default function TimetablePage() {
               value={draftTeacher}
               onChange={setDraftTeacher}
             />
-            <button
-              onClick={save}
-              disabled={saving}
-              className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition disabled:opacity-50"
-            >
-              {saving ? 'Saving…' : 'Save lesson'}
-            </button>
+            <Button onClick={saveAction.run} state={saveAction.state} icon={<SaveIcon />}>
+              Save lesson
+            </Button>
             {editing.slot && (
-              <button
-                onClick={clear}
-                disabled={saving}
-                className="min-h-11 px-3 text-[13px] text-danger hover:underline underline-offset-2 disabled:opacity-50"
+              /* Emptying one cell is a small, re-doable edit, so it keeps its quiet treatment
+                 rather than becoming a solid danger button beside the primary save. */
+              <Button
+                variant="ghost"
+                onClick={clearAction.run}
+                state={clearAction.state}
+                icon={<TrashIcon />}
+                className="text-danger"
+                pendingLabel="Clearing…"
+                doneLabel="Cleared!"
+                failedLabel="Couldn't clear"
               >
                 Clear
-              </button>
+              </Button>
             )}
-            <button
-              type="button"
-              onClick={() => setEditing(null)}
-              className="min-h-11 px-2 text-[13px] text-oat"
-            >
+            <Button variant="ghost" size="sm" type="button" onClick={() => setEditing(null)}>
               Cancel
-            </button>
+            </Button>
           </div>
           {error && (
             <p

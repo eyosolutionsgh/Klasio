@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { CalendarIcon } from '@/components/icons';
 
 interface Entry {
   id: string;
@@ -73,27 +74,37 @@ export default function AuditPage() {
         </label>
         <label className="text-[13px]">
           <span className="block text-oat mb-1">From</span>
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => {
-              setPage(1);
-              setFrom(e.target.value);
-            }}
-            className="rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand"
-          />
+          <div className="relative">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+              <CalendarIcon />
+            </span>
+            <input
+              type="date"
+              value={from}
+              onChange={(e) => {
+                setPage(1);
+                setFrom(e.target.value);
+              }}
+              className="rounded-lg border border-mist bg-white pl-10 pr-3 py-2 text-sm outline-none focus:border-brand"
+            />
+          </div>
         </label>
         <label className="text-[13px]">
           <span className="block text-oat mb-1">To</span>
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => {
-              setPage(1);
-              setTo(e.target.value);
-            }}
-            className="rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand"
-          />
+          <div className="relative">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+              <CalendarIcon />
+            </span>
+            <input
+              type="date"
+              value={to}
+              onChange={(e) => {
+                setPage(1);
+                setTo(e.target.value);
+              }}
+              className="rounded-lg border border-mist bg-white pl-10 pr-3 py-2 text-sm outline-none focus:border-brand"
+            />
+          </div>
         </label>
       </div>
 

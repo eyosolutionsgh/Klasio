@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import SchemeActions from '@/components/SchemeActions';
+import { Button, useAsyncAction } from '@/components/Button';
+import { PlusIcon, SaveIcon, TrashIcon } from '@/components/icons';
 
 interface Component {
   id: string;
@@ -96,6 +98,52 @@ export default function AssessmentSettingsPage() {
     return true;
   }
 
+  // Each form drives its own button. `send` reports a refusal by returning false, so the action
+  // has to throw on it — otherwise the button would show a tick for a save the API rejected.
+  const saveWeights = useAsyncAction(async () => {
+    if (!(await send('assessment/weights', weights, 'PATCH'))) throw new Error('rejected');
+  });
+
+  const addComponent = useAsyncAction(async () => {
+    const ok = await send('assessment/components', {
+      name,
+      maxScore: Number(maxScore),
+      category,
+      // Omitted rather than sent empty — the API reads absent as "applies everywhere".
+      ...(subjectId ? { subjectId } : {}),
+      ...(levelId ? { levelId } : {}),
+    });
+    if (!ok) throw new Error('rejected');
+    setName('');
+    setCategory('CONTINUOUS');
+    setSubjectId('');
+    setLevelId('');
+  });
+
+  const addScheme = useAsyncAction(async (e: React.FormEvent<HTMLFormElement>) => {
+    // Held onto before the first await — `currentTarget` is gone by the time the request settles.
+    const form = e.currentTarget;
+    const f = new FormData(form);
+    // "0-44:F, 45-49:E" — far quicker to type than a row-builder, and the server
+    // still refuses anything that does not cover 0-100 exactly once.
+    const bands = String(f.get('bands') ?? '')
+      .split(',')
+      .map((chunk) => chunk.trim())
+      .filter(Boolean)
+      .map((chunk) => {
+        const [range, grade] = chunk.split(':').map((x) => x.trim());
+        const [min, max] = (range ?? '').split('-').map((x) => Number(x.trim()));
+        return { min, max, grade: grade ?? '' };
+      });
+    const ok = await send('assessment/schemes', {
+      name: String(f.get('name') ?? '').trim(),
+      kind: String(f.get('kind') ?? 'GES_CLASSIC'),
+      bands,
+    });
+    if (!ok) throw new Error('rejected');
+    form.reset();
+  });
+
   const scopeLabel = (c: Component) => {
     const parts = [
       c.subjectId ? (subjects.find((x) => x.id === c.subjectId)?.name ?? 'one subject') : null,
@@ -121,13 +169,7 @@ export default function AssessmentSettingsPage() {
           How much of the final mark comes from continuous work and how much from the exam. GES uses
           30 and 70. The two must add up to 100.
         </p>
-        <form
-          className="flex flex-wrap items-end gap-3 mt-4"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            await send('assessment/weights', weights, 'PATCH');
-          }}
-        >
+        <form className="flex flex-wrap items-end gap-3 mt-4" onSubmit={saveWeights.run}>
           <label className="text-[13px]">
             <span className="block text-oat mb-1">Continuous assessment</span>
             <input
@@ -152,9 +194,9 @@ export default function AssessmentSettingsPage() {
               className={`${field} w-24 tabular bg-parchment text-oat`}
             />
           </label>
-          <button className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
+          <Button type="submit" state={saveWeights.state} icon={<SaveIcon />}>
             Save weighting
-          </button>
+          </Button>
         </form>
         <p className="text-[11px] text-oat mt-3">
           Changing this re-scales every report generated afterwards. Reports already generated keep
@@ -196,12 +238,12 @@ export default function AssessmentSettingsPage() {
                   </td>
                   <td className="py-2.5 pr-6 text-xs text-oat">{scopeLabel(c)}</td>
                   <td className="py-2.5 text-right">
-                    <button
-                      onClick={() => send(`assessment/components/${c.id}`, undefined, 'DELETE')}
-                      className="text-[12px] text-clay hover:underline"
-                    >
-                      Remove
-                    </button>
+                    <RemoveComponentButton
+                      onRemove={async () => {
+                        if (!(await send(`assessment/components/${c.id}`, undefined, 'DELETE')))
+                          throw new Error('rejected');
+                      }}
+                    />
                   </td>
                 </tr>
               ))}
@@ -210,24 +252,7 @@ export default function AssessmentSettingsPage() {
         </div>
         <form
           className="flex flex-wrap items-end gap-2 mt-4 pt-4 border-t border-mist/60"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (
-              await send('assessment/components', {
-                name,
-                maxScore: Number(maxScore),
-                category,
-                // Omitted rather than sent empty — the API reads absent as "applies everywhere".
-                ...(subjectId ? { subjectId } : {}),
-                ...(levelId ? { levelId } : {}),
-              })
-            ) {
-              setName('');
-              setCategory('CONTINUOUS');
-              setSubjectId('');
-              setLevelId('');
-            }
-          }}
+          onSubmit={addComponent.run}
         >
           <label className="text-[13px]">
             <span className="block text-oat mb-1">Name</span>
@@ -288,9 +313,9 @@ export default function AssessmentSettingsPage() {
               ))}
             </select>
           </label>
-          <button className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
+          <Button type="submit" state={addComponent.state} icon={<PlusIcon />}>
             Add assessment
-          </button>
+          </Button>
         </form>
       </section>
 
@@ -332,30 +357,7 @@ export default function AssessmentSettingsPage() {
           })}
         </div>
 
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            const f = new FormData(e.currentTarget);
-            // "0-44:F, 45-49:E" — far quicker to type than a row-builder, and the server
-            // still refuses anything that does not cover 0-100 exactly once.
-            const bands = String(f.get('bands') ?? '')
-              .split(',')
-              .map((chunk) => chunk.trim())
-              .filter(Boolean)
-              .map((chunk) => {
-                const [range, grade] = chunk.split(':').map((x) => x.trim());
-                const [min, max] = (range ?? '').split('-').map((x) => Number(x.trim()));
-                return { min, max, grade: grade ?? '' };
-              });
-            const ok = await send('assessment/schemes', {
-              name: String(f.get('name') ?? '').trim(),
-              kind: String(f.get('kind') ?? 'GES_CLASSIC'),
-              bands,
-            });
-            if (ok) (e.target as HTMLFormElement).reset();
-          }}
-          className="mt-5 pt-5 border-t border-mist/60 space-y-3"
-        >
+        <form onSubmit={addScheme.run} className="mt-5 pt-5 border-t border-mist/60 space-y-3">
           <h3 className="font-medium text-sm">Add a scheme</h3>
           <div className="flex flex-wrap gap-2">
             <input name="name" required minLength={2} placeholder="Scheme name" className={field} />
@@ -374,9 +376,9 @@ export default function AssessmentSettingsPage() {
               className={`${field} w-full`}
             />
           </label>
-          <button className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
+          <Button type="submit" state={addScheme.state} icon={<PlusIcon />}>
             Add scheme
-          </button>
+          </Button>
         </form>
       </section>
 
@@ -405,5 +407,24 @@ export default function AssessmentSettingsPage() {
         </ul>
       </section>
     </div>
+  );
+}
+
+/**
+ * One action per row: a hook cannot be called inside the map, and a shared pending state would
+ * spin every row's button whenever any one of them was removing.
+ */
+function RemoveComponentButton({ onRemove }: { onRemove: () => Promise<void> }) {
+  const action = useAsyncAction(onRemove);
+  return (
+    <Button
+      onClick={action.run}
+      state={action.state}
+      variant="ghost"
+      size="sm"
+      icon={<TrashIcon />}
+    >
+      Remove
+    </Button>
   );
 }

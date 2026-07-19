@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Button, useAsyncAction } from '@/components/Button';
+import { CheckIcon, CloseIcon } from '@/components/icons';
 
 interface Request {
   id: string;
@@ -25,7 +27,6 @@ const day = (d: string) =>
  */
 export default function DismissalInbox() {
   const [requests, setRequests] = useState<Request[]>([]);
-  const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
@@ -37,16 +38,20 @@ export default function DismissalInbox() {
     load();
   }, [load]);
 
-  async function decide(id: string, status: 'APPROVED' | 'DECLINED') {
-    setBusy(id);
-    const res = await fetch(`/api/proxy/pickup/dismissal-requests/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status, decisionNote: note[id] || undefined }),
-    });
-    setBusy(null);
-    if (res.ok) load();
-  }
+  const decide = useCallback(
+    async (id: string, status: 'APPROVED' | 'DECLINED') => {
+      const res = await fetch(`/api/proxy/pickup/dismissal-requests/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, decisionNote: note[id] || undefined }),
+      });
+      // Thrown so the button settles on "Couldn't approve" — a decision that did not land must
+      // not read as one that did, because the guardian is texted off the back of it.
+      if (!res.ok) throw new Error('decision rejected');
+      load();
+    },
+    [load, note],
+  );
 
   const pending = requests.filter((r) => r.status === 'PENDING');
   const decided = requests.filter((r) => r.status !== 'PENDING').slice(0, 5);
@@ -68,38 +73,13 @@ export default function DismissalInbox() {
 
       <ul className="mt-4 space-y-4">
         {pending.map((r) => (
-          <li key={r.id} className="rounded-lg border border-clay/30 bg-clay/5 p-4">
-            <div className="flex justify-between gap-3">
-              <p className="text-sm font-medium">{r.student}</p>
-              <p className="text-[11px] text-oat shrink-0">{day(r.forDate)}</p>
-            </div>
-            <p className="text-[12px] text-oat">
-              from {r.guardian} · <span className="tabular">{r.guardianPhone}</span>
-            </p>
-            <p className="text-sm mt-2">{r.details}</p>
-            <input
-              value={note[r.id] ?? ''}
-              onChange={(e) => setNote((n) => ({ ...n, [r.id]: e.target.value }))}
-              placeholder="Note back to the guardian (optional)"
-              className="w-full min-h-11 rounded-lg border border-mist bg-white px-3 py-2 text-sm mt-3 outline-none focus:border-brand"
-            />
-            <div className="flex items-center gap-2 mt-2">
-              <button
-                onClick={() => decide(r.id, 'APPROVED')}
-                disabled={busy === r.id}
-                className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition disabled:opacity-60"
-              >
-                Approve
-              </button>
-              <button
-                onClick={() => decide(r.id, 'DECLINED')}
-                disabled={busy === r.id}
-                className="min-h-11 rounded-lg border border-clay/40 text-clay text-sm font-medium px-4 hover:bg-clay/10 transition disabled:opacity-60"
-              >
-                Decline
-              </button>
-            </div>
-          </li>
+          <RequestCard
+            key={r.id}
+            request={r}
+            note={note[r.id] ?? ''}
+            onNoteChange={(v) => setNote((n) => ({ ...n, [r.id]: v }))}
+            decide={decide}
+          />
         ))}
         {pending.length === 0 && <li className="text-sm text-oat">Nothing waiting.</li>}
       </ul>
@@ -122,5 +102,60 @@ export default function DismissalInbox() {
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * One waiting request. Its own component because each request runs its own decision, so the
+ * pending and outcome state belongs to the card rather than to the inbox.
+ */
+function RequestCard({
+  request: r,
+  note,
+  onNoteChange,
+  decide,
+}: {
+  request: Request;
+  note: string;
+  onNoteChange: (value: string) => void;
+  decide: (id: string, status: 'APPROVED' | 'DECLINED') => Promise<void>;
+}) {
+  const approve = useAsyncAction(() => decide(r.id, 'APPROVED'));
+  const decline = useAsyncAction(() => decide(r.id, 'DECLINED'));
+
+  return (
+    <li className="rounded-lg border border-clay/30 bg-clay/5 p-4">
+      <div className="flex justify-between gap-3">
+        <p className="text-sm font-medium">{r.student}</p>
+        <p className="text-[11px] text-oat shrink-0">{day(r.forDate)}</p>
+      </div>
+      <p className="text-[12px] text-oat">
+        from {r.guardian} · <span className="tabular">{r.guardianPhone}</span>
+      </p>
+      <p className="text-sm mt-2">{r.details}</p>
+      {/* No icon: a free note back to a guardian is not any of the meanings the set covers. */}
+      <input
+        value={note}
+        onChange={(e) => onNoteChange(e.target.value)}
+        placeholder="Note back to the guardian (optional)"
+        className="w-full min-h-11 rounded-lg border border-mist bg-white px-3 py-2 text-sm mt-3 outline-none focus:border-brand"
+      />
+      <div className="flex items-center gap-2 mt-2">
+        <Button onClick={approve.run} state={approve.state} icon={<CheckIcon />}>
+          Approve
+        </Button>
+        <Button
+          variant="danger"
+          onClick={decline.run}
+          state={decline.state}
+          icon={<CloseIcon />}
+          pendingLabel="Declining…"
+          doneLabel="Declined!"
+          failedLabel="Couldn't decline"
+        >
+          Decline
+        </Button>
+      </div>
+    </li>
   );
 }

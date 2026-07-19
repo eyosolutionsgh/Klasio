@@ -1,6 +1,8 @@
 import { api } from '@/lib/api';
 import AdmissionsFilters from '@/components/AdmissionsFilters';
 import ApplicantActions, { type ApplicantRow } from '@/components/ApplicantActions';
+import { Button } from '@/components/Button';
+import { SearchIcon } from '@/components/icons';
 
 interface Pipeline {
   counts: Record<string, number>;
@@ -70,16 +72,20 @@ export default async function AdmissionsPage({
           method="get"
         >
           {stage && <input type="hidden" name="stage" value={stage} />}
-          <input
-            type="search"
-            name="q"
-            defaultValue={q}
-            placeholder="Search name, reference or phone"
-            className="rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15 flex-1 min-w-0 sm:w-72 sm:flex-none"
-          />
-          <button className="rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
-            Search
-          </button>
+          {/* The magnifier rides the field, not the button — one per form is the affordance. */}
+          <div className="relative flex-1 min-w-0 sm:w-72 sm:flex-none">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+              <SearchIcon />
+            </span>
+            <input
+              type="search"
+              name="q"
+              defaultValue={q}
+              placeholder="Search name, reference or phone"
+              className="w-full rounded-lg border border-mist bg-white pl-10 pr-3.5 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+            />
+          </div>
+          <Button type="submit">Search</Button>
         </form>
       </div>
 

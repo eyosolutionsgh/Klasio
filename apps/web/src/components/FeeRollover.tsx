@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import Combobox from './Combobox';
+import { Button, useAsyncAction } from './Button';
+import { CashIcon } from './icons';
 
 export interface TermOption {
   id: string;
@@ -26,7 +28,6 @@ export default function FeeRollover({
 }) {
   const [fromTermId, setFromTermId] = useState('');
   const [toTermId, setToTermId] = useState('');
-  const [busy, setBusy] = useState(false);
 
   /**
    * The parent loads the terms after its first paint, so these cannot be `useState` initialisers
@@ -45,8 +46,7 @@ export default function FeeRollover({
   const [result, setResult] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
-  async function run() {
-    setBusy(true);
+  const copy = useAsyncAction(async () => {
     setResult(null);
     const res = await fetch('/api/proxy/fees/items/rollover', {
       method: 'POST',
@@ -54,11 +54,11 @@ export default function FeeRollover({
       body: JSON.stringify({ fromTermId, toTermId }),
     });
     const body = await res.json().catch(() => ({}));
-    setBusy(false);
     setFailed(!res.ok);
     if (!res.ok) {
       setResult(body.message ?? 'Could not copy the fee items.');
-      return;
+      // The button can only say it failed; the server names which terms or items were the problem.
+      throw new Error('rollover rejected');
     }
     setResult(
       `Copied ${body.copied} fee item${body.copied === 1 ? '' : 's'} into ${body.toTerm}.` +
@@ -68,7 +68,7 @@ export default function FeeRollover({
           : ''),
     );
     onDone();
-  }
+  });
 
   if (terms.length < 2) return null;
 
@@ -99,15 +99,23 @@ export default function FeeRollover({
           value={toTermId}
           onChange={setToTermId}
         />
-        <button
-          onClick={run}
-          disabled={busy || !fromTermId || !toTermId || fromTermId === toTermId}
+        <Button
+          onClick={copy.run}
+          state={copy.state}
+          icon={<CashIcon />}
+          disabled={!fromTermId || !toTermId || fromTermId === toTermId}
           data-tip={fromTermId === toTermId ? 'Choose two different terms' : undefined}
-          className="tip rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition disabled:opacity-50"
+          className="tip"
+          // "Copy" is not one of the verbs the button conjugates for itself.
+          pendingLabel="Copying…"
+          doneLabel="Copied!"
+          failedLabel="Couldn't copy"
         >
-          {busy ? 'Copying…' : 'Copy fee items'}
-        </button>
+          Copy fee items
+        </Button>
       </div>
+      {/* Kept even on success: the counts — how many copied, how many were already there — are
+          the point, and the button can only say that it worked. */}
       {result && <p className={`text-sm mt-3 ${failed ? 'text-danger' : ''}`}>{result}</p>}
     </section>
   );

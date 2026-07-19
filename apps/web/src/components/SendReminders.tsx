@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { Button, useAsyncAction } from './Button';
+import { SearchIcon, SendIcon } from './icons';
 
 interface Planned {
   name: string;
@@ -14,29 +16,29 @@ interface Planned {
  */
 export default function SendReminders({ termId, currency }: { termId: string; currency: string }) {
   const [preview, setPreview] = useState<Planned[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  /** How many went and how many were passed over — the button cannot carry a count. */
+  const [summary, setSummary] = useState<string | null>(null);
 
   const money = (n: number) =>
     `${currency} ${n.toLocaleString('en-GH', { minimumFractionDigits: 2 })}`;
 
-  async function run(dryRun: boolean) {
-    setBusy(true);
-    setResult(null);
+  async function call(dryRun: boolean) {
+    setError(null);
+    setSummary(null);
     const res = await fetch(`/api/proxy/fees/reminders?termId=${termId}&dryRun=${dryRun}`, {
       method: 'POST',
     });
     const body = await res.json().catch(() => ({}));
-    setBusy(false);
     if (!res.ok) {
-      setResult(body.message ?? 'Could not send reminders.');
-      return;
+      setError(body.message ?? 'Could not send reminders.');
+      throw new Error('rejected');
     }
     if (dryRun) {
       setPreview(body.planned ?? []);
     } else {
       setPreview(null);
-      setResult(
+      setSummary(
         `Sent ${body.sent} reminder${body.sent === 1 ? '' : 's'}.` +
           (body.skipped
             ? ` ${body.skipped} skipped — already reminded today, no phone, or out of credit.`
@@ -45,24 +47,33 @@ export default function SendReminders({ termId, currency }: { termId: string; cu
     }
   }
 
+  const previewAction = useAsyncAction(() => call(true));
+  const sendAction = useAsyncAction(() => call(false));
+
   return (
     <div className="mt-4">
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          onClick={() => run(true)}
-          disabled={busy || !termId}
-          className="min-h-11 rounded-lg border border-brand/40 text-brand text-sm font-medium px-4 hover:bg-brand-mist transition disabled:opacity-50"
+        {/* A preview only looks — SearchIcon rather than the paper plane, which is the send. */}
+        <Button
+          onClick={previewAction.run}
+          state={previewAction.state}
+          variant="secondary"
+          icon={<SearchIcon />}
+          disabled={!termId || sendAction.state === 'pending'}
         >
-          {busy ? 'Working…' : 'Preview fee reminders'}
-        </button>
+          Preview fee reminders
+        </Button>
         {preview && preview.length > 0 && (
-          <button
-            onClick={() => run(false)}
-            disabled={busy}
-            className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition disabled:opacity-50"
+          // Each button owns its own state, so they still lock each other out by hand — a send
+          // must not be fired against a preview that is currently being replaced.
+          <Button
+            onClick={sendAction.run}
+            state={sendAction.state}
+            icon={<SendIcon />}
+            disabled={previewAction.state === 'pending'}
           >
-            Send to {preview.length}
-          </button>
+            {`Send to ${preview.length}`}
+          </Button>
         )}
       </div>
 
@@ -91,7 +102,8 @@ export default function SendReminders({ termId, currency }: { termId: string; cu
           )}
         </div>
       )}
-      {result && <p className="text-sm mt-3 text-leaf">{result}</p>}
+      {summary && <p className="text-sm mt-3 text-leaf">{summary}</p>}
+      {error && <p className="text-sm mt-3 text-danger">{error}</p>}
     </div>
   );
 }

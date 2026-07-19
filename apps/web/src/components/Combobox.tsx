@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { SearchIcon } from './icons';
 
 export interface ComboboxOption {
   value: string;
@@ -146,6 +147,11 @@ export default function Combobox({
         {label}
       </label>
       <div ref={fieldRef} className="relative">
+        {/* A magnifier, not a dropdown glyph: the chevron on the right already says "list", and
+            what this control asks of a user that a <select> does not is that they type. */}
+        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+          <SearchIcon />
+        </span>
         <input
           id={id}
           ref={inputRef}
@@ -169,7 +175,7 @@ export default function Combobox({
             setActive(0);
           }}
           onKeyDown={onKeyDown}
-          className="w-full min-h-11 rounded-lg border border-mist bg-white pl-3.5 pr-9 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15 disabled:opacity-50 disabled:bg-parchment"
+          className="w-full min-h-11 rounded-lg border border-mist bg-white pl-10 pr-9 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15 disabled:opacity-50 disabled:bg-parchment"
         />
         <svg
           viewBox="0 0 24 24"

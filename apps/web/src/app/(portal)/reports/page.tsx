@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import Combobox from '@/components/Combobox';
+import { Button, useAsyncAction } from '@/components/Button';
+import { RefreshIcon } from '@/components/icons';
 
 interface ReportRow {
   studentId: string;
@@ -43,8 +45,8 @@ export default function ReportsPage() {
   const [classId, setClassId] = useState('');
   const [termId, setTermId] = useState('');
   const [rows, setRows] = useState<ReportRow[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  // Failures only — the buttons now report their own success.
+  const [error, setError] = useState<string | null>(null);
   const [broadsheet, setBroadsheet] = useState<Broadsheet | null>(null);
 
   useEffect(() => {
@@ -81,46 +83,42 @@ export default function ReportsPage() {
 
   /** Publishing is what makes a report visible to guardians — and freezes its remarks. */
   async function setPublished(published: boolean) {
-    setBusy(true);
-    setMessage(null);
+    setError(null);
     const res = await fetch('/api/proxy/assessment/reports/publish', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ classId, termId, published }),
     });
     const body = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (res.ok) {
-      setMessage(
-        published
-          ? `Published ${body.count} report${body.count === 1 ? '' : 's'}.`
-          : `Unpublished ${body.count} report${body.count === 1 ? '' : 's'} — remarks are editable again.`,
-      );
-      load();
-    } else {
-      setMessage(body.message ?? 'Could not change publication state.');
+    if (!res.ok) {
+      setError(body.message ?? 'Could not change publication state.');
+      throw new Error('rejected');
     }
+    await load();
   }
 
-  async function generate() {
-    setBusy(true);
-    setMessage(null);
+  /*
+    Two hooks rather than one with an argument: a successful publish swaps this button for its
+    opposite as soon as the rows reload, and a shared state would leave the newcomer wearing the
+    outcome of an action it did not perform.
+  */
+  const publish = useAsyncAction(() => setPublished(true));
+  const unpublish = useAsyncAction(() => setPublished(false));
+
+  const generate = useAsyncAction(async () => {
+    setError(null);
     const res = await fetch('/api/proxy/assessment/reports/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ classId, termId }),
     });
     const body = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (res.ok) {
-      setMessage(
-        `Generated ${body.generated} report${body.generated === 1 ? '' : 's'} for this class.`,
-      );
-      load();
-    } else {
-      setMessage(body.message ?? 'Could not generate reports.');
+    if (!res.ok) {
+      setError(body.message ?? 'Could not generate reports.');
+      throw new Error('rejected');
     }
-  }
+    await load();
+  });
 
   const allPublished = rows.length > 0 && rows.every((r) => r.publishedAt);
 
@@ -144,40 +142,44 @@ export default function ReportsPage() {
           value={classId}
           onChange={setClassId}
         />
-        <button
-          onClick={generate}
-          disabled={busy || !classId}
+        <Button
+          onClick={generate.run}
+          state={generate.state}
+          disabled={!classId}
+          icon={<RefreshIcon />}
           data-tip="Recomputes every report in this class from the latest scores"
-          className="tip rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition disabled:opacity-50"
+          className="tip"
         >
-          {busy ? 'Computing…' : 'Generate reports'}
-        </button>
-        <button
-          onClick={toggleBroadsheet}
-          disabled={!classId || !termId}
-          className="rounded-lg border border-mist text-brand text-sm font-medium px-5 py-2 hover:bg-brand-mist transition disabled:opacity-50"
-        >
+          Generate reports
+        </Button>
+        {/* A disclosure rather than an action, so it carries no outcome state — the label toggles. */}
+        <Button onClick={toggleBroadsheet} variant="secondary" disabled={!classId || !termId}>
           {broadsheet ? 'Hide broadsheet' : 'View broadsheet'}
-        </button>
+        </Button>
         {rows.length > 0 &&
           (allPublished ? (
-            <button
-              onClick={() => setPublished(false)}
-              disabled={busy}
+            /* Secondary, not danger: retracting is reversible and re-opens the remarks. */
+            <Button
+              onClick={unpublish.run}
+              state={unpublish.state}
+              variant="secondary"
+              pendingLabel="Unpublishing…"
+              doneLabel="Unpublished!"
+              failedLabel="Couldn't unpublish"
               data-tip="Retract from guardians and re-open remarks for editing"
-              className="tip rounded-lg border border-mist text-clay text-sm font-medium px-5 py-2 hover:bg-clay/5 transition disabled:opacity-50"
+              className="tip"
             >
               Unpublish
-            </button>
+            </Button>
           ) : (
-            <button
-              onClick={() => setPublished(true)}
-              disabled={busy}
+            <Button
+              onClick={publish.run}
+              state={publish.state}
               data-tip="Release these reports to guardians"
-              className="tip rounded-lg bg-gold-soft text-ink text-sm font-medium px-5 py-2 hover:brightness-95 transition disabled:opacity-50"
+              className="tip"
             >
               Publish reports
-            </button>
+            </Button>
           ))}
         {classId && termId && (
           <span className="flex items-center gap-1 text-[13px]">
@@ -193,7 +195,12 @@ export default function ReportsPage() {
             ))}
           </span>
         )}
-        {message && <p className="text-sm text-oat">{message}</p>}
+        {/* Kept: the button can only say it failed, the server says why. */}
+        {error && (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        )}
       </div>
 
       {broadsheet && (

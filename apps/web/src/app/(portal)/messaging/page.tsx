@@ -3,6 +3,9 @@
 import { useEffect, useState } from 'react';
 import Combobox from '@/components/Combobox';
 import SmsTopUp from '@/components/SmsTopUp';
+import { Button, useAsyncAction } from '@/components/Button';
+import { ChoiceCards } from '@/components/ChoiceCards';
+import { SendIcon } from '@/components/icons';
 
 type Audience = 'ALL' | 'CLASS' | 'LEVEL' | 'CUSTOM';
 interface ClassOpt {
@@ -42,8 +45,8 @@ export default function MessagingPage() {
   const [levelId, setLevelId] = useState('');
   const [recipients, setRecipients] = useState('');
   const [body, setBody] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  // Failures only — the button reports the send itself, and the balance and log refresh below.
+  const [error, setError] = useState<string | null>(null);
 
   async function loadMeta() {
     const [s, b, m, me] = await Promise.all([
@@ -66,9 +69,8 @@ export default function MessagingPage() {
     loadMeta();
   }, []);
 
-  async function send() {
-    setBusy(true);
-    setMessage(null);
+  const send = useAsyncAction(async () => {
+    setError(null);
     const res = await fetch('/api/proxy/sms/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -87,15 +89,13 @@ export default function MessagingPage() {
       }),
     });
     const data = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (res.ok) {
-      setMessage(`Sent ${data.sent} of ${data.recipients}. ${data.creditsRemaining} credits left.`);
-      setBody('');
-      loadMeta();
-    } else {
-      setMessage(data.message ?? 'Could not send.');
+    if (!res.ok) {
+      setError(data.message ?? 'Could not send.');
+      throw new Error('rejected');
     }
-  }
+    setBody('');
+    await loadMeta();
+  });
 
   const segments = 1 + Math.floor(body.length / 160);
 
@@ -126,23 +126,20 @@ export default function MessagingPage() {
       )}
 
       <div className="card p-6 mt-6 rise rise-2 space-y-4">
-        <div className="flex flex-wrap gap-2">
-          {(['ALL', 'CLASS', 'LEVEL', 'CUSTOM'] as const).map((a) => (
-            <button
-              key={a}
-              onClick={() => setAudience(a)}
-              className={`text-[13px] rounded-full px-3.5 py-1.5 border transition ${audience === a ? 'bg-brand text-paper border-brand' : 'border-mist bg-white text-ink hover:border-brand'}`}
-            >
-              {a === 'ALL'
-                ? 'All guardians'
-                : a === 'CLASS'
-                  ? 'By class'
-                  : a === 'LEVEL'
-                    ? 'By level'
-                    : 'Custom numbers'}
-            </button>
-          ))}
-        </div>
+        {/* No icons: only "Custom numbers" has an obvious one, and one iconed card in four reads
+            as an error rather than a distinction. */}
+        <ChoiceCards
+          legend="Send it to"
+          name="audience"
+          value={audience}
+          onChange={setAudience}
+          options={[
+            { value: 'ALL', label: 'All guardians' },
+            { value: 'CLASS', label: 'By class' },
+            { value: 'LEVEL', label: 'By level' },
+            { value: 'CUSTOM', label: 'Custom numbers' },
+          ]}
+        />
 
         {audience === 'CLASS' && (
           <Combobox
@@ -192,15 +189,16 @@ export default function MessagingPage() {
             {body.length} characters · {segments} SMS segment{segments === 1 ? '' : 's'} per
             recipient
           </p>
-          <button
-            onClick={send}
-            disabled={busy || !body.trim()}
-            className="rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition disabled:opacity-50"
-          >
-            {busy ? 'Sending…' : 'Send SMS'}
-          </button>
+          <Button onClick={send.run} state={send.state} disabled={!body.trim()} icon={<SendIcon />}>
+            Send SMS
+          </Button>
         </div>
-        {message && <p className="text-sm text-brand">{message}</p>}
+        {/* Kept: the button can only say the send failed, not that the school is out of credits. */}
+        {error && (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        )}
       </div>
 
       <h2 className="font-display text-xl mt-8 rise rise-3">Recent messages</h2>

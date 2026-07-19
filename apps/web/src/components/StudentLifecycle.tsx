@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Combobox from '@/components/Combobox';
+import { Button, useAsyncAction } from '@/components/Button';
+import { CheckIcon, RefreshIcon } from '@/components/icons';
 
 type Action = 'transfer' | 'withdraw';
 
@@ -37,7 +39,6 @@ export default function StudentLifecycle({
   const router = useRouter();
   const [action, setAction] = useState<Action | null>(null);
   const [reason, setReason] = useState('');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const onRoll = status === 'ACTIVE';
@@ -53,9 +54,10 @@ export default function StudentLifecycle({
       .catch(() => undefined);
   }, [reinstating]);
 
-  async function submit() {
+  // The error is set *and* rethrown: the message names the reason, the throw is what stops the
+  // button showing a tick for a request the API turned down.
+  const submit = useAsyncAction(async () => {
     if (!action) return;
-    setBusy(true);
     setError(null);
     try {
       const res = await fetch(`/api/proxy/students/${studentId}/${action}`, {
@@ -72,13 +74,11 @@ export default function StudentLifecycle({
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : `${action} failed`);
-    } finally {
-      setBusy(false);
+      throw e;
     }
-  }
+  });
 
-  async function reinstate() {
-    setBusy(true);
+  const reinstate = useAsyncAction(async () => {
     setError(null);
     try {
       const res = await fetch(`/api/proxy/students/${studentId}/reinstate`, {
@@ -93,10 +93,9 @@ export default function StudentLifecycle({
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not put this student back on the roll');
-    } finally {
-      setBusy(false);
+      throw e;
     }
-  }
+  });
 
   // ── Off the roll: the way back ─────────────────────────────────────
   if (!onRoll) {
@@ -108,12 +107,14 @@ export default function StudentLifecycle({
             {EXIT_WORD[status] ?? status.toLowerCase()}. If that was a mistake, they can be put back
             on the roll.
           </p>
-          <button
+          <Button
+            variant="secondary"
+            icon={<RefreshIcon />}
+            className="shrink-0"
             onClick={() => setReinstating(true)}
-            className="rounded-lg border border-mist text-brand text-sm font-medium px-4 py-2 hover:bg-brand-mist transition shrink-0"
           >
             Put back on the roll
-          </button>
+          </Button>
         </div>
       );
     }
@@ -143,22 +144,27 @@ export default function StudentLifecycle({
               className="min-h-11 rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand w-64"
             />
           </label>
-          <button
-            onClick={reinstate}
-            disabled={busy || !classId || reason.trim().length < 4}
-            className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition disabled:opacity-50"
+          {/* "Put" is not a verb the labels conjugate, so the wording is given outright. */}
+          <Button
+            onClick={reinstate.run}
+            state={reinstate.state}
+            icon={<RefreshIcon />}
+            disabled={!classId || reason.trim().length < 4}
+            pendingLabel="Working…"
+            doneLabel="Back on the roll!"
+            failedLabel="Couldn't put them back"
           >
-            {busy ? 'Working…' : 'Put back on the roll'}
-          </button>
-          <button
+            Put back on the roll
+          </Button>
+          <Button
+            variant="ghost"
             onClick={() => {
               setReinstating(false);
               setError(null);
             }}
-            className="min-h-11 px-3 text-sm text-oat hover:text-brand transition"
           >
             Cancel
-          </button>
+          </Button>
         </div>
         {error && <p className="text-sm text-danger mt-3">{error}</p>}
       </div>
@@ -169,20 +175,22 @@ export default function StudentLifecycle({
   if (!action) {
     return (
       <div className="flex items-center gap-2">
-        <button
+        {/* Both only open the reason row below — the exit itself is the Confirm button, which is
+            where the weight belongs. */}
+        <Button
+          variant="secondary"
           onClick={() => setAction('transfer')}
-          className="rounded-lg border border-mist text-brand text-sm font-medium px-4 py-2 hover:bg-brand-mist transition"
           data-tip="Record that this student moved to another school"
         >
           Transfer
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="secondary"
           onClick={() => setAction('withdraw')}
-          className="rounded-lg border border-mist text-clay text-sm font-medium px-4 py-2 hover:bg-clay/5 transition"
           data-tip="Record that this student left the school"
         >
           Withdraw
-        </button>
+        </Button>
       </div>
     );
   }
@@ -199,22 +207,26 @@ export default function StudentLifecycle({
         placeholder={action === 'transfer' ? 'e.g. relocated to Kumasi' : 'e.g. fees / relocation'}
         className="rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand w-64"
       />
-      <button
-        onClick={submit}
-        disabled={busy}
-        className="rounded-lg bg-brand text-paper text-sm font-medium px-4 py-2 hover:bg-brand-deep transition disabled:opacity-50"
+      {/* "Confirm" is not conjugated by the shared labels, so its wording is spelled out. */}
+      <Button
+        onClick={submit.run}
+        state={submit.state}
+        icon={<CheckIcon />}
+        pendingLabel="Working…"
+        doneLabel={action === 'transfer' ? 'Transferred!' : 'Withdrawn!'}
+        failedLabel={`Couldn't ${action}`}
       >
-        {busy ? 'Working…' : `Confirm ${action}`}
-      </button>
-      <button
+        {`Confirm ${action}`}
+      </Button>
+      <Button
+        variant="ghost"
         onClick={() => {
           setAction(null);
           setError(null);
         }}
-        className="text-sm text-oat hover:text-brand transition"
       >
         Cancel
-      </button>
+      </Button>
       {error && <span className="text-xs text-danger w-full">{error}</span>}
     </div>
   );

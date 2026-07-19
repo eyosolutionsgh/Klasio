@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import FeeRollover, { type TermOption } from '@/components/FeeRollover';
 import ReminderSettings from '@/components/ReminderSettings';
 import ConcessionRules from '@/components/ConcessionRules';
+import { Button, useAsyncAction } from '@/components/Button';
+import { CashIcon, PlusIcon, SaveIcon } from '@/components/icons';
 
 interface FeeItem {
   id: string;
@@ -35,13 +37,13 @@ export default function FeeStructurePage() {
   const [terms, setTerms] = useState<TermOption[]>([]);
   const [items, setItems] = useState<FeeItem[]>([]);
   const [billClassId, setBillClassId] = useState('');
-  const [billing, setBilling] = useState(false);
-  const [billResult, setBillResult] = useState<string | null>(null);
+  /** How many were billed and how many were skipped — detail the button itself cannot carry. */
+  const [billSummary, setBillSummary] = useState<string | null>(null);
+  const [billError, setBillError] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
   const [levelId, setLevelId] = useState('');
   const [optional, setOptional] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   // Defaults to GHS so the first paint never shows a currency this school does not use.
   const [currency, setCurrency] = useState('GHS');
@@ -80,25 +82,25 @@ export default function FeeStructurePage() {
     });
   }, []);
 
-  async function generateInvoices() {
-    setBilling(true);
-    setBillResult(null);
+  const bill = useAsyncAction(async () => {
+    setBillSummary(null);
+    setBillError(null);
     const res = await fetch('/api/proxy/fees/invoices/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ termId, classId: billClassId || undefined }),
     });
     const body = await res.json().catch(() => ({}));
-    setBilling(false);
-    setBillResult(
-      res.ok
-        ? `Billed ${body.created} student${body.created === 1 ? '' : 's'} ${money(body.total)} each.` +
-            (body.skipped
-              ? ` ${body.skipped} already had a bill for this term and were skipped.`
-              : '')
-        : (body.message ?? 'Could not generate the term bills.'),
+    if (!res.ok) {
+      // The button can only say it did not work; the server's reason is the useful part.
+      setBillError(body.message ?? 'Could not generate the term bills.');
+      throw new Error('billing rejected');
+    }
+    setBillSummary(
+      `Billed ${body.created} student${body.created === 1 ? '' : 's'} ${money(body.total)} each.` +
+        (body.skipped ? ` ${body.skipped} already had a bill for this term and were skipped.` : ''),
     );
-  }
+  });
 
   const load = useCallback(async () => {
     if (!termId) return;
@@ -110,9 +112,7 @@ export default function FeeStructurePage() {
     load();
   }, [load]);
 
-  async function add(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
+  const add = useAsyncAction(async () => {
     setMessage(null);
     const res = await fetch('/api/proxy/fees/items', {
       method: 'POST',
@@ -126,16 +126,15 @@ export default function FeeStructurePage() {
       }),
     });
     const body = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (res.ok) {
-      setName('');
-      setAmount('');
-      setOptional(false);
-      load();
-    } else {
+    if (!res.ok) {
       setMessage(body.message ?? 'Could not add the fee item.');
+      throw new Error('add rejected');
     }
-  }
+    setName('');
+    setAmount('');
+    setOptional(false);
+    load();
+  });
 
   async function remove(id: string) {
     const res = await fetch(`/api/proxy/fees/items/${id}`, { method: 'DELETE' });
@@ -150,10 +149,8 @@ export default function FeeStructurePage() {
    * `lines` snapshot and are not touched — which is right, but is the opposite of what a bursar
    * correcting a price expects, so the table says so beside the button.
    */
-  async function saveEdit(e: React.FormEvent) {
-    e.preventDefault();
+  const saveEdit = useAsyncAction(async () => {
     if (!draft) return;
-    setBusy(true);
     setMessage(null);
     const res = await fetch(`/api/proxy/fees/items/${draft.id}`, {
       method: 'PATCH',
@@ -167,19 +164,18 @@ export default function FeeStructurePage() {
       }),
     });
     const body = await res.json().catch(() => ({}));
-    setBusy(false);
     if (!res.ok) {
       setMessage(
         Array.isArray(body.message)
           ? body.message.join('. ')
           : (body.message ?? 'Could not save that item.'),
       );
-      return;
+      throw new Error('save rejected');
     }
     setEditingId(null);
     setDraft(null);
     load();
-  }
+  });
 
   const compulsory = items.filter((i) => !i.optional).reduce((a, i) => a + i.amount, 0);
   const field =
@@ -213,7 +209,7 @@ export default function FeeStructurePage() {
                 editingId === i.id && draft ? (
                   <tr key={i.id} className="border-b border-mist/60 last:border-0 bg-parchment/40">
                     <td colSpan={4} className="px-5 py-4">
-                      <form onSubmit={saveEdit} className="flex flex-wrap items-end gap-3">
+                      <form onSubmit={saveEdit.run} className="flex flex-wrap items-end gap-3">
                         <label className="text-[13px]">
                           <span className="block text-oat mb-1">Item name</span>
                           <input
@@ -226,15 +222,22 @@ export default function FeeStructurePage() {
                         </label>
                         <label className="text-[13px]">
                           <span className="block text-oat mb-1">Amount ({currency})</span>
-                          <input
-                            required
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={draft.amount}
-                            onChange={(e) => setDraft({ ...draft, amount: Number(e.target.value) })}
-                            className={`${field} w-32 tabular min-h-11`}
-                          />
+                          <div className="relative">
+                            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                              <CashIcon />
+                            </span>
+                            <input
+                              required
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={draft.amount}
+                              onChange={(e) =>
+                                setDraft({ ...draft, amount: Number(e.target.value) })
+                              }
+                              className={`${field} w-32 tabular min-h-11 pl-10`}
+                            />
+                          </div>
                         </label>
                         <label className="text-[13px]">
                           <span className="block text-oat mb-1">Level</span>
@@ -261,13 +264,9 @@ export default function FeeStructurePage() {
                           />
                           <span>Optional</span>
                         </label>
-                        <button
-                          type="submit"
-                          disabled={busy}
-                          className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition disabled:opacity-50"
-                        >
-                          {busy ? 'Saving…' : 'Save item'}
-                        </button>
+                        <Button type="submit" state={saveEdit.state} icon={<SaveIcon />}>
+                          Save item
+                        </Button>
                         <button
                           type="button"
                           onClick={() => {
@@ -364,7 +363,7 @@ export default function FeeStructurePage() {
         <FeeRollover terms={terms} currentTermId={termId} onDone={load} />
       </div>
 
-      <form onSubmit={add} className="card p-6 mt-6 rise rise-3 max-w-2xl">
+      <form onSubmit={add.run} className="card p-6 mt-6 rise rise-3 max-w-2xl">
         <h2 className="font-display text-xl">Add a fee item</h2>
         <div className="flex flex-wrap items-end gap-3 mt-4">
           <label className="text-[13px]">
@@ -379,15 +378,20 @@ export default function FeeStructurePage() {
           </label>
           <label className="text-[13px]">
             <span className="block text-oat mb-1">Amount ({currency})</span>
-            <input
-              required
-              type="number"
-              min="0"
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className={`${field} w-32 tabular`}
-            />
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                <CashIcon />
+              </span>
+              <input
+                required
+                type="number"
+                min="0"
+                step="0.01"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className={`${field} w-32 tabular pl-10`}
+              />
+            </div>
           </label>
           <label className="text-[13px]">
             <span className="block text-oat mb-1">Level</span>
@@ -412,13 +416,9 @@ export default function FeeStructurePage() {
             />
             <span>Optional</span>
           </label>
-          <button
-            type="submit"
-            disabled={busy || !termId}
-            className="rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition disabled:opacity-50"
-          >
-            {busy ? 'Adding…' : 'Add item'}
-          </button>
+          <Button type="submit" state={add.state} disabled={!termId} icon={<PlusIcon />}>
+            Add item
+          </Button>
         </div>
         {message && <p className="text-sm text-danger mt-3">{message}</p>}
       </form>
@@ -446,16 +446,25 @@ export default function FeeStructurePage() {
               ))}
             </select>
           </label>
-          <button
-            onClick={generateInvoices}
-            disabled={billing || !termId || compulsory === 0}
+          {/* "Bill" is not one of the conjugated verbs, so the wording is spelled out. */}
+          <Button
+            state={bill.state}
+            onClick={bill.run}
+            disabled={!termId || compulsory === 0}
             data-tip={compulsory === 0 ? 'Add at least one compulsory fee item first' : undefined}
-            className="tip rounded-lg bg-brand text-paper text-sm font-medium px-5 py-2 hover:bg-brand-deep transition disabled:opacity-50"
+            className="tip"
+            icon={<CashIcon />}
+            pendingLabel="Generating…"
+            doneLabel="Bills raised"
+            failedLabel="Couldn't bill"
           >
-            {billing ? 'Generating…' : `Bill ${money(compulsory)} per student`}
-          </button>
+            {`Bill ${money(compulsory)} per student`}
+          </Button>
         </div>
-        {billResult && <p className="text-sm mt-3">{billResult}</p>}
+        {/* Kept beside the button: the counts, and how many were skipped, are what the bursar
+            actually needs — the button can only say it worked. */}
+        {billSummary && <p className="text-sm mt-3">{billSummary}</p>}
+        {billError && <p className="text-sm text-danger mt-3">{billError}</p>}
       </section>
 
       {/* After billing, because a concession only means anything against a bill. */}

@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Button, useAsyncAction } from './Button';
+import { CloseIcon, EditIcon, PhoneIcon, PlusIcon, SaveIcon, TrashIcon, UserIcon } from './icons';
 
 export interface GuardianLink {
   id: string;
@@ -27,6 +29,9 @@ const CUSTODY = [
 const field =
   'rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
 
+/** The icon sits over the field rather than beside it, so the row still wraps as one control. */
+const iconWrap = 'pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70';
+
 export default function StudentGuardians({
   studentId,
   guardians,
@@ -37,27 +42,24 @@ export default function StudentGuardians({
   const router = useRouter();
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function send(path: string, method: string, body?: unknown) {
-    setBusy(true);
     setError(null);
     const res = await fetch(`/api/proxy/students/${studentId}${path}`, {
       method,
       headers: body ? { 'Content-Type': 'application/json' } : undefined,
       body: body ? JSON.stringify(body) : undefined,
     });
-    setBusy(false);
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
       setError(d.message ?? 'That did not save.');
-      return false;
+      // The button may only show a tick for a request the API accepted.
+      throw new Error('rejected');
     }
     setEditing(null);
     setAdding(false);
     router.refresh();
-    return true;
   }
 
   function formValues(form: HTMLFormElement) {
@@ -75,6 +77,16 @@ export default function StudentGuardians({
       whatsappOptIn: f.get('whatsappOptIn') === 'on',
     };
   }
+
+  // One state each: only one form is ever open, but Save and Remove sit in the same row and must
+  // be able to report separately.
+  const add = useAsyncAction((values: ReturnType<typeof formValues>) =>
+    send('/guardians', 'POST', values),
+  );
+  const save = useAsyncAction((id: string, values: ReturnType<typeof formValues>) =>
+    send(`/guardians/${id}`, 'PATCH', values),
+  );
+  const remove = useAsyncAction((id: string) => send(`/guardians/${id}`, 'DELETE'));
 
   /**
    * Name and phone live on the shared Guardian record, so editing them reaches every child that
@@ -98,22 +110,25 @@ export default function StudentGuardians({
     <section className="card p-6 rise rise-2">
       <div className="flex items-center justify-between gap-3">
         <h2 className="font-display text-xl">Guardians</h2>
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={adding ? <CloseIcon /> : <PlusIcon />}
+          className="no-print"
           onClick={() => {
             setAdding((a) => !a);
             setEditing(null);
           }}
-          className="no-print text-[12.5px] font-medium text-brand hover:underline underline-offset-2"
         >
-          {adding ? 'Cancel' : '+ Add guardian'}
-        </button>
+          {adding ? 'Cancel' : 'Add guardian'}
+        </Button>
       </div>
 
       {adding && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            send('/guardians', 'POST', formValues(e.currentTarget));
+            add.run(formValues(e.currentTarget));
           }}
           className="mt-4 rounded-lg bg-parchment/60 p-4 space-y-3"
         >
@@ -122,26 +137,42 @@ export default function StudentGuardians({
             too — siblings share one contact and one portal sign-in.
           </p>
           <div className="flex flex-wrap gap-2">
-            <input
-              name="firstName"
-              required
-              minLength={2}
-              placeholder="First name"
-              className={`${field} w-36`}
-            />
-            <input
-              name="lastName"
-              required
-              minLength={2}
-              placeholder="Last name"
-              className={`${field} w-36`}
-            />
-            <input
-              name="phone"
-              required
-              placeholder="024 123 4567"
-              className={`${field} w-40 tabular`}
-            />
+            <div className="relative">
+              <span className={iconWrap}>
+                <UserIcon />
+              </span>
+              <input
+                name="firstName"
+                required
+                minLength={2}
+                placeholder="First name"
+                className={`${field} w-36 pl-10`}
+              />
+            </div>
+            <div className="relative">
+              <span className={iconWrap}>
+                <UserIcon />
+              </span>
+              <input
+                name="lastName"
+                required
+                minLength={2}
+                placeholder="Last name"
+                className={`${field} w-36 pl-10`}
+              />
+            </div>
+            <div className="relative">
+              <span className={iconWrap}>
+                <PhoneIcon />
+              </span>
+              <input
+                name="phone"
+                required
+                placeholder="024 123 4567"
+                className={`${field} w-40 pl-10 tabular`}
+              />
+            </div>
+            {/* Relationship ("Mother") is neither a person nor a contact detail — no icon fits. */}
             <input name="relationship" placeholder="Mother" className={`${field} w-32`} />
           </div>
           <select name="custodyFlag" defaultValue="NONE" className={`${field} w-full`}>
@@ -162,12 +193,9 @@ export default function StudentGuardians({
               <input type="checkbox" name="whatsappOptIn" /> WhatsApp
             </label>
           </div>
-          <button
-            disabled={busy}
-            className="rounded-lg bg-brand text-paper text-sm font-medium px-4 py-2 hover:bg-brand-deep transition disabled:opacity-60"
-          >
-            {busy ? 'Saving…' : 'Add guardian'}
-          </button>
+          <Button type="submit" state={add.state} icon={<PlusIcon />}>
+            Add guardian
+          </Button>
         </form>
       )}
 
@@ -180,7 +208,7 @@ export default function StudentGuardians({
                   e.preventDefault();
                   const next = formValues(e.currentTarget);
                   if (!confirmSharedEdit(g, next)) return;
-                  send(`/guardians/${g.id}`, 'PATCH', next);
+                  save.run(g.id, next);
                 }}
                 className="rounded-lg bg-parchment/60 p-4 space-y-3"
               >
@@ -192,26 +220,41 @@ export default function StudentGuardians({
                   </p>
                 )}
                 <div className="flex flex-wrap gap-2">
-                  <input
-                    name="firstName"
-                    required
-                    minLength={2}
-                    defaultValue={g.name.split(' ')[0]}
-                    className={`${field} w-36`}
-                  />
-                  <input
-                    name="lastName"
-                    required
-                    minLength={2}
-                    defaultValue={g.name.split(' ').slice(1).join(' ')}
-                    className={`${field} w-36`}
-                  />
-                  <input
-                    name="phone"
-                    required
-                    defaultValue={g.phone}
-                    className={`${field} w-40 tabular`}
-                  />
+                  <div className="relative">
+                    <span className={iconWrap}>
+                      <UserIcon />
+                    </span>
+                    <input
+                      name="firstName"
+                      required
+                      minLength={2}
+                      defaultValue={g.name.split(' ')[0]}
+                      className={`${field} w-36 pl-10`}
+                    />
+                  </div>
+                  <div className="relative">
+                    <span className={iconWrap}>
+                      <UserIcon />
+                    </span>
+                    <input
+                      name="lastName"
+                      required
+                      minLength={2}
+                      defaultValue={g.name.split(' ').slice(1).join(' ')}
+                      className={`${field} w-36 pl-10`}
+                    />
+                  </div>
+                  <div className="relative">
+                    <span className={iconWrap}>
+                      <PhoneIcon />
+                    </span>
+                    <input
+                      name="phone"
+                      required
+                      defaultValue={g.phone}
+                      className={`${field} w-40 pl-10 tabular`}
+                    />
+                  </div>
                   <input
                     name="relationship"
                     defaultValue={g.relationship}
@@ -244,31 +287,28 @@ export default function StudentGuardians({
                   </label>
                 </div>
                 <div className="flex items-center gap-3">
-                  <button
-                    disabled={busy}
-                    className="rounded-lg bg-brand text-paper text-sm font-medium px-4 py-2 hover:bg-brand-deep transition disabled:opacity-60"
-                  >
-                    {busy ? 'Saving…' : 'Save'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEditing(null)}
-                    className="text-[13px] text-oat"
-                  >
+                  <Button type="submit" state={save.state} icon={<SaveIcon />}>
+                    Save
+                  </Button>
+                  <Button type="button" variant="ghost" onClick={() => setEditing(null)}>
                     Cancel
-                  </button>
-                  <button
+                  </Button>
+                  {/* The confirm stays outside `run`, so backing out of it does not read as done. */}
+                  <Button
                     type="button"
-                    disabled={busy}
+                    variant="danger"
+                    size="sm"
+                    icon={<TrashIcon />}
+                    className="ml-auto"
+                    state={remove.state}
                     onClick={() => {
                       if (confirm(`Remove ${g.name} from this student's guardians?`)) {
-                        send(`/guardians/${g.id}`, 'DELETE');
+                        remove.run(g.id);
                       }
                     }}
-                    className="ml-auto text-[13px] text-clay hover:underline underline-offset-2"
                   >
                     Remove
-                  </button>
+                  </Button>
                 </div>
               </form>
             </li>
@@ -287,15 +327,18 @@ export default function StudentGuardians({
                   {g.relationship} · <span className="tabular">{g.phone}</span>
                   {g.whatsappOptIn && ' · WhatsApp ✓'}
                 </p>
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={<EditIcon />}
+                  className="no-print mt-1"
                   onClick={() => {
                     setEditing(g.id);
                     setAdding(false);
                   }}
-                  className="no-print text-[12px] text-brand hover:underline underline-offset-2 mt-1"
                 >
                   Edit
-                </button>
+                </Button>
               </div>
               <span
                 data-tip={

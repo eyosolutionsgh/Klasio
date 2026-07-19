@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Combobox from '@/components/Combobox';
+import { Button, useAsyncAction } from '@/components/Button';
+import { KeyIcon, MailIcon, PhoneIcon, PlusIcon, SaveIcon, UserIcon } from '@/components/icons';
 import { roleLabel } from '@/lib/roles';
 
 /**
@@ -67,7 +69,6 @@ export default function StaffPage() {
   const [held, setHeld] = useState<string[]>([]);
   const [permissions, setPermissions] = useState<PermissionDef[]>([]);
   const [includeInactive, setIncludeInactive] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** Shown once, never retrievable again — the API only ever returns it on create/reset. */
   const [credential, setCredential] = useState<{ email: string; password: string } | null>(null);
@@ -78,7 +79,6 @@ export default function StaffPage() {
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState('TEACHER');
   const [staffRoleId, setStaffRoleId] = useState('');
-  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/proxy/users?includeInactive=${includeInactive}`);
@@ -134,7 +134,6 @@ export default function StaffPage() {
   );
 
   async function send(path: string, body?: unknown, method = 'POST') {
-    setMessage(null);
     setError(null);
     const res = await fetch(`/api/proxy/users${path}`, {
       method,
@@ -154,9 +153,7 @@ export default function StaffPage() {
     return data;
   }
 
-  async function addStaff(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
+  const addStaff = useAsyncAction(async () => {
     const data = await send('', {
       name,
       email,
@@ -164,17 +161,28 @@ export default function StaffPage() {
       phone: phone || undefined,
       ...(staffRoleId ? { staffRoleId } : {}),
     });
-    setBusy(false);
-    if (data) {
-      setName('');
-      setEmail('');
-      setPhone('');
-      setStaffRoleId('');
-      if (data.temporaryPassword) {
-        setCredential({ email: data.email, password: data.temporaryPassword });
-      }
-      setMessage(`${data.name} can now sign in.`);
+    // `send` has already put the server's reason in `error`; throwing is what settles the button
+    // on "Couldn't add" rather than a tick for an account that was never created.
+    if (!data) throw new Error('add rejected');
+    setName('');
+    setEmail('');
+    setPhone('');
+    setStaffRoleId('');
+    if (data.temporaryPassword) {
+      setCredential({ email: data.email, password: data.temporaryPassword });
     }
+  });
+
+  /** The temporary password is the whole point of the reset, so it goes straight to the card. */
+  async function resetPassword(u: StaffUser) {
+    const d = await send(`/${u.id}/reset-password`, {});
+    if (!d) throw new Error('reset rejected');
+    if (d.temporaryPassword) setCredential({ email: d.email, password: d.temporaryPassword });
+  }
+
+  async function toggleActive(u: StaffUser) {
+    const d = await send(`/${u.id}`, { active: !u.active }, 'PATCH');
+    if (!d) throw new Error('toggle rejected');
   }
 
   /** "1 added, 2 taken away" — silent when the person is simply on their role. */
@@ -226,7 +234,6 @@ export default function StaffPage() {
           </button>
         </div>
       )}
-      {message && <p className="text-sm text-brand mt-4">{message}</p>}
       {error && <p className="text-sm text-danger mt-4">{error}</p>}
 
       <div className="card mt-6 overflow-x-auto rise rise-2">
@@ -299,35 +306,21 @@ export default function StaffPage() {
                     {u.active ? 'active' : 'deactivated'}
                   </span>
                 </td>
-                <td className="px-5 py-3 text-right whitespace-nowrap">
-                  {u.role !== 'OWNER' && u.manageable && (
-                    <button
-                      onClick={() => setEditing(editing === u.id ? null : u.id)}
-                      className="text-[12.5px] text-brand hover:underline underline-offset-2 mr-3"
-                    >
-                      {editing === u.id ? 'Close' : 'Access'}
-                    </button>
-                  )}
-                  {u.manageable && (
-                    <>
+                <td className="px-5 py-3 whitespace-nowrap">
+                  <div className="flex items-center justify-end gap-2">
+                    {u.role !== 'OWNER' && u.manageable && (
+                      // A local panel toggle, not a request — it keeps its link treatment.
                       <button
-                        onClick={async () => {
-                          const d = await send(`/${u.id}/reset-password`, {});
-                          if (d?.temporaryPassword)
-                            setCredential({ email: d.email, password: d.temporaryPassword });
-                        }}
-                        className="text-[12.5px] text-brand hover:underline underline-offset-2 mr-3"
+                        onClick={() => setEditing(editing === u.id ? null : u.id)}
+                        className="text-[12.5px] text-brand hover:underline underline-offset-2 mr-1"
                       >
-                        Reset password
+                        {editing === u.id ? 'Close' : 'Access'}
                       </button>
-                      <button
-                        onClick={() => send(`/${u.id}`, { active: !u.active }, 'PATCH')}
-                        className={`text-[12.5px] hover:underline underline-offset-2 ${u.active ? 'text-clay' : 'text-brand'}`}
-                      >
-                        {u.active ? 'Deactivate' : 'Reactivate'}
-                      </button>
-                    </>
-                  )}
+                    )}
+                    {u.manageable && (
+                      <RowActions user={u} onReset={resetPassword} onToggleActive={toggleActive} />
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -352,7 +345,6 @@ export default function StaffPage() {
           allPermissions={permissions}
           onCancel={() => setEditing(null)}
           onSave={async (body) => {
-            setMessage(null);
             setError(null);
             const res = await fetch(`/api/proxy/roles/assign/${editing}`, {
               method: 'POST',
@@ -366,12 +358,12 @@ export default function StaffPage() {
                   ? data.message.join('. ')
                   : (data.message ?? 'That did not work.'),
               );
-              return;
+              // Thrown so the panel's button settles on "Couldn't save" — the reason is above.
+              throw new Error('assign rejected');
             }
             // The list is the source of truth, so re-read it rather than mirroring the write.
             await load();
             setEditing(null);
-            setMessage('Access updated.');
           }}
         />
       )}
@@ -379,7 +371,7 @@ export default function StaffPage() {
       {/* Hidden without users.manage: POST /users would refuse it, and a form that always fails
           is worse than no form. */}
       {held.includes('users.manage') && (
-        <form onSubmit={addStaff} className="card p-6 mt-6 rise rise-3 max-w-3xl">
+        <form onSubmit={addStaff.run} className="card p-6 mt-6 rise rise-3 max-w-3xl">
           <h2 className="font-display text-xl">Add a staff member</h2>
           <p className="text-xs text-oat mt-1">
             A temporary password is generated and shown once — hand it over and ask them to change
@@ -388,33 +380,48 @@ export default function StaffPage() {
           <div className="flex flex-wrap items-end gap-3 mt-4">
             <label className="text-[13px]">
               <span className="block text-oat mb-1">Full name</span>
-              <input
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Ms. Efua Sarpong"
-                className={`${field} w-52`}
-              />
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                  <UserIcon />
+                </span>
+                <input
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Ms. Efua Sarpong"
+                  className={`${field} w-52 pl-10`}
+                />
+              </div>
             </label>
             <label className="text-[13px]">
               <span className="block text-oat mb-1">Email</span>
-              <input
-                required
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="efua@school.gh"
-                className={`${field} w-56`}
-              />
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                  <MailIcon />
+                </span>
+                <input
+                  required
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="efua@school.gh"
+                  className={`${field} w-56 pl-10`}
+                />
+              </div>
             </label>
             <label className="text-[13px]">
               <span className="block text-oat mb-1">Phone</span>
-              <input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="024 123 4567"
-                className={`${field} w-36`}
-              />
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                  <PhoneIcon />
+                </span>
+                <input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="024 123 4567"
+                  className={`${field} w-36 pl-10`}
+                />
+              </div>
             </label>
             <label className="text-[13px]">
               <span className="block text-oat mb-1">Account type</span>
@@ -435,13 +442,9 @@ export default function StaffPage() {
               clearLabel="— no role yet —"
               placeholder="Search roles…"
             />
-            <button
-              type="submit"
-              disabled={busy}
-              className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition disabled:opacity-50"
-            >
-              {busy ? 'Adding…' : 'Add staff'}
-            </button>
+            <Button type="submit" state={addStaff.state} icon={<PlusIcon />}>
+              Add staff
+            </Button>
           </div>
           {hiddenRoles > 0 && (
             <p className="text-[11px] text-oat mt-3">
@@ -453,6 +456,53 @@ export default function StaffPage() {
         </form>
       )}
     </div>
+  );
+}
+
+/**
+ * The two per-row requests.
+ *
+ * Its own component because each row needs its own pending/done state, and hooks cannot be called
+ * inside the map that renders the table.
+ */
+function RowActions({
+  user,
+  onReset,
+  onToggleActive,
+}: {
+  user: StaffUser;
+  onReset: (u: StaffUser) => Promise<void>;
+  onToggleActive: (u: StaffUser) => Promise<void>;
+}) {
+  const reset = useAsyncAction(() => onReset(user));
+  const toggle = useAsyncAction(() => onToggleActive(user));
+
+  return (
+    <>
+      {/* "Reset" is not one of the conjugated verbs, so the wording is spelled out. */}
+      <Button
+        size="sm"
+        variant="secondary"
+        state={reset.state}
+        onClick={reset.run}
+        icon={<KeyIcon />}
+        pendingLabel="Resetting…"
+        doneLabel="Password reset"
+        failedLabel="Couldn't reset"
+      >
+        Reset password
+      </Button>
+      <Button
+        size="sm"
+        variant={user.active ? 'danger' : 'secondary'}
+        state={toggle.state}
+        onClick={toggle.run}
+        pendingLabel={user.active ? 'Deactivating…' : 'Reactivating…'}
+        doneLabel={user.active ? 'Deactivated' : 'Reactivated'}
+      >
+        {user.active ? 'Deactivate' : 'Reactivate'}
+      </Button>
+    </>
   );
 }
 
@@ -484,7 +534,14 @@ function AccessPanel({
   const [staffRoleId, setStaffRoleId] = useState(user.staffRoleId ?? '');
   const [extra, setExtra] = useState<string[]>(user.extraPermissions);
   const [revoked, setRevoked] = useState<string[]>(user.revokedPermissions);
-  const [busy, setBusy] = useState(false);
+
+  const save = useAsyncAction(() =>
+    onSave({
+      staffRoleId: staffRoleId || null,
+      extraPermissions: extra,
+      revokedPermissions: revoked,
+    }),
+  );
 
   const labelOf = (code: string) => allPermissions.find((p) => p.code === code)?.label ?? code;
 
@@ -590,22 +647,9 @@ function AccessPanel({
       )}
 
       <div className="flex items-center gap-3 mt-4 pt-4 border-t border-mist/60">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            await onSave({
-              staffRoleId: staffRoleId || null,
-              extraPermissions: extra,
-              revokedPermissions: revoked,
-            });
-            setBusy(false);
-          }}
-          className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition disabled:opacity-50"
-        >
-          {busy ? 'Saving…' : 'Save access'}
-        </button>
+        <Button type="button" state={save.state} onClick={save.run} icon={<SaveIcon />}>
+          Save access
+        </Button>
         <button
           type="button"
           onClick={onCancel}

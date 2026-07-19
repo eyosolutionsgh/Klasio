@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { Button, useAsyncAction } from './Button';
+import { CalendarIcon, MailIcon, PhoneIcon, SendIcon, UserIcon } from './icons';
 
 interface Level {
   id: string;
@@ -19,7 +21,6 @@ interface Submitted {
  * fields the API actually insists on are required — anything else the office can ask for later.
  */
 export default function ApplyForm({ schoolId, levels }: { schoolId: string; levels: Level[] }) {
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<Submitted | null>(null);
 
@@ -27,12 +28,11 @@ export default function ApplyForm({ schoolId, levels }: { schoolId: string; leve
     'w-full min-h-11 rounded-lg border border-mist bg-white px-3.5 py-3 text-base outline-none focus:border-forest focus:ring-2 focus:ring-forest/15';
   const optional = <span className="font-normal text-oat">(optional)</span>;
 
-  async function submit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  const submit = useAsyncAction(async (e: React.FormEvent<HTMLFormElement>) => {
+    // Read synchronously: `currentTarget` is gone by the time the request resolves.
     const f = new FormData(e.currentTarget);
     const text = (k: string) => String(f.get(k) ?? '').trim() || undefined;
 
-    setBusy(true);
     setError(null);
     try {
       const res = await fetch(`/api/apply/admissions/apply/${encodeURIComponent(schoolId)}`, {
@@ -55,15 +55,16 @@ export default function ApplyForm({ schoolId, levels }: { schoolId: string; leve
       if (!res.ok) throw new Error(plainError(data));
       setDone(data as Submitted);
       window.scrollTo({ top: 0 });
-    } catch (e) {
+    } catch (err) {
       setError(
-        e instanceof Error && e.message
-          ? e.message
+        err instanceof Error && err.message
+          ? err.message
           : 'We could not send your application. Please check your internet and try again.',
       );
-      setBusy(false);
+      // Re-thrown so the button lands on its failed state rather than showing a tick.
+      throw err;
     }
-  }
+  });
 
   if (done) {
     return (
@@ -90,7 +91,7 @@ export default function ApplyForm({ schoolId, levels }: { schoolId: string; leve
   }
 
   return (
-    <form onSubmit={submit} className="mt-6 space-y-4">
+    <form onSubmit={submit.run} className="mt-6 space-y-4">
       <p className="text-sm text-oat">
         Fields marked <span className="text-danger">*</span> are needed. The rest you can leave
         empty.
@@ -102,31 +103,46 @@ export default function ApplyForm({ schoolId, levels }: { schoolId: string; leve
 
         <label className="block text-sm font-medium">
           Child&rsquo;s first name <span className="text-danger">*</span>
-          <input
-            name="firstName"
-            required
-            minLength={2}
-            maxLength={60}
-            autoComplete="off"
-            className={`${field} mt-1.5`}
-          />
+          <div className="relative mt-1.5">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+              <UserIcon />
+            </span>
+            <input
+              name="firstName"
+              required
+              minLength={2}
+              maxLength={60}
+              autoComplete="off"
+              className={`${field} pl-10`}
+            />
+          </div>
         </label>
 
         <label className="block text-sm font-medium">
           Child&rsquo;s surname <span className="text-danger">*</span>
-          <input
-            name="lastName"
-            required
-            minLength={2}
-            maxLength={60}
-            autoComplete="off"
-            className={`${field} mt-1.5`}
-          />
+          <div className="relative mt-1.5">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+              <UserIcon />
+            </span>
+            <input
+              name="lastName"
+              required
+              minLength={2}
+              maxLength={60}
+              autoComplete="off"
+              className={`${field} pl-10`}
+            />
+          </div>
         </label>
 
         <label className="block text-sm font-medium">
           Date of birth {optional}
-          <input name="dateOfBirth" type="date" className={`${field} mt-1.5`} />
+          <div className="relative mt-1.5">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+              <CalendarIcon />
+            </span>
+            <input name="dateOfBirth" type="date" className={`${field} pl-10`} />
+          </div>
         </label>
 
         <label className="block text-sm font-medium">
@@ -164,27 +180,37 @@ export default function ApplyForm({ schoolId, levels }: { schoolId: string; leve
 
         <label className="block text-sm font-medium">
           Your full name <span className="text-danger">*</span>
-          <input
-            name="guardianName"
-            required
-            minLength={2}
-            maxLength={120}
-            autoComplete="name"
-            className={`${field} mt-1.5`}
-          />
+          <div className="relative mt-1.5">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+              <UserIcon />
+            </span>
+            <input
+              name="guardianName"
+              required
+              minLength={2}
+              maxLength={120}
+              autoComplete="name"
+              className={`${field} pl-10`}
+            />
+          </div>
         </label>
 
         <label className="block text-sm font-medium">
           Your phone number <span className="text-danger">*</span>
-          <input
-            name="guardianPhone"
-            type="tel"
-            inputMode="tel"
-            autoComplete="tel"
-            required
-            placeholder="024 123 4567"
-            className={`${field} mt-1.5`}
-          />
+          <div className="relative mt-1.5">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+              <PhoneIcon />
+            </span>
+            <input
+              name="guardianPhone"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              required
+              placeholder="024 123 4567"
+              className={`${field} pl-10`}
+            />
+          </div>
           <span className="mt-1 block text-[13px] font-normal text-oat">
             This is how the school will reach you.
           </span>
@@ -192,13 +218,18 @@ export default function ApplyForm({ schoolId, levels }: { schoolId: string; leve
 
         <label className="block text-sm font-medium">
           Your email {optional}
-          <input
-            name="guardianEmail"
-            type="email"
-            inputMode="email"
-            autoComplete="email"
-            className={`${field} mt-1.5`}
-          />
+          <div className="relative mt-1.5">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+              <MailIcon />
+            </span>
+            <input
+              name="guardianEmail"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              className={`${field} pl-10`}
+            />
+          </div>
         </label>
 
         <label className="block text-sm font-medium">
@@ -216,12 +247,23 @@ export default function ApplyForm({ schoolId, levels }: { schoolId: string; leve
         </p>
       )}
 
-      <button
-        disabled={busy}
-        className="w-full min-h-11 rounded-lg bg-forest text-paper font-medium py-3 hover:bg-forest-deep transition disabled:opacity-60"
+      {/*
+        The public door keeps its forest palette rather than the portal's brand teal, so the
+        primary variant's own background is overridden — but only while the button is offering
+        itself, since the tick and the alert carry their own colours and must not be repainted.
+      */}
+      <Button
+        type="submit"
+        state={submit.state}
+        icon={<SendIcon />}
+        className={`w-full py-3 ${
+          submit.state === 'done' || submit.state === 'failed'
+            ? ''
+            : 'bg-forest! hover:bg-forest-deep!'
+        }`}
       >
-        {busy ? 'Sending…' : 'Send application'}
-      </button>
+        Send application
+      </Button>
       <p className="text-[11px] text-oat text-center">
         The school will use these details only to contact you about this application.
       </p>

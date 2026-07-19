@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button, useAsyncAction, type ActionState } from '@/components/Button';
+import { EditIcon, PlusIcon, RefreshIcon, SaveIcon, TrashIcon } from '@/components/icons';
 
 /**
  * Roles, as the school defines them.
@@ -55,9 +57,10 @@ export default function RolesPage() {
   const [held, setHeld] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
+  // Only the restore counts a result worth saying in prose ("Put back 3 roles", or that there was
+  // nothing to put back). Every other outcome is now on the button that caused it.
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
   const canManage = held.includes('roles.manage');
 
@@ -92,14 +95,12 @@ export default function RolesPage() {
   async function send(path: string, body?: unknown, method = 'POST') {
     setMessage(null);
     setError(null);
-    setBusy(true);
     const res = await fetch(`/api/proxy/roles${path}`, {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
-    setBusy(false);
     if (!res.ok) {
       // The API's refusals are written for a head teacher — "3 people hold this role. Move them
       // to another role first." Replacing that with a generic failure would lose the instruction.
@@ -126,8 +127,7 @@ export default function RolesPage() {
       .map((g) => ({ group: g, count: counts.get(g)! }));
   };
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
+  const save = useAsyncAction(async () => {
     if (!draft) return;
     const body = {
       name: draft.name.trim(),
@@ -135,11 +135,20 @@ export default function RolesPage() {
       permissions: draft.permissions,
     };
     const ok = draft.id ? await send(`/${draft.id}`, body, 'PATCH') : await send('', body);
-    if (ok) {
-      setMessage(draft.id ? `${body.name} updated.` : `${body.name} created.`);
-      setDraft(null);
-    }
-  }
+    // A refusal has to throw, or the button ticks for a role that was never written.
+    if (!ok) throw new Error('rejected');
+    setDraft(null);
+  });
+
+  const restorePresets = useAsyncAction(async () => {
+    const d = await send('/restore-presets', {});
+    if (!d) throw new Error('rejected');
+    setMessage(
+      d.restored > 0
+        ? `Put back ${d.restored} ${d.restored === 1 ? 'role' : 'roles'}.`
+        : 'Nothing to put back — you already have all the standard roles.',
+    );
+  });
 
   return (
     <div className="space-y-8">
@@ -154,31 +163,28 @@ export default function RolesPage() {
         </div>
         {canManage && (
           <div className="flex gap-2">
-            <button
+            <Button
+              icon={<PlusIcon />}
               onClick={() => {
                 setDraft(blank);
                 setMessage(null);
                 setError(null);
               }}
-              className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition"
             >
               New role
-            </button>
-            <button
-              onClick={async () => {
-                const d = await send('/restore-presets', {});
-                if (d)
-                  setMessage(
-                    d.restored > 0
-                      ? `Put back ${d.restored} ${d.restored === 1 ? 'role' : 'roles'}.`
-                      : 'Nothing to put back — you already have all the standard roles.',
-                  );
-              }}
-              disabled={busy}
-              className="min-h-11 rounded-lg border border-mist text-sm px-4 hover:border-brand hover:text-brand transition disabled:opacity-50"
+            </Button>
+            {/* "Restore" is not a verb the label deriver knows, so the wording is given here. */}
+            <Button
+              variant="secondary"
+              icon={<RefreshIcon />}
+              state={restorePresets.state}
+              onClick={restorePresets.run}
+              pendingLabel="Restoring…"
+              doneLabel="Restored!"
+              failedLabel="Couldn't restore"
             >
               Restore standard roles
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -204,8 +210,8 @@ export default function RolesPage() {
           catalogue={catalogue}
           held={held}
           original={roles.find((r) => r.id === draft.id)?.permissions ?? []}
-          onSubmit={save}
-          busy={busy}
+          onSubmit={save.run}
+          state={save.state}
         />
       )}
 
@@ -248,7 +254,11 @@ export default function RolesPage() {
                 <td className="px-5 py-3 text-right whitespace-nowrap">
                   {canManage && (
                     <>
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={<EditIcon />}
+                        className="mr-2"
                         onClick={() => {
                           setMessage(null);
                           setError(null);
@@ -259,20 +269,15 @@ export default function RolesPage() {
                             permissions: [...r.permissions],
                           });
                         }}
-                        className="text-[12.5px] text-brand hover:underline underline-offset-2 mr-3"
                       >
                         Edit
-                      </button>
-                      <button
-                        onClick={async () => {
-                          const d = await send(`/${r.id}`, undefined, 'DELETE');
-                          if (d) setMessage(`${r.name} removed.`);
+                      </Button>
+                      <DeleteRoleButton
+                        onDelete={async () => {
+                          if (!(await send(`/${r.id}`, undefined, 'DELETE')))
+                            throw new Error('rejected');
                         }}
-                        disabled={busy}
-                        className="text-[12.5px] text-clay hover:underline underline-offset-2 disabled:opacity-50"
-                      >
-                        Delete
-                      </button>
+                      />
                     </>
                   )}
                 </td>
@@ -307,7 +312,7 @@ function RoleEditor({
   held,
   original,
   onSubmit,
-  busy,
+  state,
 }: {
   draft: Draft;
   setDraft: (d: Draft | null) => void;
@@ -316,7 +321,7 @@ function RoleEditor({
   /** What the role held when the editor opened — those may be removed even if not yours to give. */
   original: string[];
   onSubmit: (e: React.FormEvent) => void;
-  busy: boolean;
+  state: ActionState;
 }) {
   const holds = (code: string) => held.includes(code);
   const chosen = new Set(draft.permissions);
@@ -422,25 +427,42 @@ function RoleEditor({
       </div>
 
       <div className="flex items-center gap-3 mt-6 pt-5 border-t border-mist/60">
-        <button
+        <Button
           type="submit"
-          disabled={busy || draft.permissions.length === 0}
-          className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition disabled:opacity-50"
+          state={state}
+          icon={draft.id ? <SaveIcon /> : <PlusIcon />}
+          disabled={draft.permissions.length === 0}
         >
           {draft.id ? 'Save role' : 'Create role'}
-        </button>
-        <button
-          type="button"
-          onClick={() => setDraft(null)}
-          className="text-[13px] text-oat hover:text-brand transition"
-        >
+        </Button>
+        <Button type="button" variant="ghost" onClick={() => setDraft(null)}>
           Cancel
-        </button>
+        </Button>
         <span className="text-[11px] text-oat ml-auto">
           {draft.permissions.length} chosen
           {draft.permissions.length === 0 && ' — a role must be able to do something'}
         </span>
       </div>
     </form>
+  );
+}
+
+/**
+ * One action per row: a hook cannot be called inside the map, and a shared pending state would
+ * spin every row's button whenever any one of them was deleting. The API's reason for a refusal
+ * ("3 people hold this role…") still arrives in the page-level error line.
+ */
+function DeleteRoleButton({ onDelete }: { onDelete: () => Promise<void> }) {
+  const action = useAsyncAction(onDelete);
+  return (
+    <Button
+      onClick={action.run}
+      state={action.state}
+      variant="danger"
+      size="sm"
+      icon={<TrashIcon />}
+    >
+      Delete
+    </Button>
   );
 }

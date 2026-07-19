@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Combobox from './Combobox';
+import { Button, useAsyncAction } from './Button';
+import { CashIcon, PlusIcon } from './icons';
 
 interface Rule {
   id: string;
@@ -82,15 +84,14 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
   const [levelId, setLevelId] = useState('');
   const [startsOn, setStartsOn] = useState('');
   const [endsOn, setEndsOn] = useState('');
-  const [busy, setBusy] = useState(false);
+  // Failure only — the API's reason for refusing a rule is what the button cannot say.
   const [message, setMessage] = useState<string | null>(null);
 
   // Award form
   const [awardRuleId, setAwardRuleId] = useState('');
   const [awardStudentId, setAwardStudentId] = useState('');
   const [reason, setReason] = useState('');
-  const [awarding, setAwarding] = useState(false);
-  const [awardMessage, setAwardMessage] = useState<string | null>(null);
+  const [awardError, setAwardError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch('/api/proxy/fees/concessions/rules');
@@ -121,9 +122,7 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
     [rules],
   );
 
-  async function create(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
+  const create = useAsyncAction(async () => {
     setMessage(null);
     const res = await fetch('/api/proxy/fees/concessions/rules', {
       method: 'POST',
@@ -140,35 +139,38 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
       }),
     });
     const body = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (res.ok) {
-      setName('');
-      setValue('');
-      setStartsOn('');
-      setEndsOn('');
-      load();
-    } else {
+    if (!res.ok) {
       // The API's own wording explains *why* — a clashing name, a percentage out of range, a
       // sibling rule starting at the eldest — far better than anything generic here.
       setMessage(errorText(body, 'Could not save that rule.'));
+      throw new Error('create rejected');
     }
-  }
+    setName('');
+    setValue('');
+    setStartsOn('');
+    setEndsOn('');
+    load();
+  });
 
-  async function setActive(rule: Rule, active: boolean) {
-    setMessage(null);
-    const res = await fetch(`/api/proxy/fees/concessions/rules/${rule.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ active }),
-    });
-    if (res.ok) load();
-    else setMessage(errorText(await res.json().catch(() => ({})), 'Could not change that rule.'));
-  }
+  const setActive = useCallback(
+    async (rule: Rule, active: boolean) => {
+      setMessage(null);
+      const res = await fetch(`/api/proxy/fees/concessions/rules/${rule.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active }),
+      });
+      if (!res.ok) {
+        setMessage(errorText(await res.json().catch(() => ({})), 'Could not change that rule.'));
+        throw new Error('toggle rejected');
+      }
+      load();
+    },
+    [load],
+  );
 
-  async function award(e: React.FormEvent) {
-    e.preventDefault();
-    setAwarding(true);
-    setAwardMessage(null);
+  const award = useAsyncAction(async () => {
+    setAwardError(null);
     const res = await fetch('/api/proxy/fees/concessions/awards', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -179,18 +181,16 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
       }),
     });
     const body = await res.json().catch(() => ({}));
-    setAwarding(false);
-    if (res.ok) {
-      const who = students.find((s) => s.id === awardStudentId)?.name ?? 'that student';
-      const what = scholarships.find((r) => r.id === awardRuleId)?.name ?? 'the scholarship';
-      setAwardStudentId('');
-      setReason('');
-      setAwardMessage(`${what} awarded to ${who}. It applies from the next bill raised.`);
-      load();
-    } else {
-      setAwardMessage(errorText(body, 'Could not award that scholarship.'));
+    if (!res.ok) {
+      setAwardError(errorText(body, 'Could not award that scholarship.'));
+      throw new Error('award rejected');
     }
-  }
+    // No success note: the button says "Awarded!", and "it applies from the next bill raised" is
+    // already stated under this form for every award, not just the one just made.
+    setAwardStudentId('');
+    setReason('');
+    load();
+  });
 
   if (!loaded || !entitled || !rules) return null;
 
@@ -224,68 +224,14 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
           </thead>
           <tbody>
             {rules.map((r) => (
-              <tr key={r.id} className="border-b border-mist/60 last:border-0">
-                <td className="px-5 py-3">
-                  <p className={`font-medium ${r.active ? '' : 'text-oat'}`}>{r.name}</p>
-                  <p className="text-[11px] text-oat">
-                    {/* Schools name rules after what they are ("Sibling discount"), so repeating
-                        the kind underneath reads as a mistake. Dropped when it only echoes. */}
-                    {[
-                      kindLabel(r).toLowerCase() === r.name.trim().toLowerCase()
-                        ? null
-                        : kindLabel(r),
-                      r.active ? null : 'inactive',
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </p>
-                </td>
-                <td className="px-5 py-3 text-oat">
-                  {r.kind === 'SIBLING'
-                    ? `${ordinal(r.fromSibling ?? 2)} child onward`
-                    : 'Children awarded it'}
-                  <span className="block text-[11px]">
-                    {levelName(r.levelId)}
-                    {r.startsOn && ` · from ${fmtDate(r.startsOn)}`}
-                    {r.endsOn && ` · until ${fmtDate(r.endsOn)}`}
-                  </span>
-                </td>
-                <td className="px-5 py-3 text-right tabular font-medium">
-                  {r.basis === 'PERCENT' ? `${r.value}%` : money(r.value)}
-                  {r.basis === 'PERCENT' && (
-                    <span className="block text-[11px] font-normal text-oat">of the bill</span>
-                  )}
-                </td>
-                <td className="px-5 py-3 text-right">
-                  {r.kind === 'SCHOLARSHIP' ? (
-                    <span className="tabular">
-                      {r.awardCount} {r.awardCount === 1 ? 'child' : 'children'}
-                    </span>
-                  ) : (
-                    <span
-                      data-tip="Worked out from the roll at billing — nobody is named on it"
-                      className="tip text-oat text-[12.5px]"
-                    >
-                      Automatic
-                    </span>
-                  )}
-                </td>
-                <td className="px-5 py-3 text-right">
-                  {canManage && (
-                    <button
-                      onClick={() => setActive(r, !r.active)}
-                      data-tip={
-                        r.active
-                          ? 'Stops it applying to future bills; discounts already given stand'
-                          : 'It will apply again from the next bill raised'
-                      }
-                      className="tip text-[12.5px] text-clay hover:underline underline-offset-2"
-                    >
-                      {r.active ? 'Deactivate' : 'Reactivate'}
-                    </button>
-                  )}
-                </td>
-              </tr>
+              <RuleRow
+                key={r.id}
+                rule={r}
+                canManage={canManage}
+                levelName={levelName}
+                money={money}
+                setActive={setActive}
+              />
             ))}
             {rules.length === 0 && (
               <tr>
@@ -321,7 +267,7 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
       </div>
 
       {canManage && (
-        <form onSubmit={create} className="p-6 pt-0">
+        <form onSubmit={create.run} className="p-6 pt-0">
           <h3 className="text-sm font-medium">Add a rule</h3>
           <div className="flex flex-wrap items-end gap-3 mt-3">
             <label className="text-[13px]">
@@ -356,16 +302,25 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
               <span className="block text-oat mb-1">
                 {basis === 'PERCENT' ? 'Percent off' : `Amount off (${currency})`}
               </span>
-              <input
-                required
-                type="number"
-                min={basis === 'PERCENT' ? '0.01' : '0'}
-                max={basis === 'PERCENT' ? '100' : undefined}
-                step="0.01"
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                className={`${field} w-32 tabular`}
-              />
+              {/* The cash mark only when the field actually holds money — the same box takes a
+                  percentage under the other basis, where a currency icon would be a lie. */}
+              <div className="relative">
+                {basis === 'AMOUNT' && (
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                    <CashIcon />
+                  </span>
+                )}
+                <input
+                  required
+                  type="number"
+                  min={basis === 'PERCENT' ? '0.01' : '0'}
+                  max={basis === 'PERCENT' ? '100' : undefined}
+                  step="0.01"
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  className={`${field} w-32 tabular ${basis === 'AMOUNT' ? 'pl-10' : ''}`}
+                />
+              </div>
             </label>
             {kind === 'SIBLING' && (
               <label className="text-[13px]">
@@ -408,13 +363,9 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
                 className={`${field} w-40 tabular`}
               />
             </label>
-            <button
-              type="submit"
-              disabled={busy}
-              className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition disabled:opacity-50"
-            >
-              {busy ? 'Saving…' : 'Add rule'}
-            </button>
+            <Button type="submit" state={create.state} icon={<PlusIcon />}>
+              Add rule
+            </Button>
           </div>
           <p className="text-xs text-oat mt-2">
             {kind === 'SIBLING'
@@ -427,7 +378,7 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
       )}
 
       {canManage && scholarships.length > 0 && (
-        <form onSubmit={award} className="p-6 pt-0">
+        <form onSubmit={award.run} className="p-6 pt-0">
           <h3 className="text-sm font-medium">Award a scholarship</h3>
           <p className="text-xs text-oat mt-1">
             Only scholarships are listed here. A sibling discount applies to families automatically
@@ -471,21 +422,132 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
                 className={`${field} w-full`}
               />
             </label>
-            <button
+            <Button
               type="submit"
-              disabled={awarding || !awardRuleId || !awardStudentId}
-              className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition disabled:opacity-50"
+              state={award.state}
+              disabled={!awardRuleId || !awardStudentId}
+              icon={<CashIcon />}
+              pendingLabel="Awarding…"
+              doneLabel="Awarded!"
+              failedLabel="Couldn't award"
             >
-              {awarding ? 'Awarding…' : 'Award'}
-            </button>
+              Award
+            </Button>
           </div>
           <p className="text-xs text-oat mt-2">
             The reason is kept with the award and in the audit log. Awarding does not touch bills
             already raised — it applies from the next one.
           </p>
-          {awardMessage && <p className="text-sm mt-3">{awardMessage}</p>}
+          {awardError && <p className="text-sm text-danger mt-3">{awardError}</p>}
         </form>
       )}
     </section>
+  );
+}
+
+/**
+ * One rule in the table.
+ *
+ * Its own component so the toggle can carry its own pending and outcome state — a queue of rules
+ * sharing one flag could only say "something is happening somewhere".
+ */
+function RuleRow({
+  rule: r,
+  canManage,
+  levelName,
+  money,
+  setActive,
+}: {
+  rule: Rule;
+  canManage: boolean;
+  levelName: (id: string | null) => string;
+  money: (n: number) => string;
+  setActive: (rule: Rule, active: boolean) => Promise<void>;
+}) {
+  /**
+   * `r.active` flips the instant the reload lands, so the outcome wording is pinned to the
+   * direction actually taken — otherwise deactivating a rule ends up announcing "Reactivated!".
+   */
+  const [went, setWent] = useState<'off' | 'on'>(r.active ? 'off' : 'on');
+  const toggle = useAsyncAction(async () => {
+    setWent(r.active ? 'off' : 'on');
+    await setActive(r, !r.active);
+  });
+  const words =
+    went === 'off'
+      ? { pending: 'Deactivating…', done: 'Deactivated!', failed: "Couldn't deactivate" }
+      : { pending: 'Reactivating…', done: 'Reactivated!', failed: "Couldn't reactivate" };
+
+  return (
+    <tr className="border-b border-mist/60 last:border-0">
+      <td className="px-5 py-3">
+        <p className={`font-medium ${r.active ? '' : 'text-oat'}`}>{r.name}</p>
+        <p className="text-[11px] text-oat">
+          {/* Schools name rules after what they are ("Sibling discount"), so repeating
+              the kind underneath reads as a mistake. Dropped when it only echoes. */}
+          {[
+            kindLabel(r).toLowerCase() === r.name.trim().toLowerCase() ? null : kindLabel(r),
+            r.active ? null : 'inactive',
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </p>
+      </td>
+      <td className="px-5 py-3 text-oat">
+        {r.kind === 'SIBLING'
+          ? `${ordinal(r.fromSibling ?? 2)} child onward`
+          : 'Children awarded it'}
+        <span className="block text-[11px]">
+          {levelName(r.levelId)}
+          {r.startsOn && ` · from ${fmtDate(r.startsOn)}`}
+          {r.endsOn && ` · until ${fmtDate(r.endsOn)}`}
+        </span>
+      </td>
+      <td className="px-5 py-3 text-right tabular font-medium">
+        {r.basis === 'PERCENT' ? `${r.value}%` : money(r.value)}
+        {r.basis === 'PERCENT' && (
+          <span className="block text-[11px] font-normal text-oat">of the bill</span>
+        )}
+      </td>
+      <td className="px-5 py-3 text-right">
+        {r.kind === 'SCHOLARSHIP' ? (
+          <span className="tabular">
+            {r.awardCount} {r.awardCount === 1 ? 'child' : 'children'}
+          </span>
+        ) : (
+          <span
+            data-tip="Worked out from the roll at billing — nobody is named on it"
+            className="tip text-oat text-[12.5px]"
+          >
+            Automatic
+          </span>
+        )}
+      </td>
+      <td className="px-5 py-3">
+        {canManage && (
+          <div className="flex justify-end">
+            {/* Kept as the quiet treatment it already had: deactivating changes nothing already
+                billed, so it is a setting rather than a destructive act. */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={toggle.run}
+              state={toggle.state}
+              data-tip={
+                r.active
+                  ? 'Stops it applying to future bills; discounts already given stand'
+                  : 'It will apply again from the next bill raised'
+              }
+              className="tip"
+              pendingLabel={words.pending}
+              doneLabel={words.done}
+              failedLabel={words.failed}
+            >
+              {r.active ? 'Deactivate' : 'Reactivate'}
+            </Button>
+          </div>
+        )}
+      </td>
+    </tr>
   );
 }
