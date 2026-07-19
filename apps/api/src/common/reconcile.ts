@@ -26,7 +26,7 @@ export interface KnownIntent {
   id: string;
 }
 
-export type MatchStatus = 'MATCHED' | 'UNMATCHED' | 'DISPUTED';
+export type MatchStatus = 'MATCHED' | 'UNMATCHED' | 'DISPUTED' | 'DUPLICATE';
 
 export interface MatchResult {
   status: MatchStatus;
@@ -105,6 +105,8 @@ export interface ReconcileSummary {
   matched: number;
   unmatched: number;
   disputed: number;
+  /** Lines repeating a reference already claimed earlier in the same file. */
+  duplicate: number;
   grossTotal: number;
   netTotal: number;
   /** Total the gateway kept across matched lines. */
@@ -126,7 +128,29 @@ export function reconcile(
   toleranceMinor: number = DEFAULT_TOLERANCE_MINOR,
 ): { results: MatchResult[]; summary: ReconcileSummary } {
   const byReference = new Map(expected.map((i) => [i.reference, i]));
-  const results = lines.map((l) => matchLine(l, byReference, toleranceMinor));
+
+  /**
+   * One line per reference.
+   *
+   * A settlement file that lists the same reference twice — a gateway re-export, or two exports
+   * concatenated — would otherwise match both, count the charge twice in `chargesTotal`, and
+   * report the school as having received money it did not. The repeat is surfaced as its own
+   * status rather than dropped, because a duplicated line is a fact about the file the bursar
+   * needs to see.
+   */
+  const claimed = new Set<string>();
+  const results = lines.map((l) => {
+    const ref = l.reference.trim();
+    if (ref && claimed.has(ref)) {
+      return {
+        status: 'DUPLICATE' as const,
+        note: 'This reference appears more than once in the file — counted once only',
+      };
+    }
+    const result = matchLine(l, byReference, toleranceMinor);
+    if (ref && result.status !== 'UNMATCHED') claimed.add(ref);
+    return result;
+  });
 
   const seen = new Set(
     results.map((r, i) => (r.status !== 'UNMATCHED' ? lines[i].reference.trim() : '')),
@@ -138,6 +162,7 @@ export function reconcile(
       matched: results.filter((r) => r.status === 'MATCHED').length,
       unmatched: results.filter((r) => r.status === 'UNMATCHED').length,
       disputed: results.filter((r) => r.status === 'DISPUTED').length,
+      duplicate: results.filter((r) => r.status === 'DUPLICATE').length,
       grossTotal: round2(lines.reduce((a, l) => a + l.gross, 0)),
       netTotal: round2(lines.reduce((a, l) => a + l.net, 0)),
       chargesTotal: round2(

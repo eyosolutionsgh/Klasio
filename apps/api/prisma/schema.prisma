@@ -957,6 +957,8 @@ enum SettlementStatus {
   MATCHED
   /// Matched but the amounts differ beyond tolerance — a human must look.
   DISPUTED
+  /// The same reference appeared earlier in the file; counted once, kept so the bursar sees it.
+  DUPLICATE
   IGNORED
 }
 

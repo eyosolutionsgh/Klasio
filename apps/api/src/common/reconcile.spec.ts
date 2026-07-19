@@ -139,3 +139,60 @@ describe('parseSettlementCsv', () => {
     expect(parseSettlementCsv('')).toEqual([]);
   });
 });
+
+describe('repeated references', () => {
+  const expected = [{ reference: 'ONL-aaa', amount: 500, id: 'i1' }];
+
+  it('counts a reference once when the file lists it twice', () => {
+    // A gateway re-export, or two exports concatenated. Matching both would credit the school
+    // with a fee it never paid and money it never received.
+    const { results, summary } = reconcile(
+      [
+        { reference: 'ONL-aaa', gross: 500, net: 490 },
+        { reference: 'ONL-aaa', gross: 500, net: 490 },
+      ],
+      expected,
+    );
+    expect(results.map((r) => r.status)).toEqual(['MATCHED', 'DUPLICATE']);
+    expect(summary.matched).toBe(1);
+    expect(summary.duplicate).toBe(1);
+    expect(summary.chargesTotal).toBe(10);
+  });
+
+  it('still reports the duplicate rather than hiding it', () => {
+    const { results } = reconcile(
+      [
+        { reference: 'ONL-aaa', gross: 500, net: 490 },
+        { reference: 'ONL-aaa', gross: 500, net: 490 },
+      ],
+      expected,
+    );
+    expect(results[1].note).toMatch(/more than once/i);
+  });
+
+  it('does not treat two genuinely different references as duplicates', () => {
+    const { summary } = reconcile(
+      [
+        { reference: 'ONL-aaa', gross: 500, net: 490 },
+        { reference: 'ONL-bbb', gross: 300, net: 295 },
+      ],
+      [...expected, { reference: 'ONL-bbb', amount: 300, id: 'i2' }],
+    );
+    expect(summary.matched).toBe(2);
+    expect(summary.duplicate).toBe(0);
+  });
+
+  it('lets a repeated unmatched reference stay unmatched, not duplicate', () => {
+    // Nothing was claimed the first time, so the second line is just as unknown as the first —
+    // reporting it as a duplicate would imply we had matched one of them.
+    const { summary } = reconcile(
+      [
+        { reference: 'ONL-zzz', gross: 500, net: 490 },
+        { reference: 'ONL-zzz', gross: 500, net: 490 },
+      ],
+      expected,
+    );
+    expect(summary.unmatched).toBe(2);
+    expect(summary.duplicate).toBe(0);
+  });
+});

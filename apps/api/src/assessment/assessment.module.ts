@@ -366,8 +366,33 @@ export class AssessmentService {
   async saveScores(auth: AuthUser, dto: SaveScoresDto) {
     const components = await this.components(auth);
     const compById = new Map(components.map((c) => [c.id, c]));
+
+    /**
+     * Every id in the payload has to belong to this school, and to the class being marked.
+     *
+     * The upsert's `where` is a composite unique that does not include schoolId, and the `create`
+     * stamps `auth.schoolId` onto whatever studentId arrived — so a hand-rolled request could
+     * file a mark against a child in another school, or against a child in a class the marker
+     * has nothing to do with. Row-level security stops it becoming a read across tenants, but it
+     * would still write a row into this school's data pointing somewhere else entirely.
+     */
+    const subject = await this.db.subject.findFirst({
+      where: { id: dto.subjectId, schoolId: auth.schoolId },
+      select: { id: true },
+    });
+    if (!subject) throw new NotFoundException('Subject not found');
+
+    const roll = await this.db.student.findMany({
+      where: { schoolId: auth.schoolId, classId: dto.classId },
+      select: { id: true },
+    });
+    const inClass = new Set(roll.map((s) => s.id));
+
     let saved = 0;
     for (const e of dto.entries) {
+      if (!inClass.has(e.studentId)) {
+        throw new BadRequestException('That student is not in this class');
+      }
       const comp = compById.get(e.componentId);
       if (!comp) throw new BadRequestException(`Unknown component ${e.componentId}`);
       if (e.rawScore > comp.maxScore) {
@@ -456,8 +481,17 @@ export class AssessmentService {
     if (!scheme) throw new BadRequestException('No grading scheme configured for this level');
     const earlyYears = scheme.kind === 'EARLY_YEARS';
     const bands = scheme.bands as unknown as Band[];
+    /**
+     * The fallback picks the band with the highest ceiling, not the last one in the array.
+     *
+     * `validateBands` guarantees 0–100 coverage, so a total inside that range always matches and
+     * the fallback is unreachable today. But it is a fallback for totals *outside* the range, and
+     * ordering the JSON differently — highest band first, which reads perfectly naturally — used
+     * to mean a 101 quietly graded as F.
+     */
+    const topBand = bands.reduce((best, b) => (b.max > best.max ? b : best), bands[0]);
     const gradeFor = (total: number) =>
-      bands.find((b) => total >= b.min && total <= b.max) ?? bands[bands.length - 1];
+      bands.find((b) => total >= b.min && total <= b.max) ?? topBand;
 
     // Components can be scoped to a subject, so the split is worked out per subject rather than
     // once for the class. Any number of each category is allowed; each half is the sum of its
