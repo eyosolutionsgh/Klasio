@@ -109,7 +109,7 @@ export default async function BillingPage({
       <div className="rise rise-1">
         <h1 className="font-display text-3xl">Subscription</h1>
         <p className="text-sm text-oat mt-1.5">
-          What {me.school.name} pays EYO, per term, for the package it is on. Priced per active
+          What {me.school.name} pays Klasio, per term, for the package it is on. Priced per active
           student — {data.studentCount} today — with a minimum so a very small school is affordable
           and a cap so a large one is not punished for growing.
         </p>
@@ -286,7 +286,7 @@ export default async function BillingPage({
         <div className="px-6 pt-5 pb-3">
           <h2 className="font-display text-xl">Subscription invoices</h2>
           <p className="text-xs text-oat mt-1">
-            What EYO has charged this school. Separate from the fees you bill guardians — the two
+            What Klasio has charged this school. Separate from the fees you bill guardians — the two
             are never summed together.
           </p>
         </div>

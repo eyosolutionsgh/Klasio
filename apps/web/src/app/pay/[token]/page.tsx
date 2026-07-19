@@ -74,7 +74,7 @@ export default async function PayPage({ params }: { params: Promise<{ token: str
         )}
 
         <p className="mt-6 text-[11px] text-oat text-center">
-          Secured by EYO School Management. Never share this link publicly.
+          Secured by Klasio School Management. Never share this link publicly.
         </p>
       </div>
     </main>

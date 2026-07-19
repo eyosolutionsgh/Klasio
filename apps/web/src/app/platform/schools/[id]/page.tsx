@@ -165,7 +165,7 @@ export default function SchoolDetailPage({ params }: { params: Promise<{ id: str
                     ['Address', school.address],
                     ['Region', school.region],
                     ['Website', school.website],
-                    ['On EYO since', day(school.createdAt)],
+                    ['On Klasio since', day(school.createdAt)],
                     [
                       'Billing period',
                       school.subscription
@@ -212,7 +212,7 @@ export default function SchoolDetailPage({ params }: { params: Promise<{ id: str
             </div>
 
             <section className="card p-6 mt-6">
-              <h2 className="font-display text-xl">What EYO has said</h2>
+              <h2 className="font-display text-xl">What Klasio has said</h2>
               <p className="text-[12.5px] text-oat mt-1">
                 Notices shown inside this school&rsquo;s portal. &ldquo;Seen&rdquo; means someone
                 there dismissed it.
@@ -241,7 +241,7 @@ export default function SchoolDetailPage({ params }: { params: Promise<{ id: str
             </section>
 
             <section className="card p-6 mt-6">
-              <h2 className="font-display text-xl">What EYO has done</h2>
+              <h2 className="font-display text-xl">What Klasio has done</h2>
               <p className="text-[12.5px] text-oat mt-1">
                 The vendor&rsquo;s own record, kept apart from the school&rsquo;s audit log — they
                 can neither read nor change this.

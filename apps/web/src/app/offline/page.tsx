@@ -1,4 +1,4 @@
-export const metadata = { title: 'Offline — EYO' };
+export const metadata = { title: 'Offline — Klasio' };
 
 /** Shown only when a page is requested with no connection and nothing cached for it. */
 export default function OfflinePage() {

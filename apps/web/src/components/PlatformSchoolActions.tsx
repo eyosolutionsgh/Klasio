@@ -126,8 +126,8 @@ export default function PlatformSchoolActions({
       {contacting && (
         <form onSubmit={send} className={compact ? 'card p-5 mt-3' : 'mt-4'}>
           <p className="text-[12.5px] text-oat leading-relaxed">
-            This appears inside their portal, marked as coming from EYO. It is not an announcement
-            in their own name, and it does not spend their SMS credits.
+            This appears inside their portal, marked as coming from Klasio. It is not an
+            announcement in their own name, and it does not spend their SMS credits.
           </p>
           <input
             value={subject}

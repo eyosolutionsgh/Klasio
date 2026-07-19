@@ -145,7 +145,7 @@ export const PERMISSIONS = [
   { code: 'fees.export', label: 'Export financial data', group: 'Finance' },
   {
     code: 'billing.manage',
-    label: "Change the school's EYO package",
+    label: "Change the school's Klasio package",
     group: 'Finance',
     caution: 'Commits the school to a bill.',
   },

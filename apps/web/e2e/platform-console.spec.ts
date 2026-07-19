@@ -279,7 +279,7 @@ test.describe('the platform owner', () => {
     await tab.getByRole('textbox', { name: 'Password' }).fill(INVITED.password);
     await tab.getByRole('button', { name: 'Log in' }).click();
     await tab.waitForURL('**/dashboard');
-    await expect(tab.getByText('Message from EYO').first()).toBeVisible();
+    await expect(tab.getByText('Message from Klasio').first()).toBeVisible();
     await expect(tab.getByText(NOTICE_SUBJECT).first()).toBeVisible();
     await shot(tab, '08-school-sees-notice');
     await tab.close();
@@ -322,10 +322,10 @@ test.describe('the platform owner', () => {
     // The history is the point: a suspension nobody can review later is not accountable.
     // Each assertion is scoped to its own section — the two lists quote each other's wording,
     // so an unscoped match can find the right words in the wrong place.
-    const said = page.locator('section').filter({ hasText: 'What EYO has said' });
+    const said = page.locator('section').filter({ hasText: 'What Klasio has said' });
     await expect(said.getByText(notice)).toBeVisible();
 
-    const done = page.locator('section').filter({ hasText: 'What EYO has done' });
+    const done = page.locator('section').filter({ hasText: 'What Klasio has done' });
     await expect(done.getByText('Suspended the school').first()).toBeVisible();
     await expect(done.getByText('Restored access').first()).toBeVisible();
     await expect(done.getByText(reason)).toBeVisible();

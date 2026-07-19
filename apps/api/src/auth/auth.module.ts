@@ -106,7 +106,7 @@ export class AuthService {
     if (invitation.acceptedAt) throw new GoneException('That invitation has already been used');
     if (invitation.revokedAt) throw new GoneException('That invitation has been withdrawn');
     if (invitation.expiresAt.getTime() < Date.now()) {
-      throw new GoneException('That invitation has expired — ask EYO for a new one');
+      throw new GoneException('That invitation has expired — ask Klasio for a new one');
     }
     // The email is echoed so the form can show which address the invitation is bound to. The
     // school name is a default the owner may correct; only the address is fixed.
@@ -140,7 +140,7 @@ export class AuthService {
     if (invitation.acceptedAt) throw new GoneException('That invitation has already been used');
     if (invitation.revokedAt) throw new GoneException('That invitation has been withdrawn');
     if (invitation.expiresAt.getTime() < Date.now()) {
-      throw new GoneException('That invitation has expired — ask EYO for a new one');
+      throw new GoneException('That invitation has expired — ask Klasio for a new one');
     }
     /**
      * The invitation names the address that may accept it.
@@ -329,7 +329,7 @@ export class AuthService {
         throw new ForbiddenException(
           school.suspendedReason
             ? `This school's access is suspended: ${school.suspendedReason}`
-            : "This school's access is suspended. Please contact EYO.",
+            : "This school's access is suspended. Please contact Klasio.",
         );
       }
       const payload: AuthUser = {

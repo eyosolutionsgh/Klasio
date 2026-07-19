@@ -35,7 +35,7 @@ function Register() {
 
   useEffect(() => {
     if (!token) {
-      setError('This page needs an invitation link from EYO.');
+      setError('This page needs an invitation link from Klasio.');
       setChecking(false);
       return;
     }
@@ -99,7 +99,7 @@ function Register() {
     return (
       <AuthShell
         title="Invitation needed"
-        subtitle="Schools join EYO by invitation. If you have spoken to us, use the link we sent you — it may also have expired."
+        subtitle="Schools join Klasio by invitation. If you have spoken to us, use the link we sent you — it may also have expired."
         footer={footer}
       >
         {error && <AuthError>{error}</AuthError>}

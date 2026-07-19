@@ -221,7 +221,7 @@ const NAV: NavItem[] = [
     label: 'Subscription',
     icon: 'M20 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6a2 2 0 00-2-2zm0 4H4V6h16v2zm0 10H4v-6h16v6zM6 15h5v2H6v-2z',
     // Deliberately no `needs`: a Basic school is exactly who needs to find this page.
-    tip: 'What this school pays EYO, and how to change package',
+    tip: 'What this school pays Klasio, and how to change package',
     roles: ADMIN,
     group: 'Finance',
   },

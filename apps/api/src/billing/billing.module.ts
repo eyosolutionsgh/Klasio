@@ -87,7 +87,7 @@ export class BillingService {
     }
     if (process.env.NODE_ENV === 'production') {
       throw new BadRequestException(
-        'Online subscription payment is not configured. Contact EYO to pay by transfer.',
+        'Online subscription payment is not configured. Contact Klasio to pay by transfer.',
       );
     }
     // 'billing': these references are subscription invoices, which the payments module cannot
@@ -180,7 +180,7 @@ export class BillingService {
       channel: dto.channel,
       customerPhone: dto.phone ?? school.phone ?? undefined,
       customerEmail: school.email ?? undefined,
-      description: `EYO ${dto.tier} — ${school.name}`,
+      description: `Klasio ${dto.tier} — ${school.name}`,
       // Its own webhook, not the school-payment one: that path settles into a school's fee
       // ledger, and a subscription must never land there.
       callbackUrl: `${apiBase}/billing/webhook`,

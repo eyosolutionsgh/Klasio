@@ -47,7 +47,7 @@ export default function PlatformNotices({ notices }: { notices: Notice[] }) {
         >
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-[11px] uppercase tracking-widest text-oat">Message from EYO</p>
+              <p className="text-[11px] uppercase tracking-widest text-oat">Message from Klasio</p>
               <p
                 className={`text-sm font-medium mt-1 ${n.level === 'WARNING' ? 'text-danger' : 'text-ink'}`}
               >

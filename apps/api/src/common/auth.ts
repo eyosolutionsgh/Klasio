@@ -200,7 +200,7 @@ export class AuthGuard implements CanActivate {
       throw new ForbiddenException(
         account.school.suspendedReason
           ? `This school's access is suspended: ${account.school.suspendedReason}`
-          : "This school's access is suspended. Please contact EYO.",
+          : "This school's access is suspended. Please contact Klasio.",
       );
     }
     // Trust the database over the token for role, tenant and permissions, so a demotion or a

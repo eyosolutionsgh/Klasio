@@ -149,7 +149,7 @@ export default function PlatformSchoolsPage() {
         <div className="accent-rule h-[3px]" />
         <div className="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between gap-4">
           <div>
-            <p className="text-[11px] uppercase tracking-widest text-paper/50">EYO Platform</p>
+            <p className="text-[11px] uppercase tracking-widest text-paper/50">Klasio Platform</p>
             <h1 className="font-display text-2xl">Schools</h1>
           </div>
           <button
@@ -284,8 +284,8 @@ export default function PlatformSchoolsPage() {
             <form onSubmit={invite} className="card p-6 mt-6">
               <h2 className="font-display text-xl">Invite a school</h2>
               <p className="text-[12.5px] text-oat mt-1 leading-relaxed">
-                Nobody can put a school on EYO without one of these. The proprietor sets their own
-                password and fills in their own details; this only decides that they may.
+                Nobody can put a school on Klasio without one of these. The proprietor sets their
+                own password and fills in their own details; this only decides that they may.
               </p>
               <div className="mt-4 grid sm:grid-cols-3 gap-3">
                 <input

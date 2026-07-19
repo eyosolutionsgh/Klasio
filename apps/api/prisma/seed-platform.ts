@@ -19,7 +19,7 @@ const DEV_PASSWORD = 'Platform1!';
 
 async function main() {
   const email = (process.env.PLATFORM_ADMIN_EMAIL ?? 'admin@eyo.gh').toLowerCase();
-  const name = process.env.PLATFORM_ADMIN_NAME ?? 'EYO Platform Admin';
+  const name = process.env.PLATFORM_ADMIN_NAME ?? 'Klasio Platform Admin';
   const password = process.env.PLATFORM_ADMIN_PASSWORD ?? '';
 
   if (!password && process.env.NODE_ENV === 'production') {
