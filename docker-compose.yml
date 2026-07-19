@@ -57,6 +57,12 @@ services:
       # tokens too. 32 bytes, hex or base64: `openssl rand -hex 32`.
       APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:-}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
+      # The vendor key every licence is verified against. REQUIRED: this image does not ship the
+      # development key — ops/ is deliberately not copied — so without this the box refuses every
+      # licence and runs on the free package. See apps/api/src/licence/licence-key.ts.
+      LICENCE_PUBLIC_KEY: ${LICENCE_PUBLIC_KEY:-}
+      # Where the licence file is read from on first boot, before anyone has a portal login.
+      LICENCE_FILE: /data/licence/klasio.licence
       # Files land on the mounted volume unless an S3 bucket is configured, so a LAN box
       # keeps working with no object store at all (docs/03 §3.1 shape 3).
       STORAGE_LOCAL_DIR: /data/storage
@@ -67,6 +73,8 @@ services:
       STORAGE_S3_SECRET_ACCESS_KEY: ${STORAGE_S3_SECRET_ACCESS_KEY:-}
     volumes:
       - filedata:/data/storage
+      # Drop the vendor's licence file in ./licence and the box licenses itself at boot.
+      - ./licence:/data/licence:ro
     depends_on:
       db:
         condition: service_healthy

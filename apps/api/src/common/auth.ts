@@ -62,7 +62,7 @@ export const isPublishedSecret = (value: string) => PUBLISHED_SECRETS.has(value.
  * The key every school session is signed with.
  *
  * Refused outright in production rather than falling back, for the same reason
- * `PLATFORM_JWT_SECRET` is: the fallback string is public in this repository, so a deployment
+ * `LICENCE_PUBLIC_KEY` is: the fallback string is public in this repository, so a deployment
  * that forgot the variable is not merely using a weak key — it is using a key anyone reading
  * the source already has. With it, a forged token naming any `schoolId` and the OWNER role
  * passes verification, and every check downstream of this file is decoration. Booting is the

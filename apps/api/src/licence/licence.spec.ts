@@ -1,4 +1,6 @@
 import { generateKeyPairSync } from 'crypto';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { describe, expect, it } from 'vitest';
 import {
   evaluateLicence,
@@ -7,7 +9,7 @@ import {
   signLicence,
   verifyLicence,
 } from './licence';
-import { DEV_LICENCE_PUBLIC_KEY } from './licence-key';
+import { forgetDevLicenceKey, licencePublicKey } from './licence-key';
 
 function keypair() {
   const { publicKey, privateKey } = generateKeyPairSync('ed25519');
@@ -84,14 +86,22 @@ describe('licence signature', () => {
     expect(() => verifyLicence(licence, VENDOR.publicPem)).toThrow(/unknown tier/);
   });
 
-  it('the committed dev key verifies what the committed dev private key signs', () => {
-    // Guards the pair in licence-key.ts and ops/licence/ against drifting apart, which would
-    // break every fresh checkout and every E2E run with a confusing signature error.
-    const devPrivate = `-----BEGIN PRIVATE KEY-----
-MC4CAQAwBQYDK2VwBCIEIMIS4rmzH4AnjFScgdimAZRaTLwp9bRcSF/3vuwayt0X
------END PRIVATE KEY-----`;
+  it('the committed dev key pair still matches itself', () => {
+    /*
+      Guards the two halves in ops/licence/ against drifting apart, which would break every fresh
+      checkout and every E2E run with a confusing signature error.
+
+      Both are read from disk rather than written here: a PEM pasted into source compiles into
+      dist and ships, which is the whole reason the dev key stopped being a constant.
+    */
+    delete process.env.LICENCE_PUBLIC_KEY;
+    delete process.env.NODE_ENV;
+    forgetDevLicenceKey();
+
+    const opsDir = join(__dirname, '..', '..', '..', '..', 'ops', 'licence');
+    const devPrivate = readFileSync(join(opsDir, 'dev-signing-key.pem'), 'utf8');
     const licence = signLicence(payload(), devPrivate);
-    expect(verifyLicence(licence, DEV_LICENCE_PUBLIC_KEY).tier).toBe('MEDIUM');
+    expect(verifyLicence(licence, licencePublicKey()).tier).toBe('MEDIUM');
   });
 });
 
