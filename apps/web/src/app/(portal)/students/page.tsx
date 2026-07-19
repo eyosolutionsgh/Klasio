@@ -13,7 +13,11 @@ interface StudentRow {
   status: string;
   className: string;
   // phone is omitted unless the caller holds students.guardians — see students.module.ts
-  primaryGuardian: { name: string; phone?: string } | null;
+  guardians: {
+    total: number;
+    // phone is omitted unless the caller holds students.guardians — see students.module.ts
+    lead: { name: string; relationship: string; isPrimary: boolean; phone?: string } | null;
+  };
 }
 interface Structure {
   classes: { id: string; name: string; level: string; studentCount: number }[];
@@ -126,8 +130,14 @@ export default async function StudentsPage({
               <th className="px-5 py-3 font-medium">Adm. No.</th>
               <th className="px-5 py-3 font-medium">Name</th>
               <th className="px-5 py-3 font-medium">Class</th>
-              <th className="px-5 py-3 font-medium">Primary guardian</th>
-              <th className="px-5 py-3 font-medium">Phone</th>
+              {/*
+                One column, not two.
+                A child can have several guardians, and two columns headed "Primary guardian" and
+                "Phone" said otherwise — a single name with nothing beside it reads as the whole
+                answer. The phone belongs under the name rather than beside it: it is a detail of
+                that person, not a separate fact about the child.
+              */}
+              <th className="px-5 py-3 font-medium">Guardians</th>
             </tr>
           </thead>
           <tbody>
@@ -146,13 +156,45 @@ export default async function StudentsPage({
                   </Link>
                 </td>
                 <td className="px-5 py-3">{s.className}</td>
-                <td className="px-5 py-3">{s.primaryGuardian?.name ?? '—'}</td>
-                <td className="px-5 py-3 tabular text-oat">{s.primaryGuardian?.phone ?? '—'}</td>
+                <td className="px-5 py-3">
+                  {s.guardians.lead ? (
+                    <>
+                      <p className="flex flex-wrap items-baseline gap-x-1.5">
+                        <span>{s.guardians.lead.name}</span>
+                        <span className="text-[12px] text-oat">
+                          {s.guardians.lead.relationship}
+                          {/* Say so when nobody is flagged primary, rather than implying one is. */}
+                          {!s.guardians.lead.isPrimary && ' · no primary set'}
+                        </span>
+                      </p>
+                      <p className="text-[12px] text-oat">
+                        {s.guardians.lead.phone && (
+                          <span className="tabular">{s.guardians.lead.phone}</span>
+                        )}
+                        {s.guardians.total > 1 && (
+                          <>
+                            {/*
+                              Not "+2 more": Ghanaian numbers render as +233…, so a leading plus
+                              immediately after one reads as a continuation of the number.
+                            */}
+                            {s.guardians.lead.phone && <span className="mx-1.5">·</span>}
+                            <span>
+                              {s.guardians.total - 1} other
+                              {s.guardians.total - 1 === 1 ? '' : 's'}
+                            </span>
+                          </>
+                        )}
+                      </p>
+                    </>
+                  ) : (
+                    <span className="text-oat">No guardian recorded</span>
+                  )}
+                </td>
               </tr>
             ))}
             {students.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-5 py-10 text-center text-oat">
+                <td colSpan={4} className="px-5 py-10 text-center text-oat">
                   No students match. Try a different class, status, or search term.
                 </td>
               </tr>

@@ -137,7 +137,20 @@ export class StudentsService {
       },
       include: {
         classRoom: { select: { name: true } },
-        guardians: { where: { isPrimary: true }, include: { guardian: true } },
+        /**
+         * Every guardian, not only the primary one.
+         *
+         * The list used to fetch `where: { isPrimary: true }`, so it could not tell a child with
+         * one guardian from a child with four — and a record with guardians but none flagged
+         * primary read as having none at all. Ordering by isPrimary means the lead is the primary
+         * where there is one, and the first guardian otherwise, rather than silently nothing.
+         */
+        guardians: {
+          include: { guardian: true },
+          // StudentGuardian carries no timestamp, so the secondary sort is the guardian's own
+          // name — stable, and alphabetical is what a reader expects when nothing is primary.
+          orderBy: [{ isPrimary: 'desc' }, { guardian: { lastName: 'asc' } }],
+        },
       },
       orderBy: [{ classRoom: { name: 'asc' } }, { lastName: 'asc' }],
       take: 200,
@@ -150,20 +163,29 @@ export class StudentsService {
       status: s.status,
       className: s.classRoom?.name ?? '—',
       /**
-       * The phone needs `students.guardians`, exactly as it does on the record itself.
+       * A summary, because a child can have several guardians and the roster has room for one.
        *
+       * `total` is what makes the summary honest — a single name with nothing else said implies
+       * that name is the whole answer. The full list lives on the student's own record.
+       *
+       * The phone needs `students.guardians`, exactly as it does on the record itself.
        * `detail()` gates contact details behind that permission and explains why; this list did
        * not, so the gate was bypassed by listing instead of opening a record. Librarian, Subject
        * Teacher, Exams Officer, Bursar, Accounts Clerk and School Nurse all hold `students.view`
        * without `students.guardians` — the librarian is the precise case the detail fix was
        * written against, and the list handed them every guardian's number 200 at a time.
        */
-      primaryGuardian: s.guardians[0]
-        ? {
-            name: `${s.guardians[0].guardian.firstName} ${s.guardians[0].guardian.lastName}`,
-            phone: mayReadGuardians ? s.guardians[0].guardian.phone : undefined,
-          }
-        : null,
+      guardians: {
+        total: s.guardians.length,
+        lead: s.guardians[0]
+          ? {
+              name: `${s.guardians[0].guardian.firstName} ${s.guardians[0].guardian.lastName}`,
+              relationship: s.guardians[0].relationship,
+              isPrimary: s.guardians[0].isPrimary,
+              phone: mayReadGuardians ? s.guardians[0].guardian.phone : undefined,
+            }
+          : null,
+      },
     }));
   }
 
@@ -876,7 +898,20 @@ export class StudentsService {
       where: { schoolId: auth.schoolId, status, ...(classId ? { classId } : {}) },
       include: {
         classRoom: { select: { name: true } },
-        guardians: { where: { isPrimary: true }, include: { guardian: true } },
+        /**
+         * Every guardian, not only the primary one.
+         *
+         * The list used to fetch `where: { isPrimary: true }`, so it could not tell a child with
+         * one guardian from a child with four — and a record with guardians but none flagged
+         * primary read as having none at all. Ordering by isPrimary means the lead is the primary
+         * where there is one, and the first guardian otherwise, rather than silently nothing.
+         */
+        guardians: {
+          include: { guardian: true },
+          // StudentGuardian carries no timestamp, so the secondary sort is the guardian's own
+          // name — stable, and alphabetical is what a reader expects when nothing is primary.
+          orderBy: [{ isPrimary: 'desc' }, { guardian: { lastName: 'asc' } }],
+        },
       },
       orderBy: [{ classRoom: { name: 'asc' } }, { lastName: 'asc' }],
     });
