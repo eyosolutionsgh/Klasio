@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import SchemeActions from '@/components/SchemeActions';
 
 interface Component {
   id: string;
@@ -47,6 +48,11 @@ export default function AssessmentSettingsPage() {
   const [subjects, setSubjects] = useState<Named[]>([]);
   const [weights, setWeights] = useState<Weights>({ sbaWeight: 30, examWeight: 70 });
   const [message, setMessage] = useState<string | null>(null);
+  const [held, setHeld] = useState<string[]>([]);
+
+  // Changing or removing a scheme is `assessment.configure` on the API. Offering the controls to
+  // anyone else would only produce a 403 that reads as the portal breaking.
+  const canConfigure = held.includes('assessment.configure');
 
   const [name, setName] = useState('');
   const [maxScore, setMaxScore] = useState('20');
@@ -55,17 +61,19 @@ export default function AssessmentSettingsPage() {
   const [levelId, setLevelId] = useState('');
 
   const load = useCallback(async () => {
-    const [c, s, st, w] = await Promise.all([
+    const [c, s, st, w, me] = await Promise.all([
       fetch('/api/proxy/assessment/components').then((r) => r.json()),
       fetch('/api/proxy/assessment/schemes').then((r) => r.json()),
       fetch('/api/proxy/school/structure').then((r) => r.json()),
       fetch('/api/proxy/assessment/weights').then((r) => r.json()),
+      fetch('/api/proxy/me').then((r) => r.json()),
     ]);
     setComponents(Array.isArray(c) ? c : []);
     setSchemes(Array.isArray(s) ? s : []);
     setLevels(st.levels ?? []);
     setSubjects(st.subjects ?? []);
     if (typeof w?.sbaWeight === 'number') setWeights(w);
+    setHeld(me?.permissions ?? []);
   }, []);
 
   useEffect(() => {
@@ -293,31 +301,35 @@ export default function AssessmentSettingsPage() {
           grade.
         </p>
         <div className="mt-4 space-y-4">
-          {schemes.map((s) => (
-            <div key={s.id} className="border-t border-mist/60 pt-3 first:border-0">
-              <p className="font-medium text-sm">
-                {s.name}{' '}
-                <span className="text-oat text-xs">{s.kind.toLowerCase().replace('_', ' ')}</span>
-              </p>
-              <div className="flex flex-wrap gap-1.5 mt-2">
-                {(s.bands ?? []).map((b, i) => (
-                  <span
-                    key={i}
-                    className="text-[11px] rounded-full border border-mist px-2 py-0.5 tabular"
-                  >
-                    {b.min}–{b.max}: <span className="font-medium">{b.grade}</span>
-                  </span>
-                ))}
+          {schemes.map((s) => {
+            const usedBy = levels.filter((l) => l.gradingSchemeId === s.id).map((l) => l.name);
+            return (
+              <div key={s.id} className="border-t border-mist/60 pt-3 first:border-0">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="font-medium text-sm">
+                    {s.name}{' '}
+                    <span className="text-oat text-xs">
+                      {s.kind.toLowerCase().replace('_', ' ')}
+                    </span>
+                  </p>
+                  {canConfigure && <SchemeActions scheme={s} usedBy={usedBy} onDone={load} />}
+                </div>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {(s.bands ?? []).map((b, i) => (
+                    <span
+                      key={i}
+                      className="text-[11px] rounded-full border border-mist px-2 py-0.5 tabular"
+                    >
+                      {b.min}–{b.max}: <span className="font-medium">{b.grade}</span>
+                    </span>
+                  ))}
+                </div>
+                <p className="text-[11px] text-oat mt-2">
+                  Used by: {usedBy.join(', ') || 'no levels yet'}
+                </p>
               </div>
-              <p className="text-[11px] text-oat mt-2">
-                Used by:{' '}
-                {levels
-                  .filter((l) => l.gradingSchemeId === s.id)
-                  .map((l) => l.name)
-                  .join(', ') || 'no levels yet'}
-              </p>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <form

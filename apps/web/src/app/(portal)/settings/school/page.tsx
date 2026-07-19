@@ -46,6 +46,9 @@ const fmt = (d: string | null) =>
 const field =
   'rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
 
+/** "2026-01-09T00:00:00.000Z" → "2026-01-09", the only shape `<input type="date">` accepts. */
+const dateValue = (d: string | null) => (d ? new Date(d).toISOString().slice(0, 10) : '');
+
 /**
  * A worked example of the admission number, so a school sees the shape before saving it.
  *
@@ -82,6 +85,15 @@ export default function SchoolSetupPage() {
   const [idFormat, setIdFormat] = useState('{YYYY}-{####}');
   const [idNext, setIdNext] = useState('1');
   const [idSaved, setIdSaved] = useState<string | null>(null);
+  const [held, setHeld] = useState<string[]>([]);
+
+  // Every write on this page — creating, correcting and removing — is `school.settings`.
+  const canSettings = held.includes('school.settings');
+
+  /** The one term, level or class currently being corrected. Only ever one at a time. */
+  const [editTerm, setEditTerm] = useState<Term | null>(null);
+  const [editLevel, setEditLevel] = useState<Level | null>(null);
+  const [editClass, setEditClass] = useState<ClassRoom | null>(null);
 
   const load = useCallback(async () => {
     const [res, meRes] = await Promise.all([
@@ -99,6 +111,7 @@ export default function SchoolSetupPage() {
       if (me.school?.reportTemplate) setTemplate(me.school.reportTemplate);
       if (me.school?.admissionNoFormat) setIdFormat(me.school.admissionNoFormat);
       if (me.school?.admissionNoNext) setIdNext(String(me.school.admissionNoNext));
+      setHeld(me.permissions ?? []);
     }
   }, []);
 
@@ -278,26 +291,117 @@ export default function SchoolSetupPage() {
               </span>
             </p>
             <ul className="mt-2 space-y-1">
-              {y.terms.map((t) => (
-                <li key={t.id} className="flex items-center gap-3 text-sm">
-                  <span className="w-24">{t.name}</span>
-                  <span className="text-oat text-xs tabular">
-                    {fmt(t.startDate)} – {fmt(t.endDate)} · next term {fmt(t.nextTermBegins)}
-                  </span>
-                  {t.isCurrent ? (
-                    <span className="text-[10px] uppercase tracking-wider bg-gold-soft text-ink rounded-full px-2 py-0.5">
-                      Current term
-                    </span>
-                  ) : (
-                    <button
-                      onClick={() => send(`terms/${t.id}/current`)}
-                      className="text-[12px] text-brand hover:underline underline-offset-2"
+              {y.terms.map((t) =>
+                editTerm?.id === t.id ? (
+                  <li key={t.id}>
+                    <form
+                      className="flex flex-wrap items-end gap-2 rounded-lg bg-parchment/50 p-3"
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        const ok = await send(
+                          `terms/${editTerm.id}`,
+                          {
+                            name: editTerm.name,
+                            startDate: editTerm.startDate,
+                            endDate: editTerm.endDate,
+                            // Null rather than "" clears it: @IsOptional() waves null past
+                            // @IsDateString(), and the service reads it as "no date set".
+                            nextTermBegins: editTerm.nextTermBegins || null,
+                          },
+                          'PATCH',
+                        );
+                        if (ok) setEditTerm(null);
+                      }}
                     >
-                      Make current
-                    </button>
-                  )}
-                </li>
-              ))}
+                      <label className="text-[12px] text-oat">
+                        Name
+                        <input
+                          required
+                          value={editTerm.name}
+                          onChange={(e) => setEditTerm({ ...editTerm, name: e.target.value })}
+                          className={`${field} w-28 min-h-11 mt-1 block text-ink`}
+                        />
+                      </label>
+                      <label className="text-[12px] text-oat">
+                        Starts
+                        <input
+                          required
+                          type="date"
+                          value={dateValue(editTerm.startDate)}
+                          onChange={(e) => setEditTerm({ ...editTerm, startDate: e.target.value })}
+                          className={`${field} min-h-11 mt-1 block text-ink`}
+                        />
+                      </label>
+                      <label className="text-[12px] text-oat">
+                        Ends
+                        <input
+                          required
+                          type="date"
+                          value={dateValue(editTerm.endDate)}
+                          onChange={(e) => setEditTerm({ ...editTerm, endDate: e.target.value })}
+                          className={`${field} min-h-11 mt-1 block text-ink`}
+                        />
+                      </label>
+                      <label className="text-[12px] text-oat">
+                        Next term begins
+                        <input
+                          type="date"
+                          value={dateValue(editTerm.nextTermBegins)}
+                          onChange={(e) =>
+                            setEditTerm({ ...editTerm, nextTermBegins: e.target.value || null })
+                          }
+                          className={`${field} min-h-11 mt-1 block text-ink`}
+                        />
+                      </label>
+                      <button className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
+                        Save term
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditTerm(null)}
+                        className="min-h-11 px-2 text-[13px] text-oat hover:text-brand transition"
+                      >
+                        Cancel
+                      </button>
+                      <p className="w-full text-[11px] text-oat">
+                        Term dates decide which register a date belongs to, what &ldquo;this
+                        term&rdquo; means for invoicing, and the reopening date printed on report
+                        cards. Correcting them does not move work already recorded.
+                      </p>
+                    </form>
+                  </li>
+                ) : (
+                  <li key={t.id} className="flex flex-wrap items-center gap-3 text-sm">
+                    <span className="w-24">{t.name}</span>
+                    <span className="text-oat text-xs tabular">
+                      {fmt(t.startDate)} – {fmt(t.endDate)} · next term {fmt(t.nextTermBegins)}
+                    </span>
+                    {t.isCurrent ? (
+                      <span className="text-[10px] uppercase tracking-wider bg-gold-soft text-ink rounded-full px-2 py-0.5">
+                        Current term
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => send(`terms/${t.id}/current`)}
+                        className="text-[12px] text-brand hover:underline underline-offset-2"
+                      >
+                        Make current
+                      </button>
+                    )}
+                    {canSettings && (
+                      <button
+                        onClick={() => {
+                          setEditTerm(t);
+                          setMessage(null);
+                        }}
+                        className="text-[12px] font-medium text-brand hover:underline underline-offset-2"
+                      >
+                        Change dates
+                      </button>
+                    )}
+                  </li>
+                ),
+              )}
               {y.terms.length === 0 && <li className="text-xs text-oat">No terms yet.</li>}
             </ul>
           </div>
@@ -418,22 +522,80 @@ export default function SchoolSetupPage() {
           <div>
             <p className="text-[13px] font-medium mb-2">Levels</p>
             <ul className="space-y-1 text-sm">
-              {levels.map((l) => (
-                <li key={l.id} className="flex items-center justify-between">
-                  <span>
-                    {l.name}{' '}
-                    <span className="text-oat text-xs">
-                      {l.category.toLowerCase().replace('_', ' ')}
+              {levels.map((l) =>
+                editLevel?.id === l.id ? (
+                  <li key={l.id}>
+                    <form
+                      className="flex flex-wrap items-center gap-2 rounded-lg bg-parchment/50 p-2"
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        const ok = await send(
+                          `levels/${editLevel.id}`,
+                          { name: editLevel.name, category: editLevel.category },
+                          'PATCH',
+                        );
+                        if (ok) setEditLevel(null);
+                      }}
+                    >
+                      <input
+                        required
+                        value={editLevel.name}
+                        onChange={(e) => setEditLevel({ ...editLevel, name: e.target.value })}
+                        className={`${field} flex-1 min-w-[7rem] min-h-11`}
+                      />
+                      <select
+                        value={editLevel.category}
+                        onChange={(e) => setEditLevel({ ...editLevel, category: e.target.value })}
+                        className={`${field} min-h-11`}
+                      >
+                        {['PRE_SCHOOL', 'PRIMARY', 'JHS', 'SHS'].map((c) => (
+                          <option key={c} value={c}>
+                            {c.toLowerCase().replace('_', ' ')}
+                          </option>
+                        ))}
+                      </select>
+                      <button className="min-h-11 rounded-lg bg-brand text-paper text-sm px-3 hover:bg-brand-deep transition">
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditLevel(null)}
+                        className="min-h-11 px-2 text-[12px] text-oat hover:text-brand transition"
+                      >
+                        Cancel
+                      </button>
+                    </form>
+                  </li>
+                ) : (
+                  <li key={l.id} className="flex items-center justify-between gap-2">
+                    <span>
+                      {l.name}{' '}
+                      <span className="text-oat text-xs">
+                        {l.category.toLowerCase().replace('_', ' ')}
+                      </span>
                     </span>
-                  </span>
-                  <button
-                    onClick={() => send(`levels/${l.id}`, undefined, 'DELETE')}
-                    className="text-[12px] text-clay hover:underline"
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
+                    <span className="flex items-center gap-3 shrink-0">
+                      {canSettings && (
+                        <button
+                          onClick={() => {
+                            setEditLevel(l);
+                            setMessage(null);
+                          }}
+                          className="text-[12px] font-medium text-brand hover:underline"
+                        >
+                          Rename
+                        </button>
+                      )}
+                      <button
+                        onClick={() => send(`levels/${l.id}`, undefined, 'DELETE')}
+                        className="text-[12px] text-clay hover:underline"
+                      >
+                        Remove
+                      </button>
+                    </span>
+                  </li>
+                ),
+              )}
             </ul>
             <form
               className="flex gap-2 mt-3"
@@ -476,19 +638,86 @@ export default function SchoolSetupPage() {
           <div>
             <p className="text-[13px] font-medium mb-2">Classes</p>
             <ul className="space-y-1 text-sm">
-              {classes.map((c) => (
-                <li key={c.id} className="flex items-center justify-between">
-                  <span>
-                    {c.name} <span className="text-oat text-xs">· {c.studentCount} students</span>
-                  </span>
-                  <button
-                    onClick={() => send(`classes/${c.id}`, undefined, 'DELETE')}
-                    className="text-[12px] text-clay hover:underline"
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
+              {classes.map((c) =>
+                editClass?.id === c.id ? (
+                  <li key={c.id}>
+                    <form
+                      className="flex flex-wrap items-center gap-2 rounded-lg bg-parchment/50 p-2"
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        // The PATCH route validates against the full class DTO, so the level goes
+                        // with the name every time, even when only the name was retyped.
+                        const ok = await send(
+                          `classes/${editClass.id}`,
+                          { name: editClass.name, levelId: editClass.levelId },
+                          'PATCH',
+                        );
+                        if (ok) setEditClass(null);
+                      }}
+                    >
+                      <input
+                        required
+                        value={editClass.name}
+                        onChange={(e) => setEditClass({ ...editClass, name: e.target.value })}
+                        className={`${field} flex-1 min-w-[7rem] min-h-11`}
+                      />
+                      <select
+                        required
+                        value={editClass.levelId}
+                        onChange={(e) => setEditClass({ ...editClass, levelId: e.target.value })}
+                        className={`${field} min-h-11`}
+                      >
+                        {levels.map((l) => (
+                          <option key={l.id} value={l.id}>
+                            {l.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button className="min-h-11 rounded-lg bg-brand text-paper text-sm px-3 hover:bg-brand-deep transition">
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditClass(null)}
+                        className="min-h-11 px-2 text-[12px] text-oat hover:text-brand transition"
+                      >
+                        Cancel
+                      </button>
+                      <p className="w-full text-[11px] text-oat">
+                        Renaming keeps the {c.studentCount}{' '}
+                        {c.studentCount === 1 ? 'child' : 'children'} enrolled here, along with
+                        their marks, register and bills. Moving the class to another level changes
+                        which grading scheme and fee items apply to it.
+                      </p>
+                    </form>
+                  </li>
+                ) : (
+                  <li key={c.id} className="flex items-center justify-between gap-2">
+                    <span>
+                      {c.name} <span className="text-oat text-xs">· {c.studentCount} students</span>
+                    </span>
+                    <span className="flex items-center gap-3 shrink-0">
+                      {canSettings && (
+                        <button
+                          onClick={() => {
+                            setEditClass(c);
+                            setMessage(null);
+                          }}
+                          className="text-[12px] font-medium text-brand hover:underline"
+                        >
+                          Rename
+                        </button>
+                      )}
+                      <button
+                        onClick={() => send(`classes/${c.id}`, undefined, 'DELETE')}
+                        className="text-[12px] text-clay hover:underline"
+                      >
+                        Remove
+                      </button>
+                    </span>
+                  </li>
+                ),
+              )}
             </ul>
             <form
               className="flex gap-2 mt-3"

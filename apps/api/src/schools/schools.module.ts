@@ -330,6 +330,21 @@ export class SchoolsService {
       where: { id: termId, academicYear: { schoolId: auth.schoolId } },
     });
     if (!term) throw new NotFoundException('Term not found');
+
+    /**
+     * The same rule createTerm applies, which editing quietly skipped.
+     *
+     * A term is not just a label: `FeesService.asOfTerm` decides what a family owes by finding
+     * every term starting on or before this one, so a term that ends before it begins puts the
+     * ordering — and the arrears carried into it — into a state nothing downstream expects.
+     * Only the fields being changed are known, so the check runs against the merged dates.
+     */
+    const startDate = dto.startDate !== undefined ? new Date(dto.startDate) : term.startDate;
+    const endDate = dto.endDate !== undefined ? new Date(dto.endDate) : term.endDate;
+    if (endDate <= startDate) {
+      throw new BadRequestException('The term must end after it starts');
+    }
+
     const updated = await this.db.term.update({
       where: { id: termId },
       data: {

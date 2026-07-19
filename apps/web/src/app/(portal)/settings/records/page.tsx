@@ -57,20 +57,33 @@ export default function RecordsSettingsPage() {
   const [remarks, setRemarks] = useState<Remark[]>([]);
   const [levels, setLevels] = useState<Level[]>([]);
   const [message, setMessage] = useState<string | null>(null);
+  const [held, setHeld] = useState<string[]>([]);
 
   const [kind, setKind] = useState<(typeof KINDS)[number]>('TEXT');
 
+  /** The one row of each kind currently being corrected. */
+  const [editField, setEditField] = useState<FieldDef | null>(null);
+  const [editReq, setEditReq] = useState<Requirement | null>(null);
+  const [editRemark, setEditRemark] = useState<Remark | null>(null);
+
+  // Fields and document requirements are `records.configure`; the remark bank is tidied under
+  // `assessment.configure`, which is not the same permission that adds a phrase to it.
+  const canConfigureRecords = held.includes('records.configure');
+  const canConfigureAssessment = held.includes('assessment.configure');
+
   const load = useCallback(async () => {
-    const [f, r, b, st] = await Promise.all([
+    const [f, r, b, st, me] = await Promise.all([
       fetch('/api/proxy/records/fields').then((x) => x.json()),
       fetch('/api/proxy/records/requirements').then((x) => x.json()),
       fetch('/api/proxy/remarks').then((x) => x.json()),
       fetch('/api/proxy/school/structure').then((x) => x.json()),
+      fetch('/api/proxy/me').then((x) => x.json()),
     ]);
     setFields(Array.isArray(f) ? f : []);
     setRequirements(Array.isArray(r) ? r : []);
     setRemarks(Array.isArray(b) ? b : []);
     setLevels(st.levels ?? []);
+    setHeld(me?.permissions ?? []);
   }, []);
 
   useEffect(() => {
@@ -131,29 +144,161 @@ export default function RecordsSettingsPage() {
               </tr>
             </thead>
             <tbody>
-              {fields.map((f) => (
-                <tr key={f.id} className="border-b border-mist/50 last:border-0">
-                  <td className="py-2.5 font-medium">
-                    {f.label}
-                    {f.kind === 'CHOICE' && f.options.length > 0 && (
-                      <span className="block text-[11px] text-oat font-normal">
-                        {f.options.join(' · ')}
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-2.5 pr-6 text-xs text-oat">{kindLabel[f.kind] ?? f.kind}</td>
-                  <td className="py-2.5 pr-6 text-xs text-oat">{scopeLabel(f.levelId)}</td>
-                  <td className="py-2.5 pr-6 text-xs">{f.required ? 'Yes' : '—'}</td>
-                  <td className="py-2.5 text-right">
-                    <button
-                      onClick={() => send(`records/fields/${f.id}`, undefined, 'DELETE')}
-                      className="text-[12px] text-clay hover:underline"
-                    >
-                      Remove
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {fields.map((f) =>
+                editField?.id === f.id ? (
+                  <tr key={f.id} className="border-b border-mist/50 last:border-0 bg-parchment/40">
+                    <td colSpan={5} className="py-3">
+                      <form
+                        className="flex flex-wrap items-end gap-2"
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          const ok = await send(
+                            `records/fields/${editField.id}`,
+                            {
+                              label: editField.label.trim(),
+                              kind: editField.kind,
+                              // Only meaningful for CHOICE; the API drops them for other kinds.
+                              options: editField.options,
+                              levelId: editField.levelId ?? '',
+                              required: editField.required,
+                            },
+                            'PATCH',
+                          );
+                          if (ok) setEditField(null);
+                        }}
+                      >
+                        <label className="text-[13px]">
+                          <span className="block text-oat mb-1">Field name</span>
+                          <input
+                            required
+                            minLength={2}
+                            value={editField.label}
+                            onChange={(e) => setEditField({ ...editField, label: e.target.value })}
+                            className={`${field} w-44 min-h-11`}
+                          />
+                        </label>
+                        <label className="text-[13px]">
+                          <span className="block text-oat mb-1">Type</span>
+                          <select
+                            value={editField.kind}
+                            onChange={(e) =>
+                              setEditField({
+                                ...editField,
+                                kind: e.target.value as FieldDef['kind'],
+                              })
+                            }
+                            className={`${field} min-h-11`}
+                          >
+                            {KINDS.map((k) => (
+                              <option key={k} value={k}>
+                                {kindLabel[k]}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        {editField.kind === 'CHOICE' && (
+                          <label className="text-[13px]">
+                            <span className="block text-oat mb-1">Options — comma separated</span>
+                            <input
+                              required
+                              value={editField.options.join(', ')}
+                              onChange={(e) =>
+                                setEditField({
+                                  ...editField,
+                                  options: e.target.value
+                                    .split(',')
+                                    .map((o) => o.trim())
+                                    .filter(Boolean),
+                                })
+                              }
+                              className={`${field} w-56 min-h-11`}
+                            />
+                          </label>
+                        )}
+                        <label className="text-[13px]">
+                          <span className="block text-oat mb-1">Level</span>
+                          <select
+                            value={editField.levelId ?? ''}
+                            onChange={(e) =>
+                              setEditField({ ...editField, levelId: e.target.value || null })
+                            }
+                            className={`${field} min-h-11`}
+                          >
+                            <option value="">Every level</option>
+                            {levels.map((l) => (
+                              <option key={l.id} value={l.id}>
+                                {l.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="text-[13px] flex items-center gap-2 min-h-11">
+                          <input
+                            type="checkbox"
+                            checked={editField.required}
+                            onChange={(e) =>
+                              setEditField({ ...editField, required: e.target.checked })
+                            }
+                            className="accent-brand"
+                          />
+                          <span>Required</span>
+                        </label>
+                        <button className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
+                          Save field
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditField(null)}
+                          className="min-h-11 px-2 text-[13px] text-oat hover:text-brand transition"
+                        >
+                          Cancel
+                        </button>
+                        <p className="w-full text-[11px] text-oat">
+                          Correcting the name or the level keeps everything already recorded in this
+                          field.{' '}
+                          <strong className="text-ink">
+                            Changing the type away from a list discards its options
+                          </strong>
+                          , and values already recorded may no longer suit the new type.
+                        </p>
+                      </form>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={f.id} className="border-b border-mist/50 last:border-0">
+                    <td className="py-2.5 font-medium">
+                      {f.label}
+                      {f.kind === 'CHOICE' && f.options.length > 0 && (
+                        <span className="block text-[11px] text-oat font-normal">
+                          {f.options.join(' · ')}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2.5 pr-6 text-xs text-oat">{kindLabel[f.kind] ?? f.kind}</td>
+                    <td className="py-2.5 pr-6 text-xs text-oat">{scopeLabel(f.levelId)}</td>
+                    <td className="py-2.5 pr-6 text-xs">{f.required ? 'Yes' : '—'}</td>
+                    <td className="py-2.5 text-right whitespace-nowrap">
+                      {canConfigureRecords && (
+                        <button
+                          onClick={() => {
+                            setEditField({ ...f, options: f.options ?? [] });
+                            setMessage(null);
+                          }}
+                          className="text-[12px] font-medium text-brand hover:underline"
+                        >
+                          Change
+                        </button>
+                      )}
+                      <button
+                        onClick={() => send(`records/fields/${f.id}`, undefined, 'DELETE')}
+                        className="ml-3 text-[12px] text-clay hover:underline"
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ),
+              )}
               {fields.length === 0 && (
                 <tr>
                   <td colSpan={5} className="py-6 text-center text-xs text-oat">
@@ -264,22 +409,122 @@ export default function RecordsSettingsPage() {
               </tr>
             </thead>
             <tbody>
-              {requirements.map((r) => (
-                <tr key={r.id} className="border-b border-mist/50 last:border-0">
-                  <td className="py-2.5 font-medium">{r.label}</td>
-                  <td className="py-2.5 pr-6 text-xs text-oat tabular">{r.kind}</td>
-                  <td className="py-2.5 pr-6 text-xs text-oat">{scopeLabel(r.levelId)}</td>
-                  <td className="py-2.5 pr-6 text-xs">{r.required ? 'Yes' : 'Optional'}</td>
-                  <td className="py-2.5 text-right">
-                    <button
-                      onClick={() => send(`records/requirements/${r.id}`, undefined, 'DELETE')}
-                      className="text-[12px] text-clay hover:underline"
-                    >
-                      Remove
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {requirements.map((r) =>
+                editReq?.id === r.id ? (
+                  <tr key={r.id} className="border-b border-mist/50 last:border-0 bg-parchment/40">
+                    <td colSpan={5} className="py-3">
+                      <form
+                        className="flex flex-wrap items-end gap-2"
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          const ok = await send(
+                            `records/requirements/${editReq.id}`,
+                            {
+                              label: editReq.label.trim(),
+                              kind: editReq.kind,
+                              levelId: editReq.levelId ?? '',
+                              required: editReq.required,
+                            },
+                            'PATCH',
+                          );
+                          if (ok) setEditReq(null);
+                        }}
+                      >
+                        <label className="text-[13px]">
+                          <span className="block text-oat mb-1">Document name</span>
+                          <input
+                            required
+                            minLength={2}
+                            value={editReq.label}
+                            onChange={(e) => setEditReq({ ...editReq, label: e.target.value })}
+                            className={`${field} w-48 min-h-11`}
+                          />
+                        </label>
+                        <label className="text-[13px]">
+                          <span className="block text-oat mb-1">Kind</span>
+                          <select
+                            value={editReq.kind}
+                            onChange={(e) => setEditReq({ ...editReq, kind: e.target.value })}
+                            className={`${field} min-h-11`}
+                          >
+                            <option value="BIRTH_CERTIFICATE">birth certificate</option>
+                            <option value="IMMUNISATION">immunisation</option>
+                            <option value="PREVIOUS_REPORT">previous report</option>
+                            <option value="OTHER">other</option>
+                          </select>
+                        </label>
+                        <label className="text-[13px]">
+                          <span className="block text-oat mb-1">Level</span>
+                          <select
+                            value={editReq.levelId ?? ''}
+                            onChange={(e) =>
+                              setEditReq({ ...editReq, levelId: e.target.value || null })
+                            }
+                            className={`${field} min-h-11`}
+                          >
+                            <option value="">Every level</option>
+                            {levels.map((l) => (
+                              <option key={l.id} value={l.id}>
+                                {l.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="text-[13px] flex items-center gap-2 min-h-11">
+                          <input
+                            type="checkbox"
+                            checked={editReq.required}
+                            onChange={(e) => setEditReq({ ...editReq, required: e.target.checked })}
+                            className="accent-brand"
+                          />
+                          <span>Required</span>
+                        </label>
+                        <button className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
+                          Save document
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditReq(null)}
+                          className="min-h-11 px-2 text-[13px] text-oat hover:text-brand transition"
+                        >
+                          Cancel
+                        </button>
+                        <p className="w-full text-[11px] text-oat">
+                          Nothing already uploaded is touched. Changing the kind changes which
+                          uploads count towards this requirement, so a child who was ticked off may
+                          show as missing it again.
+                        </p>
+                      </form>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={r.id} className="border-b border-mist/50 last:border-0">
+                    <td className="py-2.5 font-medium">{r.label}</td>
+                    <td className="py-2.5 pr-6 text-xs text-oat tabular">{r.kind}</td>
+                    <td className="py-2.5 pr-6 text-xs text-oat">{scopeLabel(r.levelId)}</td>
+                    <td className="py-2.5 pr-6 text-xs">{r.required ? 'Yes' : 'Optional'}</td>
+                    <td className="py-2.5 text-right whitespace-nowrap">
+                      {canConfigureRecords && (
+                        <button
+                          onClick={() => {
+                            setEditReq(r);
+                            setMessage(null);
+                          }}
+                          className="text-[12px] font-medium text-brand hover:underline"
+                        >
+                          Change
+                        </button>
+                      )}
+                      <button
+                        onClick={() => send(`records/requirements/${r.id}`, undefined, 'DELETE')}
+                        className="ml-3 text-[12px] text-clay hover:underline"
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ),
+              )}
               {requirements.length === 0 && (
                 <tr>
                   <td colSpan={5} className="py-6 text-center text-xs text-oat">
@@ -360,22 +605,139 @@ export default function RecordsSettingsPage() {
               <ul className="mt-2 space-y-1.5">
                 {remarks
                   .filter((r) => r.kind === k)
-                  .map((r) => (
-                    <li key={r.id} className="flex items-start justify-between gap-3 text-sm">
-                      <span className="min-w-0">
-                        {r.text}
-                        <span className="text-oat text-[11px] ml-2 tabular">
-                          {band(r)} · used {r.uses}×
+                  .map((r) =>
+                    editRemark?.id === r.id ? (
+                      <li key={r.id}>
+                        <form
+                          className="flex flex-wrap items-end gap-2 rounded-lg bg-parchment/50 p-3"
+                          onSubmit={async (e) => {
+                            e.preventDefault();
+                            const ok = await send(
+                              `remarks/${editRemark.id}`,
+                              {
+                                kind: editRemark.kind,
+                                text: editRemark.text.trim(),
+                                // Null clears the bound — "suits any score", not 0.
+                                minScore: editRemark.minScore,
+                                maxScore: editRemark.maxScore,
+                              },
+                              'PATCH',
+                            );
+                            if (ok) setEditRemark(null);
+                          }}
+                        >
+                          <label className="text-[13px]">
+                            <span className="block text-oat mb-1">For</span>
+                            <select
+                              value={editRemark.kind}
+                              onChange={(e) =>
+                                setEditRemark({
+                                  ...editRemark,
+                                  kind: e.target.value as Remark['kind'],
+                                })
+                              }
+                              className={`${field} min-h-11`}
+                            >
+                              {REMARK_KINDS.map((x) => (
+                                <option key={x} value={x}>
+                                  {remarkLabel[x]}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="text-[13px]">
+                            <span className="block text-oat mb-1">From</span>
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              placeholder="—"
+                              value={editRemark.minScore ?? ''}
+                              onChange={(e) =>
+                                setEditRemark({
+                                  ...editRemark,
+                                  minScore: e.target.value === '' ? null : Number(e.target.value),
+                                })
+                              }
+                              className={`${field} w-20 tabular min-h-11`}
+                            />
+                          </label>
+                          <label className="text-[13px]">
+                            <span className="block text-oat mb-1">To</span>
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              placeholder="—"
+                              value={editRemark.maxScore ?? ''}
+                              onChange={(e) =>
+                                setEditRemark({
+                                  ...editRemark,
+                                  maxScore: e.target.value === '' ? null : Number(e.target.value),
+                                })
+                              }
+                              className={`${field} w-20 tabular min-h-11`}
+                            />
+                          </label>
+                          <label className="text-[13px] flex-1 min-w-[16rem]">
+                            <span className="block text-oat mb-1">Comment</span>
+                            <input
+                              required
+                              minLength={3}
+                              value={editRemark.text}
+                              onChange={(e) =>
+                                setEditRemark({ ...editRemark, text: e.target.value })
+                              }
+                              className={`${field} w-full min-h-11`}
+                            />
+                          </label>
+                          <button className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition">
+                            Save remark
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditRemark(null)}
+                            className="min-h-11 px-2 text-[13px] text-oat hover:text-brand transition"
+                          >
+                            Cancel
+                          </button>
+                          <p className="w-full text-[11px] text-oat">
+                            Reports already written keep the wording they were saved with — this
+                            changes what is offered from here on. Leave a bound empty to open that
+                            end.
+                          </p>
+                        </form>
+                      </li>
+                    ) : (
+                      <li key={r.id} className="flex items-start justify-between gap-3 text-sm">
+                        <span className="min-w-0">
+                          {r.text}
+                          <span className="text-oat text-[11px] ml-2 tabular">
+                            {band(r)} · used {r.uses}×
+                          </span>
                         </span>
-                      </span>
-                      <button
-                        onClick={() => send(`remarks/${r.id}`, undefined, 'DELETE')}
-                        className="text-[12px] text-clay hover:underline shrink-0"
-                      >
-                        Remove
-                      </button>
-                    </li>
-                  ))}
+                        <span className="flex items-center gap-3 shrink-0">
+                          {canConfigureAssessment && (
+                            <button
+                              onClick={() => {
+                                setEditRemark(r);
+                                setMessage(null);
+                              }}
+                              className="text-[12px] font-medium text-brand hover:underline"
+                            >
+                              Change
+                            </button>
+                          )}
+                          <button
+                            onClick={() => send(`remarks/${r.id}`, undefined, 'DELETE')}
+                            className="text-[12px] text-clay hover:underline"
+                          >
+                            Remove
+                          </button>
+                        </span>
+                      </li>
+                    ),
+                  )}
               </ul>
             </div>
           ))}

@@ -45,6 +45,13 @@ export default function FeeStructurePage() {
   const [message, setMessage] = useState<string | null>(null);
   // Defaults to GHS so the first paint never shows a currency this school does not use.
   const [currency, setCurrency] = useState('GHS');
+  const [held, setHeld] = useState<string[]>([]);
+  /** Which item is being re-priced, and the values being typed into it. */
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<FeeItem | null>(null);
+
+  // Both POST and PATCH on /fees/items are `fees.structure`. Anyone without it sees the list.
+  const canStructure = held.includes('fees.structure');
 
   const money = (n: number) =>
     `${currency} ${n.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -59,6 +66,7 @@ export default function FeeStructurePage() {
         setTermName(`${me.currentTerm.academicYear?.name ?? ''} · ${me.currentTerm.name}`);
       }
       if (me.school?.currency) setCurrency(me.school.currency);
+      setHeld(me.permissions ?? []);
       setLevels(s.levels ?? []);
       setClasses(s.classes ?? []);
       // Years come back newest first; the rollover picker reads better oldest first, so a term
@@ -135,6 +143,44 @@ export default function FeeStructurePage() {
     else setMessage('Could not remove that item.');
   }
 
+  /**
+   * Re-price or rename an item in the structure.
+   *
+   * This changes what future invoices are built from. Bills already issued carry their own
+   * `lines` snapshot and are not touched — which is right, but is the opposite of what a bursar
+   * correcting a price expects, so the table says so beside the button.
+   */
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!draft) return;
+    setBusy(true);
+    setMessage(null);
+    const res = await fetch(`/api/proxy/fees/items/${draft.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: draft.name.trim(),
+        amount: Number(draft.amount),
+        // Empty is how the form says "every level" — the API reads it back to null.
+        levelId: draft.levelId ?? '',
+        optional: draft.optional,
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok) {
+      setMessage(
+        Array.isArray(body.message)
+          ? body.message.join('. ')
+          : (body.message ?? 'Could not save that item.'),
+      );
+      return;
+    }
+    setEditingId(null);
+    setDraft(null);
+    load();
+  }
+
   const compulsory = items.filter((i) => !i.optional).reduce((a, i) => a + i.amount, 0);
   const field =
     'rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
@@ -163,33 +209,130 @@ export default function FeeStructurePage() {
               </tr>
             </thead>
             <tbody>
-              {items.map((i) => (
-                <tr key={i.id} className="border-b border-mist/60 last:border-0">
-                  <td className="px-5 py-3 font-medium">
-                    {i.name}
-                    {i.optional && (
-                      <span className="ml-2 text-[10px] uppercase tracking-wider bg-parchment text-oat rounded-full px-2 py-0.5">
-                        Optional
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-5 py-3 text-oat">
-                    {i.levelId
-                      ? (levels.find((l) => l.id === i.levelId)?.name ?? '—')
-                      : 'All levels'}
-                  </td>
-                  <td className="px-5 py-3 text-right tabular font-medium">{money(i.amount)}</td>
-                  <td className="px-5 py-3 text-right">
-                    <button
-                      onClick={() => remove(i.id)}
-                      data-tip="Removes it from future invoices; bills already issued are unchanged"
-                      className="tip text-[12.5px] text-clay hover:underline underline-offset-2"
-                    >
-                      Remove
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {items.map((i) =>
+                editingId === i.id && draft ? (
+                  <tr key={i.id} className="border-b border-mist/60 last:border-0 bg-parchment/40">
+                    <td colSpan={4} className="px-5 py-4">
+                      <form onSubmit={saveEdit} className="flex flex-wrap items-end gap-3">
+                        <label className="text-[13px]">
+                          <span className="block text-oat mb-1">Item name</span>
+                          <input
+                            required
+                            minLength={2}
+                            value={draft.name}
+                            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                            className={`${field} w-48 min-h-11`}
+                          />
+                        </label>
+                        <label className="text-[13px]">
+                          <span className="block text-oat mb-1">Amount ({currency})</span>
+                          <input
+                            required
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={draft.amount}
+                            onChange={(e) => setDraft({ ...draft, amount: Number(e.target.value) })}
+                            className={`${field} w-32 tabular min-h-11`}
+                          />
+                        </label>
+                        <label className="text-[13px]">
+                          <span className="block text-oat mb-1">Level</span>
+                          <select
+                            value={draft.levelId ?? ''}
+                            onChange={(e) =>
+                              setDraft({ ...draft, levelId: e.target.value || null })
+                            }
+                            className={`${field} w-40 min-h-11`}
+                          >
+                            <option value="">All levels</option>
+                            {levels.map((l) => (
+                              <option key={l.id} value={l.id}>
+                                {l.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="text-[13px] flex items-center gap-2 min-h-11">
+                          <input
+                            type="checkbox"
+                            checked={draft.optional}
+                            onChange={(e) => setDraft({ ...draft, optional: e.target.checked })}
+                          />
+                          <span>Optional</span>
+                        </label>
+                        <button
+                          type="submit"
+                          disabled={busy}
+                          className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-5 hover:bg-brand-deep transition disabled:opacity-50"
+                        >
+                          {busy ? 'Saving…' : 'Save item'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingId(null);
+                            setDraft(null);
+                          }}
+                          className="min-h-11 px-2 text-[13px] text-oat hover:text-brand transition"
+                        >
+                          Cancel
+                        </button>
+                        <p className="w-full text-[11px] text-oat">
+                          This changes what future invoices are built from.{' '}
+                          <strong className="text-ink">
+                            Bills already issued are not re-priced
+                          </strong>{' '}
+                          — each invoice keeps the lines it was raised with, so the ledger still
+                          says what was actually billed. To correct a bill already sent, reverse it
+                          and raise it again.
+                        </p>
+                      </form>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={i.id} className="border-b border-mist/60 last:border-0">
+                    <td className="px-5 py-3 font-medium">
+                      {i.name}
+                      {i.optional && (
+                        <span className="ml-2 text-[10px] uppercase tracking-wider bg-parchment text-oat rounded-full px-2 py-0.5">
+                          Optional
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3 text-oat">
+                      {i.levelId
+                        ? (levels.find((l) => l.id === i.levelId)?.name ?? '—')
+                        : 'All levels'}
+                    </td>
+                    <td className="px-5 py-3 text-right tabular font-medium">{money(i.amount)}</td>
+                    <td className="px-5 py-3 text-right whitespace-nowrap">
+                      {canStructure && (
+                        <>
+                          <button
+                            onClick={() => {
+                              setEditingId(i.id);
+                              setDraft({ ...i });
+                              setMessage(null);
+                            }}
+                            data-tip="Re-prices future invoices; bills already issued are unchanged"
+                            className="tip text-[12.5px] font-medium text-brand hover:underline underline-offset-2"
+                          >
+                            Change
+                          </button>
+                          <button
+                            onClick={() => remove(i.id)}
+                            data-tip="Removes it from future invoices; bills already issued are unchanged"
+                            className="tip ml-3 text-[12.5px] text-clay hover:underline underline-offset-2"
+                          >
+                            Remove
+                          </button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                ),
+              )}
               {items.length === 0 && (
                 <tr>
                   <td colSpan={4} className="px-5 py-10 text-center text-oat">

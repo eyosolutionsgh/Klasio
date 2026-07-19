@@ -72,7 +72,9 @@ export default async function CalendarPage({
   // The API filters by audience; the level filter is applied here because the month's events are
   // already in hand and a second round trip would buy nothing.
   const shown = levelId ? events.filter((e) => e.levelId === levelId) : events;
-  const canEdit = ['OWNER', 'HEAD', 'FRONT_DESK'].includes(me.user.role);
+  // Writing to the calendar is `calendar.manage` on the API. Asking what this person may do beats
+  // guessing from their role title, which a school is free to redefine.
+  const canEdit = me.permissions?.includes('calendar.manage') ?? false;
 
   const days = new Map<string, CalendarEvent[]>();
   for (const e of shown) {
@@ -119,7 +121,9 @@ export default async function CalendarPage({
                   <li key={e.id} className="border-l-2 border-brand/40 pl-3">
                     <div className="flex items-baseline justify-between gap-3">
                       <h3 className="font-display text-lg leading-snug">{e.title}</h3>
-                      {canEdit && <EventActions id={e.id} title={e.title} />}
+                      {canEdit && (
+                        <EventActions event={e} levels={structure.levels} audiences={AUDIENCES} />
+                      )}
                     </div>
                     <p className="text-[11px] text-oat mt-0.5">
                       {e.allDay
