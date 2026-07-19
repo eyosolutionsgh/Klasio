@@ -28,6 +28,8 @@ import { Public } from '../common/auth';
 import { maskMsisdn, normalizeMsisdn } from '../common/phone';
 import { reportCardPdf, ReportCardData } from '../common/pdf';
 import { balanceOf } from '../common/ledger';
+import { storage } from '../common/storage';
+import { SmsModule, SmsService } from '../sms/sms.module';
 
 const OTP_TTL_MINUTES = 10;
 const OTP_MAX_ATTEMPTS = 5;
@@ -99,6 +101,7 @@ export class GuardianService {
     private payments: PaymentsService,
     private calendar: CalendarService,
     private resources: ResourcesService,
+    private sms: SmsService,
   ) {}
 
   /**
@@ -119,6 +122,23 @@ export class GuardianService {
       orderBy: { createdAt: 'desc' },
     });
     if (!guardian) return generic;
+
+    /**
+     * A suspended school sends nothing.
+     *
+     * Suspension stopped staff sign-in and nothing else, so parents kept full access to a school
+     * EYO had cut off — and the OTP spent that school's own SMS credits to let them in.
+     *
+     * Answered with the same generic response as an unknown number rather than a clear message,
+     * because this endpoint deliberately reveals nothing about which numbers belong to parents,
+     * and a distinct reply here would reintroduce exactly that oracle. The clear explanation
+     * lives at the verify step below, where the caller has already proved they hold a code.
+     */
+    const school = await this.db.system.school.findUnique({
+      where: { id: guardian.schoolId },
+      select: { suspendedAt: true },
+    });
+    if (school?.suspendedAt) return generic;
 
     return withTenant(guardian.schoolId, async () => {
       const since = new Date(Date.now() - 60 * 60_000);
@@ -146,19 +166,15 @@ export class GuardianService {
         },
       });
 
-      const school = await this.db.school.findUniqueOrThrow({ where: { id: guardian.schoolId } });
-      const body = `${code} is your ${school.name} code. It expires in ${OTP_TTL_MINUTES} minutes. Never share it.`;
-      // Reuses the school's SMS credits/sender; in dev the mock provider prints it to the log.
-      await this.db.smsMessage.create({
-        data: {
-          schoolId: guardian.schoolId,
-          to: phone,
-          body,
-          status: 'SENT',
-          provider: 'otp',
-          cost: 1,
-          createdById: 'system',
-        },
+      // Actually sends. This used to write an SmsMessage row marked SENT and call no provider at
+      // all, so in production the code never reached the parent and nobody could sign in — the
+      // row said SENT and the endpoint returns a deliberately generic answer, so it looked fine
+      // from both ends. The plaintext code stays inside SmsService; see sendOtp.
+      await this.sms.sendOtp({
+        schoolId: guardian.schoolId,
+        phone,
+        code,
+        ttlMinutes: OTP_TTL_MINUTES,
       });
       // Development only. A sign-in code in a log file is a sign-in code anyone with log access
       // can use — request one for a known parent's number and you are that parent.
@@ -204,6 +220,22 @@ export class GuardianService {
     // Burn the code so it cannot be reused.
     await this.db.guardianOtp.update({ where: { id: otp.id }, data: { consumedAt: new Date() } });
     const guardian = await this.db.guardian.findUniqueOrThrow({ where: { id: otp.guardianId } });
+
+    // The other half of the suspension check above: a code issued before suspension must not
+    // still open the door. Here the caller has proved they hold a valid code, so they get the
+    // real reason rather than a generic refusal.
+    const school = await this.db.school.findUniqueOrThrow({
+      where: { id: guardian.schoolId },
+      select: { suspendedAt: true, suspendedReason: true },
+    });
+    if (school.suspendedAt) {
+      throw new ForbiddenException(
+        school.suspendedReason
+          ? `This school's access is suspended: ${school.suspendedReason}`
+          : "This school's access is suspended. Please contact the school.",
+      );
+    }
+
     const payload: GuardianUser = {
       sub: guardian.id,
       schoolId: guardian.schoolId,
@@ -447,6 +479,21 @@ export class GuardianService {
         motto: school.motto,
         address: school.address,
         phone: school.phone,
+        // The parent's copy must be the same document as the school's. Without these it fell back
+        // to 30/70 and the default green, so a school on 40/60 printed "Class (40%)" while the
+        // parent downloaded "Class (30%)" over identical marks — and lost the crest.
+        brandColor: school.brandColor,
+        // Bytes, not the storage key — and a crest that cannot be read must not stop a parent
+        // getting the report card, so a failed fetch degrades to no logo.
+        logo: school.logoUrl
+          ? await storage()
+              .get(school.logoUrl)
+              .catch(() => null)
+          : null,
+      },
+      weights: {
+        sba: school.sbaWeight ?? 30,
+        exam: school.examWeight ?? 70,
       },
       student: {
         name: `${student.firstName} ${student.lastName}`,
@@ -659,7 +706,7 @@ export class GuardianPortalController {
 }
 
 @Module({
-  imports: [FeesModule, PaymentsModule, CalendarModule, ResourcesModule],
+  imports: [FeesModule, PaymentsModule, CalendarModule, ResourcesModule, SmsModule],
   controllers: [GuardianAuthController, GuardianPortalController],
   providers: [GuardianService, GuardianGuard],
 })

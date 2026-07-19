@@ -7,9 +7,30 @@ import { Workbook } from 'exceljs';
 
 export type Cell = string | number | null | undefined;
 
+/**
+ * Cells a spreadsheet would execute rather than display.
+ *
+ * Excel, LibreOffice and Sheets all treat a leading =, +, - or @ as the start of a formula, and
+ * quoting does not help — `"=1+1"` still evaluates. Tab and carriage return are included because
+ * they can be used to shift the payload past a naive guard.
+ */
+const FORMULA_START = /^[=+\-@\t\r]/;
+
 export function toCsv(headers: string[], rows: Cell[][]): Buffer {
   const esc = (v: Cell) => {
-    const s = v == null ? '' : String(v);
+    let s = v == null ? '' : String(v);
+    /**
+     * Neutralise formulas before quoting.
+     *
+     * The text in these exports is not all staff-typed: a prospective parent supplies their
+     * child's name through the public admissions form, which is unauthenticated, and that name
+     * flows into the student export a bursar opens in Excel. A leading apostrophe is the
+     * conventional fix — spreadsheets treat the cell as text and do not display the prefix.
+     */
+    // Strings only. A number is ours, never user input, and prefixing it would turn every
+    // negative amount in a money export into text — breaking the sums a bursar opens the file to
+    // do. `-500` must stay a number; `-500=cmd` arrives as a string and does not.
+    if (typeof v === 'string' && FORMULA_START.test(s)) s = `'${s}`;
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const lines = [headers.map(esc).join(','), ...rows.map((r) => r.map(esc).join(','))];

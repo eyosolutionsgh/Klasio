@@ -773,14 +773,12 @@ export class AssessmentService {
     );
     // Publishing is the moment results become real to a family, so it is worth a message.
     // Retracting is not — it is usually a mistake being fixed, and announcing it twice is worse.
-    const already = await this.sms.alreadySent(
-      auth.schoolId,
-      `RESULTS-${dto.classId}-${dto.termId}`,
-    );
     // Publishing is Basic; texting every family about it is Medium.
+    // Deduplication is per family, inside notifyResults — a class-wide check here would skip
+    // everyone the moment one family had been told.
     const mayPush = hasEntitlement(auth.tier, 'comms.results-push');
     const notified =
-      mayPush && publish && result.count > 0 && !already ? await this.notifyResults(auth, dto) : 0;
+      mayPush && publish && result.count > 0 ? await this.notifyResults(auth, dto) : 0;
     return { published: publish, count: result.count, notified };
   }
 
@@ -799,20 +797,35 @@ export class AssessmentService {
       this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } }),
       this.db.term.findUnique({ where: { id: dto.termId } }),
     ]);
-    const phones = students
-      .map((s) => s.guardians[0]?.guardian.phone)
-      .filter((p): p is string => !!p);
-    if (phones.length === 0) return 0;
+    const body = `${school.name}: ${term?.name ?? 'This term'} report cards are now available. Sign in at the parent portal with your phone number to view your child's results.`;
 
-    const res = await this.sms.sendToPhones({
-      schoolId: auth.schoolId,
-      createdById: auth.sub,
-      phones,
-      body: `${school.name}: ${term?.name ?? 'This term'} report cards are now available. Sign in at the parent portal with your phone number to view your child's results.`,
-      // Re-publishing the same class and term does not message everyone again.
-      batchId: `RESULTS-${dto.classId}-${dto.termId}`,
-    });
-    return res.sent;
+    /**
+     * One batch id per student, not one for the class.
+     *
+     * A class-wide id meant `alreadySent` went true as soon as the *first* family was notified,
+     * so any run that stopped short — the school ran out of credits mid-class, the provider
+     * failed, the process died — left the rest permanently unreachable. Re-publishing after
+     * topping up sent to nobody, because the batch already existed.
+     *
+     * Per-student ids make a re-publish top up exactly the families who missed out and skip the
+     * ones already told. This is the shape the fee reminders already use.
+     */
+    let sent = 0;
+    for (const st of students) {
+      const phone = st.guardians[0]?.guardian.phone;
+      if (!phone) continue;
+      const batchId = `RESULTS-${dto.termId}-${st.id}`;
+      if (await this.sms.alreadySent(auth.schoolId, batchId)) continue;
+      const res = await this.sms.sendToPhones({
+        schoolId: auth.schoolId,
+        createdById: auth.sub,
+        phones: [phone],
+        body,
+        batchId,
+      });
+      sent += res.sent;
+    }
+    return sent;
   }
 
   /**

@@ -47,7 +47,7 @@ interface UploadedFileLike {
 import { PaymentMethod, Prisma } from '@prisma/client';
 import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService, withTenant } from '../prisma/prisma.service';
 import { markSchedule, scheduleTotals } from '../common/installments';
 import { concessionsFor, rankSiblings } from '../common/concessions';
 import { SmsModule, SmsService } from '../sms/sms.module';
@@ -635,7 +635,16 @@ export class FeesService {
             admissionNo: true,
             classRoom: { select: { name: true } },
             guardians: {
-              where: { isPrimary: true },
+              /**
+               * BLOCKED is excluded, as it is in every other automatic sender (attendance,
+               * assessment, pickup). This one was missed.
+               *
+               * The flag means a named adult must not collect this child — usually a custody
+               * order. Texting them the child's name and the family's balance tells them the
+               * child is still enrolled here, which is frequently the single fact the flag exists
+               * to withhold.
+               */
+              where: { isPrimary: true, custodyFlag: { not: 'BLOCKED' } },
               include: { guardian: { select: { phone: true } } },
             },
           },
@@ -897,7 +906,10 @@ export class FeesService {
     const term = await this.db.term.findFirst({
       where: { isCurrent: true, academicYear: { schoolId: auth.schoolId, isCurrent: true } },
     });
-    const seq = (await this.db.bankDeposit.count({ where: { schoolId: auth.schoolId } })) + 1;
+    // Atomic, like every other document number. count()+1 is not a counter: two parents lodging
+    // slips at the same moment get the same reference, the unique index rejects one, and because
+    // the request is a single transaction the proof file already written to storage orphans too.
+    const seq = await nextInSequence(this.db, auth.schoolId, 'DEPOSIT');
     const deposit = await this.db.bankDeposit.create({
       data: {
         schoolId: auth.schoolId,
@@ -969,7 +981,7 @@ export class FeesService {
     }
 
     const existing = await this.db.ledgerEntry.findUnique({
-      where: { reference: deposit.reference },
+      where: { schoolId_reference: { schoolId: auth.schoolId, reference: deposit.reference } },
     });
     if (existing) {
       if (deposit.status !== 'CONFIRMED') {
@@ -1899,10 +1911,18 @@ export class RemindersQueue implements OnModuleInit, OnModuleDestroy {
     this.connection?.disconnect();
   }
 
-  /** One pass: every school whose chosen slot is now and which has not already run today. */
+  /**
+   * One pass: every school whose chosen slot is now and which has not already run today.
+   *
+   * The enumeration uses the system client, and everything per-school runs inside that school's
+   * tenant. A worker has no request, so the tenant-aware client resolves `app_current_school()`
+   * to NULL and every row-level policy matches nothing — this loop read an empty job list on
+   * every tick and did nothing, silently, in any deployment with REDIS_URL set. Scheduled fee
+   * reminders looked configured and enabled in the UI and had never sent a single message.
+   */
   private async tick() {
     const now = new Date();
-    const jobs = await this.db.scheduledJob.findMany({
+    const jobs = await this.db.system.scheduledJob.findMany({
       where: { kind: 'FEE_REMINDERS', enabled: true },
     });
     for (const job of jobs) {
@@ -1912,33 +1932,39 @@ export class RemindersQueue implements OnModuleInit, OnModuleDestroy {
       if (job.dayOfWeek === null && (now.getDay() === 0 || now.getDay() === 6)) continue;
       if (job.lastRunAt && job.lastRunAt.toDateString() === now.toDateString()) continue;
 
-      const term = await this.db.term.findFirst({
-        where: { isCurrent: true, academicYear: { schoolId: job.schoolId, isCurrent: true } },
-      });
-      if (!term) continue;
+      await withTenant(job.schoolId, async () => {
+        const term = await this.db.term.findFirst({
+          where: { isCurrent: true, academicYear: { schoolId: job.schoolId, isCurrent: true } },
+        });
+        if (!term) return;
 
-      // The job acts as the school itself; sendReminders only needs the tenant and an actor id.
-      const actor = await this.db.user.findFirst({
-        where: { schoolId: job.schoolId, role: { in: ['OWNER', 'HEAD', 'BURSAR'] }, active: true },
-      });
-      if (!actor) continue;
-
-      try {
-        const res = await this.svc.sendReminders(
-          {
-            sub: actor.id,
+        // The job acts as the school itself; sendReminders only needs the tenant and an actor id.
+        const actor = await this.db.user.findFirst({
+          where: {
             schoolId: job.schoolId,
-            role: actor.role,
-            tier: 'MEDIUM',
-            name: actor.name,
+            role: { in: ['OWNER', 'HEAD', 'BURSAR'] },
+            active: true,
           },
-          term.id,
-        );
-        this.logger.log(`school ${job.schoolId}: sent ${res.sent} reminder(s)`);
-      } catch (err) {
-        this.logger.error(`school ${job.schoolId} reminders failed: ${(err as Error).message}`);
-      }
-      await this.db.scheduledJob.update({ where: { id: job.id }, data: { lastRunAt: now } });
+        });
+        if (!actor) return;
+
+        try {
+          const res = await this.svc.sendReminders(
+            {
+              sub: actor.id,
+              schoolId: job.schoolId,
+              role: actor.role,
+              tier: 'MEDIUM',
+              name: actor.name,
+            },
+            term.id,
+          );
+          this.logger.log(`school ${job.schoolId}: sent ${res.sent} reminder(s)`);
+        } catch (err) {
+          this.logger.error(`school ${job.schoolId} reminders failed: ${(err as Error).message}`);
+        }
+        await this.db.scheduledJob.update({ where: { id: job.id }, data: { lastRunAt: now } });
+      });
     }
   }
 }

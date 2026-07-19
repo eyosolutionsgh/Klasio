@@ -12,6 +12,13 @@ const buildId = process.env.BUILD_ID ?? String(Date.now());
 
 /** @type {import('next').NextConfig} */
 export default {
-  eslint: { ignoreDuringBuilds: true },
+  /**
+   * Two servers must never share a build directory. A `next start` holds a build id, and a dev
+   * server running from the same `.next` overwrites the assets that id points at — the served
+   * pages then come back with no stylesheet and no hydration, which looks like a broken app
+   * rather than a broken setup. Giving the e2e build its own directory keeps a dev server the
+   * user is already running out of its way.
+   */
+  distDir: process.env.NEXT_DIST_DIR ?? '.next',
   env: { NEXT_PUBLIC_BUILD_ID: buildId },
 };

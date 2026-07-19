@@ -15,9 +15,42 @@ test.beforeEach(async ({ page }) => {
 async function login(page: Page, email: string) {
   await page.goto('/login');
   await page.getByLabel('Email address').fill(email);
-  await page.getByLabel('Password').fill('Password1!');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  // Scoped to the textbox: the field's "Show password" toggle also matches getByLabel('Password').
+  await page.getByRole('textbox', { name: 'Password' }).fill('Password1!');
+  await page.getByRole('button', { name: 'Log in' }).click();
   await page.waitForURL('**/dashboard');
+}
+
+/**
+ * Reach a portal page by URL rather than by clicking the sidebar.
+ *
+ * The sidebar groups its links into collapsible sections seeded open from the current page, so a
+ * link like "Announcements" is not in the DOM until its section is expanded. Navigating directly
+ * keeps each test about the page under test instead of the nav chrome around it.
+ */
+async function visit(page: Page, path: string) {
+  await page.goto(path);
+  await page.waitForURL(`**${path}`);
+}
+
+/**
+ * Choose an option in a `Combobox` — the searchable single-select that replaced the plain
+ * `<select>` and the class chip-links.
+ *
+ * It is a text input owning a listbox portalled to `<body>`, so there is no `selectOption` to
+ * call: focus opens it, typing filters it, and the option is a `role="option"` row. The row's
+ * accessible name carries a hint ("JHS 2 12 students"), hence the anchored regex rather than an
+ * exact match.
+ */
+async function pickCombobox(page: Page, label: string, option: string) {
+  const field = page.getByRole('combobox', { name: label });
+  await field.click();
+  await field.fill(option);
+  await page
+    .getByRole('listbox', { name: label })
+    .getByRole('option', { name: new RegExp(`^${option}\\b`) })
+    .first()
+    .click();
 }
 
 test.describe('EYO SMS portal — end-to-end', () => {
@@ -27,8 +60,8 @@ test.describe('EYO SMS portal — end-to-end', () => {
     await page.screenshot({ path: `${SHOTS}/01-login.png`, fullPage: true });
 
     await page.getByLabel('Email address').fill('bursar@demo.school');
-    await page.getByLabel('Password').fill('wrong-password');
-    await page.getByRole('button', { name: 'Sign in' }).click();
+    await page.getByRole('textbox', { name: 'Password' }).fill('wrong-password');
+    await page.getByRole('button', { name: 'Log in' }).click();
     await expect(page.getByText('That email or password is not right')).toBeVisible();
   });
 
@@ -41,13 +74,12 @@ test.describe('EYO SMS portal — end-to-end', () => {
 
   test('students list, filter and detail with ledger', async ({ page }) => {
     await login(page, 'bursar@demo.school');
-    await page.getByRole('link', { name: 'Students' }).click();
-    await page.waitForURL('**/students');
+    await visit(page, '/students');
     await expect(page.getByRole('heading', { name: 'Students' })).toBeVisible();
     await page.screenshot({ path: `${SHOTS}/03-students.png`, fullPage: true });
 
     // filter to JHS 2 and open first student
-    await page.getByRole('link', { name: /JHS 2 ·/ }).click();
+    await pickCombobox(page, 'Class', 'JHS 2');
     await page.waitForURL('**/students?classId=*');
     const firstStudent = page.locator('tbody tr td a').first();
     const name = await firstStudent.textContent();
@@ -60,8 +92,7 @@ test.describe('EYO SMS portal — end-to-end', () => {
 
   test('teacher marks attendance for a class', async ({ page }) => {
     await login(page, 'teacher@demo.school');
-    await page.getByRole('link', { name: 'Attendance' }).click();
-    await page.waitForURL('**/attendance');
+    await visit(page, '/attendance');
     await page.waitForSelector('li:has-text("BA-")');
     await page.getByRole('button', { name: 'All present' }).click();
     // mark the first child late for realism
@@ -73,26 +104,26 @@ test.describe('EYO SMS portal — end-to-end', () => {
 
   test('teacher edits a score and saves', async ({ page }) => {
     await login(page, 'teacher@demo.school');
-    await page.getByRole('link', { name: 'Marks Entry' }).click();
-    await page.waitForURL('**/marks');
+    await visit(page, '/marks');
     await page.waitForSelector('tbody tr');
     const firstInput = page.locator('tbody input').first();
     const current = await firstInput.inputValue();
     await firstInput.fill(current === '18' ? '17' : '18');
     await page.screenshot({ path: `${SHOTS}/06-marks-entry.png`, fullPage: true });
-    await page.getByRole('button', { name: 'Save scores' }).click();
-    await expect(page.getByRole('status')).toContainText('Scores saved');
+    // Marks entry autosaves on a debounce now — there is no "Save scores" button to press, and
+    // racing the debounce to click "Save now" would only be flaky.
+    await expect(page.getByRole('status')).toContainText('Scores saved', { timeout: 15_000 });
   });
 
   test('head generates terminal reports and views a GES report card', async ({ page }) => {
     await login(page, 'head@demo.school');
-    await page.getByRole('link', { name: 'Terminal Reports' }).click();
-    await page.waitForURL('**/reports');
-    // pick JHS 2 (has full scores) and wait for the class switch to take effect
-    const classSelect = page.getByLabel('Class');
-    await classSelect.selectOption({ label: 'JHS 2' });
-    const jhs2Id = await classSelect.inputValue();
-    await page.waitForResponse((r) => r.url().includes(`/assessment/reports?classId=${jhs2Id}`));
+    await visit(page, '/reports');
+    // pick JHS 2 (has full scores) and wait for the class switch to take effect. The combobox
+    // holds the class name rather than its id, so the fetch itself is the signal.
+    await Promise.all([
+      page.waitForResponse((r) => /\/assessment\/reports\?classId=/.test(r.url())),
+      pickCombobox(page, 'Class', 'JHS 2'),
+    ]);
     await page.getByRole('button', { name: 'Generate reports' }).click();
     await expect(page.getByText(/Generated \d+ reports?/)).toBeVisible({ timeout: 20_000 });
     await page.waitForSelector('tbody tr');
@@ -107,11 +138,7 @@ test.describe('EYO SMS portal — end-to-end', () => {
 
   test('bursar records a payment against a defaulter', async ({ page }) => {
     await login(page, 'bursar@demo.school');
-    await page
-      .getByRole('navigation', { name: 'Main' })
-      .getByRole('link', { name: 'Fees' })
-      .click();
-    await page.waitForURL('**/fees');
+    await visit(page, '/fees');
     await expect(page.getByRole('heading', { name: 'Defaulters' })).toBeVisible();
     await page.screenshot({ path: `${SHOTS}/09-fees.png`, fullPage: true });
 
@@ -126,8 +153,7 @@ test.describe('EYO SMS portal — end-to-end', () => {
 
   test('head posts an announcement', async ({ page }) => {
     await login(page, 'head@demo.school');
-    await page.getByRole('link', { name: 'Announcements' }).click();
-    await page.waitForURL('**/announcements');
+    await visit(page, '/announcements');
     await page.getByLabel('Title').fill('Speech and Prize-Giving Day');
     await page
       .getByLabel('Message')

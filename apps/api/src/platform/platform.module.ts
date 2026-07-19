@@ -45,9 +45,23 @@ import { publicToken } from '../common/crypto';
  * shared with them beyond the HTTP server.
  */
 
-/** Its own secret, so a leaked school-token secret cannot mint vendor authority. */
-const PLATFORM_JWT_SECRET = () =>
-  process.env.PLATFORM_JWT_SECRET ?? 'dev-platform-secret-do-not-use-in-prod';
+/**
+ * Its own secret, so a leaked school-token secret cannot mint vendor authority.
+ *
+ * Refused outright in production rather than falling back. The fallback string is public in this
+ * repository, and the 8-hour session below is no protection against knowing it: with the key,
+ * any platform token ever observed — a proxy log, a browser history entry, a token pasted into a
+ * bug report — can be re-signed with a fresh expiry forever. There is no jti and no session
+ * table to revoke against, so the only defence is that the key is actually secret.
+ */
+const PLATFORM_JWT_SECRET = () => {
+  const secret = process.env.PLATFORM_JWT_SECRET;
+  if (secret) return secret;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('PLATFORM_JWT_SECRET must be set — it authenticates EYO across every school.');
+  }
+  return 'dev-platform-secret-do-not-use-in-prod';
+};
 
 /** Short. A session that can suspend every school in the country should not last a month. */
 const SESSION = '8h';

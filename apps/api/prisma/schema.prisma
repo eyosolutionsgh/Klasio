@@ -459,7 +459,8 @@ model BankDeposit {
   proofKey      String?
   status        DepositStatus @default(PENDING)
   /// Reference of the ledger entry created on confirmation — also the idempotency key.
-  reference     String        @unique
+  /// Per-school for the same reason as LedgerEntry.reference.
+  reference     String
   note          String?
   reviewNote    String?
   submittedById String
@@ -468,6 +469,7 @@ model BankDeposit {
   createdAt     DateTime      @default(now())
 
   @@index([schoolId, status])
+  @@unique([schoolId, reference])
 }
 
 enum CustodyFlag {
@@ -733,7 +735,10 @@ model LedgerEntry {
   /// REVERSAL negates the entry it references (reversedId).
   amount      Decimal        @db.Decimal(12, 2)
   method      PaymentMethod?
-  reference   String         @unique
+  /// Unique per school, not globally. Numbering is per-school (PAY-2026-00001 for every
+  /// school's first cash payment), so a global constraint meant the SECOND school to take money
+  /// collided with the first and could not record the payment at all.
+  reference   String
   reversedId  String?
   note        String?
   createdById String
@@ -743,6 +748,7 @@ model LedgerEntry {
 
   @@index([schoolId, studentId])
   @@index([schoolId, createdAt])
+  @@unique([schoolId, reference])
 }
 
 /// Per-school counters for human-facing document numbers (receipts, payments, invoices).

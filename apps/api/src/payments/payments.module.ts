@@ -415,7 +415,11 @@ export class PaymentsService {
     // The lookup above had no tenant; everything below writes, so it must run inside one or RLS
     // refuses the insert. Settling a parent's payment is the last place to be casual about this.
     return withTenant(intent.schoolId, async () => {
-      const existing = await this.db.ledgerEntry.findUnique({ where: { reference } });
+      // Scoped to the school now that `reference` is unique per school rather than globally.
+      // Idempotency is unchanged: within one school a reference still identifies one entry.
+      const existing = await this.db.ledgerEntry.findUnique({
+        where: { schoolId_reference: { schoolId: intent.schoolId, reference } },
+      });
       if (existing) {
         if (intent.status !== 'SUCCESS') {
           await this.db.paymentIntent.update({
@@ -661,9 +665,17 @@ export class PaymentsService {
     return this.handleWebhook('MOCK', { 'x-mock-signature': signature }, raw);
   }
 
-  /** Intents awaiting settlement — driven by the scheduled sweep. */
+  /**
+   * Intents awaiting settlement — driven by the scheduled sweep.
+   *
+   * System client: the sweep runs in a worker with no request, so the tenant-aware client
+   * resolves to no school and returns an empty list every time. The per-intent half of this path
+   * (`refreshStatus`) was already fixed to use `db.system` + `withTenant`; the enumeration half
+   * was missed, so the sweep reported `{ swept: 0 }` forever and a payment whose webhook was lost
+   * was never re-queried — the exact resilience this queue exists to provide.
+   */
   pendingOlderThan(minutes: number) {
-    return this.db.paymentIntent.findMany({
+    return this.db.system.paymentIntent.findMany({
       where: {
         status: 'PENDING',
         createdAt: { lt: new Date(Date.now() - minutes * 60_000) },

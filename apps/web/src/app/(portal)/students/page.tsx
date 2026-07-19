@@ -12,7 +12,8 @@ interface StudentRow {
   gender: string;
   status: string;
   className: string;
-  primaryGuardian: { name: string; phone: string } | null;
+  // phone is omitted unless the caller holds students.guardians — see students.module.ts
+  primaryGuardian: { name: string; phone?: string } | null;
 }
 interface Structure {
   classes: { id: string; name: string; level: string; studentCount: number }[];

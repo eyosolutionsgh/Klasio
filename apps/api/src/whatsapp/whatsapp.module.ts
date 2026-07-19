@@ -91,10 +91,22 @@ export class WhatsAppService {
 
   constructor(private db: PrismaService) {
     const { WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_TOKEN } = process.env;
-    this.provider =
-      WHATSAPP_PHONE_NUMBER_ID && WHATSAPP_TOKEN
-        ? new CloudApiProvider(WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_TOKEN)
-        : new MockWhatsAppProvider();
+    const configured = WHATSAPP_PHONE_NUMBER_ID && WHATSAPP_TOKEN;
+    // Same reasoning as SmsService: a mock that reports success in production tells a school its
+    // reply reached a parent when nothing was sent. A reply inside the 24-hour window is often
+    // answering a worried question, so silently dropping it is worse than refusing to start.
+    if (
+      !configured &&
+      process.env.NODE_ENV === 'production' &&
+      process.env.ALLOW_MOCK_SMS !== 'true'
+    ) {
+      throw new Error(
+        'No WhatsApp provider configured. Set WHATSAPP_PHONE_NUMBER_ID/WHATSAPP_TOKEN, or ALLOW_MOCK_SMS=true to accept that no reply will be delivered.',
+      );
+    }
+    this.provider = configured
+      ? new CloudApiProvider(WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_TOKEN)
+      : new MockWhatsAppProvider();
   }
 
   /**

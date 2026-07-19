@@ -108,6 +108,11 @@ export class StudentsService {
   constructor(private db: PrismaService) {}
 
   async list(auth: AuthUser, classId?: string, q?: string, status: StudentStatus = 'ACTIVE') {
+    // Same gate detail() applies; see the note on primaryGuardian below.
+    const mayReadGuardians =
+      (auth.permissions?.includes('students.guardians') ||
+        auth.permissions?.includes('pickup.view')) ??
+      false;
     const students = await this.db.student.findMany({
       where: {
         schoolId: auth.schoolId,
@@ -137,10 +142,19 @@ export class StudentsService {
       gender: s.gender,
       status: s.status,
       className: s.classRoom?.name ?? '—',
+      /**
+       * The phone needs `students.guardians`, exactly as it does on the record itself.
+       *
+       * `detail()` gates contact details behind that permission and explains why; this list did
+       * not, so the gate was bypassed by listing instead of opening a record. Librarian, Subject
+       * Teacher, Exams Officer, Bursar, Accounts Clerk and School Nurse all hold `students.view`
+       * without `students.guardians` — the librarian is the precise case the detail fix was
+       * written against, and the list handed them every guardian's number 200 at a time.
+       */
       primaryGuardian: s.guardians[0]
         ? {
             name: `${s.guardians[0].guardian.firstName} ${s.guardians[0].guardian.lastName}`,
-            phone: s.guardians[0].guardian.phone,
+            phone: mayReadGuardians ? s.guardians[0].guardian.phone : undefined,
           }
         : null,
     }));

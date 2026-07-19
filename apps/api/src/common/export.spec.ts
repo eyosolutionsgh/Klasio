@@ -63,3 +63,43 @@ describe('onboarding template', () => {
     expect(rows[0]['Last Name']).toBe('Mensah');
   });
 });
+
+describe('formula injection', () => {
+  const cells = (csv: Buffer) => csv.toString('utf8').replace('﻿', '').split('\r\n');
+
+  it('neutralises a name that Excel would execute', () => {
+    // Reachable from the PUBLIC admissions form: a parent supplies the child's name, the office
+    // enrols them, and the bursar opens the student export in Excel.
+    const csv = cells(toCsv(['Name'], [["=cmd|'/c calc'!A1"]]));
+    expect(csv[1].startsWith("'=") || csv[1].startsWith(`"'=`)).toBe(true);
+    expect(csv[1]).not.toMatch(/^=/);
+  });
+
+  it('covers every character a spreadsheet treats as a formula start', () => {
+    for (const lead of ['=', '+', '-', '@', '\t', '\r']) {
+      const csv = cells(toCsv(['V'], [[`${lead}danger`]]));
+      expect(csv[1], lead).not.toMatch(/^[=+\-@\t\r]/);
+    }
+  });
+
+  it('leaves ordinary Ghanaian names untouched', () => {
+    const csv = cells(toCsv(['Name'], [['Kwabena Frimpong'], ["N'Dri Ama"]]));
+    expect(csv[1]).toBe('Kwabena Frimpong');
+    expect(csv[2]).toBe("N'Dri Ama");
+  });
+
+  it('still quotes commas and quotes correctly after prefixing', () => {
+    const csv = cells(toCsv(['V'], [['=a,b']]));
+    expect(csv[1]).toBe(`"'=a,b"`);
+  });
+
+  it('leaves a negative number alone so money exports still sum', () => {
+    // A number cannot carry a formula, and prefixing it would turn every negative amount in a
+    // ledger export into text — breaking the arithmetic the bursar opened the file to do.
+    expect(cells(toCsv(['V'], [[-500]]))[1]).toBe('-500');
+  });
+
+  it('still guards a negative-looking string', () => {
+    expect(cells(toCsv(['V'], [['-500+cmd']]))[1]).toBe("'-500+cmd");
+  });
+});

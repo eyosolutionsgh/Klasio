@@ -13,12 +13,13 @@ import { PrismaService } from '../prisma/prisma.service';
  * consumed rather than reserved: an abandoned request leaves a gap in the run, which is the right
  * trade — a gap is auditable, a duplicate receipt number is not.
  */
-export type SequenceName = 'RECEIPT' | 'PAYMENT' | 'INVOICE';
+export type SequenceName = 'RECEIPT' | 'PAYMENT' | 'INVOICE' | 'DEPOSIT';
 
 /** How many documents of this kind a school already has, for schools that predate the counter. */
 async function existingRun(db: PrismaService, schoolId: string, name: SequenceName) {
   if (name === 'RECEIPT') return db.receipt.count({ where: { schoolId } });
   if (name === 'INVOICE') return db.invoice.count({ where: { schoolId } });
+  if (name === 'DEPOSIT') return db.bankDeposit.count({ where: { schoolId } });
   return db.ledgerEntry.count({ where: { schoolId, type: 'PAYMENT' } });
 }
 

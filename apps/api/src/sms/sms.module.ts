@@ -6,6 +6,7 @@ import {
   Injectable,
   Module,
   Post,
+  Logger,
 } from '@nestjs/common';
 import { IsArray, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { PrismaService } from '../prisma/prisma.service';
@@ -87,15 +88,37 @@ export class SmsService {
   constructor(private db: PrismaService) {
     const { NALO_SMS_ENDPOINT, NALO_SMS_USERNAME, NALO_SMS_PASSWORD, NALO_SMS_SOURCE } =
       process.env;
-    this.provider =
-      NALO_SMS_ENDPOINT && NALO_SMS_USERNAME && NALO_SMS_PASSWORD
-        ? new NaloSmsProvider({
-            endpoint: NALO_SMS_ENDPOINT,
-            username: NALO_SMS_USERNAME,
-            password: NALO_SMS_PASSWORD,
-            source: NALO_SMS_SOURCE ?? '',
-          })
-        : new MockSmsProvider();
+    const configured = NALO_SMS_ENDPOINT && NALO_SMS_USERNAME && NALO_SMS_PASSWORD;
+    /**
+     * Falling back to the mock in production is not a degraded mode, it is a lie that costs money.
+     *
+     * MockSmsProvider returns ok, so every absence alert, fee reminder and results notice is
+     * recorded SENT, shown as delivered, and **debited from the school's credits** — while
+     * reaching nobody. One missing env var on a deploy and a school pays for a term of messages
+     * that never left the building, with nothing anywhere reporting a problem.
+     */
+    if (
+      !configured &&
+      process.env.NODE_ENV === 'production' &&
+      process.env.ALLOW_MOCK_SMS !== 'true'
+    ) {
+      throw new Error(
+        'No SMS provider configured. Set NALO_SMS_ENDPOINT/USERNAME/PASSWORD, or ALLOW_MOCK_SMS=true to accept that no message will be delivered.',
+      );
+    }
+    this.provider = configured
+      ? new NaloSmsProvider({
+          endpoint: NALO_SMS_ENDPOINT,
+          username: NALO_SMS_USERNAME,
+          password: NALO_SMS_PASSWORD,
+          source: NALO_SMS_SOURCE ?? '',
+        })
+      : new MockSmsProvider();
+    if (!configured) {
+      new Logger('SmsService').warn(
+        'No SMS provider configured — messages are recorded but not delivered.',
+      );
+    }
   }
 
   /** Resolve the distinct guardian phone numbers for the requested audience. */
@@ -123,7 +146,10 @@ export class SmsService {
       where,
       select: {
         guardians: {
-          where: { isPrimary: true },
+          // BLOCKED excluded even here, where a human picked the audience: "all guardians of
+          // Basic 4" is a class, not a considered list of individuals, and nobody selecting it is
+          // thinking about the one parent under a custody order.
+          where: { isPrimary: true, custodyFlag: { not: 'BLOCKED' } },
           select: { guardian: { select: { phone: true } } },
         },
       },
@@ -142,6 +168,57 @@ export class SmsService {
    * Credit is the school's, so a run stops at whatever credit is left rather than failing
    * outright — a partial notification is worth more than none, and the caller is told.
    */
+  /**
+   * Send a guardian their sign-in code.
+   *
+   * Lives here, not in the guardian module, for two reasons that were both real bugs.
+   *
+   * The guardian module never called a provider at all: it wrote an `SmsMessage` row with
+   * `status: 'SENT'` and stopped. In development the code went to the console, so nobody noticed
+   * that **in production no parent could ever sign in** — the row said SENT, the endpoint returned
+   * its deliberately generic `{ sent: true }`, and the message simply did not exist.
+   *
+   * And the code must not be stored. The row it wrote carried the plaintext six digits in `body`,
+   * which `messages()` returns verbatim to anyone holding `comms.sms`. A front-desk clerk could
+   * request a code for any parent's number, read it off the messaging page, and sign in as that
+   * family. The plaintext now never leaves this method: the provider gets it, the row gets a
+   * description of it.
+   *
+   * Deliberately not gated on the school's credit balance. Every other send is — but a sign-in
+   * code is not a message the school chose to send, and locking every parent out of the portal
+   * because the balance hit zero would be a far worse failure than the fraction of a cedi.
+   */
+  async sendOtp(opts: { schoolId: string; phone: string; code: string; ttlMinutes: number }) {
+    const school = await this.db.school.findUniqueOrThrow({ where: { id: opts.schoolId } });
+    const body = `${opts.code} is your ${school.name} code. It expires in ${opts.ttlMinutes} minutes. Never share it.`;
+    const result = await this.provider.send(opts.phone, body, school.smsSenderId ?? 'SCHOOL');
+
+    await this.db.smsMessage.create({
+      data: {
+        schoolId: opts.schoolId,
+        to: opts.phone,
+        // Never the code. This column is readable by any role holding `comms.sms`.
+        body: 'Parent portal sign-in code (not stored)',
+        status: result.ok ? 'SENT' : 'FAILED',
+        provider: this.provider.name,
+        providerRef: result.ref ?? null,
+        error: result.error ?? null,
+        cost: result.ok ? 1 : 0,
+        createdById: 'system',
+      },
+    });
+
+    // Floored rather than allowed to go negative: the send already happened, and a negative
+    // balance would read as a debt the school has no way to settle.
+    if (result.ok && school.smsCredits > 0) {
+      await this.db.school.update({
+        where: { id: opts.schoolId },
+        data: { smsCredits: { decrement: 1 } },
+      });
+    }
+    return { ok: result.ok };
+  }
+
   async sendToPhones(opts: {
     schoolId: string;
     createdById: string;

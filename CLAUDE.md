@@ -41,11 +41,22 @@ Demo logins (password `Password1!`): `owner@ · head@ · bursar@ · teacher@` `d
 **API is a NestJS modulith.** Each domain (`auth`, `schools`, `students`, `attendance`, `assessment`, `fees`, `dashboard`, `announcements`) is a single `*.module.ts` file that co-locates the Controller, Service, DTOs (class-validator), and `@Module` — there are no separate `.controller.ts`/`.service.ts`/`.dto.ts` files. Follow that one-file-per-module convention when adding features. Modules are wired in `apps/api/src/app.module.ts`.
 
 **Auth & authorization are enforced by one global guard** (`apps/api/src/common/auth.ts`, registered as `APP_GUARD`). Every route is protected unless decorated `@Public()`. The guard verifies the JWT, attaches `AuthUser` (`{ sub, schoolId, role, tier, name }`), then checks decorators layered on the handler:
+
 - `@Roles(...)` — RBAC (OWNER/HEAD/BURSAR/TEACHER/FRONT_DESK/GUARDIAN).
 - `@RequireEntitlement(code)` — feature gating.
 - `@CurrentUser()` param decorator injects the `AuthUser`.
 
 **Web is server-rendered.** Portal pages under `apps/web/src/app/(portal)/` are async Server Components that fetch through `apps/web/src/lib/api.ts`. That `api()` helper reads the `eyo_token` cookie, calls the NestJS API, and `redirect('/login')`s on 401 — there is no client-side data layer.
+
+## Next.js devtools MCP
+
+`apps/web` runs Next.js 16, which serves an MCP endpoint from the dev server. Prefer it over guessing at the running app:
+
+- `nextjs_index` — discover the running dev servers and their tools. Do this first; the port is not always :3000 (a second server often sits on :3100).
+- `nextjs_call` with `port` + `toolName` — the useful ones are `get_errors` (build + runtime errors with source-mapped stacks), `get_routes` (every app-router entry point), `get_logs` (path to the dev log), `get_page_metadata`, and `get_server_action_by_id`.
+- `nextjs_docs` — points at the version-matched docs shipped inside `node_modules/next/dist/docs/`. Read those for Next.js questions instead of Context7 or memory; they match the exact installed version.
+
+Reach for `get_errors` before reading files when a page is broken, and `get_routes` before adding or moving a route.
 
 ## Non-negotiable rules (CI enforces these)
 
@@ -67,5 +78,5 @@ Demo logins (password `Password1!`): `owner@ · head@ · bursar@ · teacher@` `d
 
 ## Per-user global standing instructions (apply here too)
 
-- Before writing/modifying code that uses any library/framework/SDK/API/CLI, fetch current docs via the **Context7 MCP** (`resolve-library-id` → `query-docs`) rather than relying on memory.
+- Before writing/modifying code that uses any library/framework/SDK/API/CLI, fetch current docs via the **Context7 MCP** (`resolve-library-id` → `query-docs`) rather than relying on memory. Exception: for Next.js itself, use `nextjs_docs` (above) — it resolves to the docs for the exact installed version.
 - Update project memory with non-obvious learnings **in the same pass as the commit**, before committing.
