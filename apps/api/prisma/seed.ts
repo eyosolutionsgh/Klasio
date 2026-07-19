@@ -1,7 +1,10 @@
 /* Seed: demo Ghanaian private school with full term data. Idempotent (wipes + recreates demo school). */
 import { PrismaClient, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ROLE_PRESETS } from '../src/common/permissions';
+import { objectKey, storage } from '../src/common/storage';
 
 const db = new PrismaClient();
 
@@ -159,6 +162,24 @@ async function main() {
   });
   const sid = school.id;
 
+  /*
+   * The demo school's crest, written through the storage provider rather than straight to disk,
+   * so seeding an S3-backed environment works the same as a local one and the stored key has the
+   * exact shape an upload through the API would produce.
+   *
+   * Cosmetic, so a failure here must not take the seed down with it: the portal already falls
+   * back to the school's initials when there is no crest, and losing a demo logo is not worth
+   * losing the whole dataset over.
+   */
+  try {
+    const crest = readFileSync(join(__dirname, 'assets', 'brighton-academy-crest.png'));
+    const crestKey = objectKey(sid, 'logo', sid, 'brighton-academy-crest.png');
+    await storage().put(crestKey, crest, 'image/png');
+    await db.school.update({ where: { id: sid }, data: { logoUrl: crestKey } });
+  } catch (e) {
+    console.warn('Could not install the demo crest, continuing without it:', e);
+  }
+
   // Every school gets the preset roles. Without them nobody but the proprietor can do anything,
   // because authority now comes from a role rather than the legacy enum.
   const roleByKey = new Map<string, string>();
@@ -176,7 +197,8 @@ async function main() {
   }
 
   const hash = await bcrypt.hash('Password1!', 10);
-  const [owner, head, bursar, teacher] = await Promise.all([
+  // The proprietor is still created — only the unused binding is dropped, which lint rejects.
+  const [, head, bursar, teacher] = await Promise.all([
     db.user.create({
       data: {
         schoolId: sid,
