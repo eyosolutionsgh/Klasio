@@ -49,6 +49,14 @@ export interface Me {
   /** What this person may do — gates which actions the UI offers. The API enforces it too. */
   permissions?: string[];
   entitlements: string[];
+  /**
+   * Enough to warn about a lapsing licence in the portal chrome. Optional so an older API that
+   * does not send it degrades to no banner rather than to a crash.
+   */
+  licence?: {
+    state: 'VALID' | 'GRACE' | 'EXPIRED' | 'MISSING' | 'INVALID';
+    daysRemaining: number | null;
+  };
 }
 
 export const getMe = () => api<Me>('/me');

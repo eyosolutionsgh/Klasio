@@ -56,7 +56,8 @@ function main() {
   if (!schoolName || !schoolSlug) {
     console.error(
       'Usage: licence:mint -- --school "Name" --slug the-slug [--tier MEDIUM] [--months 12]\n' +
-        '                       [--cap 500|unlimited] [--extra code,code] [--grace 30] [--key path] [--out file]',
+        '                       [--days 20] [--cap 500|unlimited] [--extra code,code] [--grace 30]\n' +
+        '                       [--key path] [--out file]',
     );
     process.exit(1);
   }
@@ -69,7 +70,11 @@ function main() {
 
   const now = new Date();
   const expiresAt = new Date(now);
-  expiresAt.setMonth(expiresAt.getMonth() + Number(arg('months') ?? 12));
+  // --days wins when given: a short trial, or a licence deliberately near expiry to check what
+  // the portal says about it, are both awkward to express in whole months.
+  const days = arg('days');
+  if (days !== undefined) expiresAt.setDate(expiresAt.getDate() + Number(days));
+  else expiresAt.setMonth(expiresAt.getMonth() + Number(arg('months') ?? 12));
 
   // No --cap means "whatever the tier says"; --cap unlimited is the explicit no-ceiling case, and
   // the two must stay distinguishable — null in a payload means unlimited, not "unspecified".

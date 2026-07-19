@@ -485,6 +485,17 @@ export class AuthService {
        */
       entitlements: this.licence.entitlements(),
       /**
+       * Enough for the portal to warn about a lapse, and no more.
+       *
+       * Rides on /me rather than being fetched separately because the banner has to be able to
+       * appear on every page, and a second request per navigation to say "nothing is wrong" —
+       * which is the answer almost every time — is not worth making.
+       */
+      licence: {
+        state: this.licence.snapshot().state,
+        daysRemaining: this.licence.snapshot().daysRemaining ?? null,
+      },
+      /**
        * What this person may actually do.
        *
        * The guard has always resolved this, but /me never returned it, so the web app had no way

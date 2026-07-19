@@ -1,13 +1,9 @@
-import { api, getMe } from '@/lib/api';
+import { getMe } from '@/lib/api';
 import PortalShell from '@/components/PortalShell';
-import PlatformNotices, { type Notice } from '@/components/PlatformNotices';
+import LicenceBanner from '@/components/LicenceBanner';
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const me = await getMe();
-  // A message from EYO should reach whoever next opens the portal, not wait to be looked for,
-  // so it is fetched in the layout rather than on any one page. Failing quietly is deliberate:
-  // a vendor notice is never worth taking a school's own dashboard down over.
-  const notices = await api<Notice[]>('/notices').catch(() => [] as Notice[]);
   const termLabel = me.currentTerm
     ? `${me.currentTerm.academicYear?.name ?? ''} · ${me.currentTerm.name}`
     : 'No current term set';
@@ -24,7 +20,19 @@ export default async function PortalLayout({ children }: { children: React.React
       tier={me.school.tier}
       entitlements={me.entitlements ?? []}
     >
-      <PlatformNotices notices={notices} />
+      {/*
+        In the layout rather than on the dashboard, so a lapse reaches whoever is next in the
+        portal rather than only whoever happens to land on the front page. It renders nothing at
+        all in the ordinary case, which is what makes that affordable.
+
+        This slot used to hold PlatformNotices — messages from the vendor console, which no longer
+        exists. The fetch behind it had been 404ing on every portal page load since that was
+        removed, silently, because it was wrapped in a catch.
+      */}
+      <LicenceBanner
+        status={me.licence ?? null}
+        canManage={me.permissions?.includes('school.settings') ?? false}
+      />
       {children}
     </PortalShell>
   );
