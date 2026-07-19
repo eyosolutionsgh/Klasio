@@ -80,8 +80,8 @@ export default function LoginPage() {
         </div>
 
         {/*
-          No sign-up link. Schools join by invitation from EYO, so a link to /register would only
-          lead to a page telling them they need one — see the register page's own empty state.
+          No sign-up link. One school per server, and it was created when this one was set up —
+          there is nothing for a visitor to sign up to.
         */}
       </form>
     </AuthShell>

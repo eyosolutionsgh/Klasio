@@ -212,22 +212,11 @@ export class GuardianService {
     const phone = normalizeMsisdn(guardian.phone);
     if (!phone) return generic;
 
-    /**
-     * A suspended school sends nothing.
-     *
-     * Suspension stopped staff sign-in and nothing else, so parents kept full access to a school
-     * EYO had cut off — and the OTP spent that school's own SMS credits to let them in.
-     *
-     * Answered with the same generic response as an unknown number rather than a clear message,
-     * because this endpoint deliberately reveals nothing about which numbers belong to parents,
-     * and a distinct reply here would reintroduce exactly that oracle. The clear explanation
-     * lives at the verify step below, where the caller has already proved they hold a code.
-     */
+    // Named and crested so a parent who has never heard of Klasio can tell the code is genuine.
     const school = await this.db.system.school.findUnique({
       where: { id: guardian.schoolId },
-      select: { suspendedAt: true, name: true, logoUrl: true },
+      select: { name: true, logoUrl: true },
     });
-    if (school?.suspendedAt) return generic;
 
     /**
      * Asked for email, but the school holds no address for this family: send nothing, and issue
@@ -378,21 +367,6 @@ export class GuardianService {
     // Burn the code so it cannot be reused.
     await this.db.guardianOtp.update({ where: { id: otp.id }, data: { consumedAt: new Date() } });
     const guardian = await this.db.guardian.findUniqueOrThrow({ where: { id: otp.guardianId } });
-
-    // The other half of the suspension check above: a code issued before suspension must not
-    // still open the door. Here the caller has proved they hold a valid code, so they get the
-    // real reason rather than a generic refusal.
-    const school = await this.db.school.findUniqueOrThrow({
-      where: { id: guardian.schoolId },
-      select: { suspendedAt: true, suspendedReason: true },
-    });
-    if (school.suspendedAt) {
-      throw new ForbiddenException(
-        school.suspendedReason
-          ? `This school's access is suspended: ${school.suspendedReason}`
-          : "This school's access is suspended. Please contact the school.",
-      );
-    }
 
     const payload: GuardianUser = {
       sub: guardian.id,

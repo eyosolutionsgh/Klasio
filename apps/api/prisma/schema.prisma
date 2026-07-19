@@ -10,7 +10,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ── Tenancy, users, platform ─────────────────────────────────────────
+// ── The school, its people, and its licence ──────────────────────────
 
 enum Tier {
   BASIC
@@ -73,13 +73,6 @@ model School {
   /// The next number in the school's own run. Held here rather than counted from the students
   /// table so that withdrawing a child never causes the next enrolment to reuse their number.
   admissionNoNext   Int    @default(1)
-  /// Set when EYO suspends this school. Sign-in is refused and any live session stops at its
-  /// next request. Nothing is deleted and nothing is downgraded — a suspension is a door being
-  /// closed, not data being taken away, and lifting it restores the school exactly as it was.
-  suspendedAt     DateTime?
-  /// Why, in the vendor's words. Shown to the school on the sign-in page, because a school that
-  /// cannot get in deserves to know what to fix rather than to think the product is broken.
-  suspendedReason String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -91,112 +84,8 @@ model School {
   students      Student[]
   guardians     Guardian[]
 
-  subscription  Subscription?
   staffRoles    StaffRole[]
-  invitation    SchoolInvitation?
-  notices       PlatformNotice[]
   passwordResets PasswordReset[]
-}
-
-/// EYO's own staff — the vendor, not a school.
-///
-/// A separate table rather than a `User` with a null `schoolId`, because every tenant-owned
-/// query in this codebase assumes `schoolId` is present and real. A principal that belongs to no
-/// school has no business sharing a table with principals that do: one forgotten join and a
-/// vendor account becomes a member of whichever school asked.
-model PlatformAdmin {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  name         String
-  passwordHash String
-  active       Boolean   @default(true)
-  lastLoginAt  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-
-  invitations SchoolInvitation[]
-  notices     PlatformNotice[]
-  actions     PlatformAuditLog[]
-}
-
-/// What the vendor did, and to whom.
-///
-/// Separate from `AuditLog`, which is tenant-scoped: a school's staff can read their own audit
-/// trail, and "EYO suspended this school" is not a row they should be able to edit the meaning
-/// of — nor could it be written there, since `AuditLog.userId` expects a `User` of that school
-/// and a vendor is not one.
-model PlatformAuditLog {
-  id      String @id @default(cuid())
-  adminId String
-  admin   PlatformAdmin @relation(fields: [adminId], references: [id])
-  /// e.g. `school.suspend`, `school.restore`, `invitation.issue`.
-  action  String
-  /// The school acted on, where there is one. Not a relation: the row must outlive the school.
-  schoolId   String?
-  schoolName String?
-  detail     Json?
-  createdAt  DateTime @default(now())
-
-  @@index([schoolId, createdAt])
-  @@index([createdAt])
-}
-
-/// A school's ticket into the product.
-///
-/// Registration is vendor-initiated: EYO decides who gets to create a school, so signing up
-/// requires one of these. Single use, time limited, and pinned to one email address.
-model SchoolInvitation {
-  id         String @id @default(cuid())
-  schoolName String
-  /// Only this address may accept. Pinned so a forwarded link is useless to anyone else — the
-  /// token alone must not be a bearer credential for creating a school.
-  email      String
-  /// SHA-256 of the token that was handed out. The token itself is shown once, at creation, and
-  /// never stored: a leaked database must not yield working invitations.
-  tokenHash  String @unique
-  /// What the school starts on. Free unless EYO has agreed otherwise up front.
-  tier       Tier   @default(BASIC)
-  expiresAt  DateTime
-  acceptedAt DateTime?
-  revokedAt  DateTime?
-  /// The school this produced, once accepted.
-  schoolId String? @unique
-  school   School? @relation(fields: [schoolId], references: [id], onDelete: SetNull)
-
-  createdById String
-  createdBy   PlatformAdmin @relation(fields: [createdById], references: [id])
-  createdAt   DateTime      @default(now())
-
-  @@index([email])
-  @@index([expiresAt])
-}
-
-enum NoticeLevel {
-  INFO
-  WARNING
-}
-
-/// A message from EYO to one school, shown inside that school's portal.
-///
-/// Deliberately not an `Announcement`: those are the school's own voice, written by its head and
-/// read by its staff. A notice from the vendor that appeared in the same list would either be
-/// mistaken for the school's own words or be edited away by them.
-model PlatformNotice {
-  id       String @id @default(cuid())
-  schoolId String
-  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-
-  subject String
-  body    String
-  level   NoticeLevel @default(INFO)
-
-  sentById String
-  sentBy   PlatformAdmin @relation(fields: [sentById], references: [id])
-  /// When someone at the school acknowledged it. Nothing is hidden until they do.
-  readAt    DateTime?
-  createdAt DateTime  @default(now())
-
-  @@index([schoolId, createdAt])
 }
 
 model User {
@@ -259,7 +148,7 @@ model PasswordReset {
   userId   String
   user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// SHA-256 of the token that was sent. The token itself is never stored, so a leaked
-  /// database yields no working reset links — the same rule SchoolInvitation follows.
+  /// database yields no working reset links.
   ///
   /// For EMAIL this is the hash of a 32-byte link token. For SMS it is the hash of `codeSalt`
   /// plus a six-digit code, which is what makes this column unique for codes too: without the
@@ -1485,83 +1374,6 @@ model WhatsAppMessage {
 
   @@unique([schoolId, externalId])
   @@index([schoolId, conversationId, createdAt])
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SaaS subscription billing
-//
-// The school is the *customer* here, not the payee. School fees settle to the school's own
-// GatewayAccount; subscription payments settle to the vendor, through platform credentials held
-// in env. Confusing the two would pay a school its own subscription money, so the two paths
-// deliberately share no configuration.
-// ─────────────────────────────────────────────────────────────────────────────
-
-enum SubscriptionStatus {
-  /// Paid and inside its period.
-  ACTIVE
-  /// Period ended without renewal. The school keeps working — see the downgrade rule.
-  PAST_DUE
-  /// Will not renew; reverts to BASIC when the paid period ends.
-  CANCELLING
-  CANCELLED
-}
-
-model Subscription {
-  id       String             @id @default(cuid())
-  schoolId String             @unique
-  school   School             @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  tier     Tier
-  status   SubscriptionStatus @default(ACTIVE)
-  /// What the school pays per term at signing, held so a later price change cannot silently
-  /// re-bill an existing customer at a new rate.
-  amount   Decimal            @db.Decimal(12, 2)
-  currency String             @default("GHS")
-  /// Enrolment the price was based on. Re-quoted each renewal, never mid-period.
-  studentCount Int
-  periodStart DateTime
-  periodEnd   DateTime
-  /// Set when the school asks to move down; applied at periodEnd, never immediately.
-  pendingTier Tier?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-
-  invoices SubscriptionInvoice[]
-
-  @@index([status, periodEnd])
-}
-
-enum SubscriptionInvoiceStatus {
-  PENDING
-  PAID
-  FAILED
-  CANCELLED
-}
-
-/// One term's subscription charge. Separate from the school's own fee Invoice, which bills
-/// parents — these two must never be summed together.
-model SubscriptionInvoice {
-  id             String                    @id @default(cuid())
-  schoolId       String
-  subscriptionId String?
-  subscription   Subscription?             @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
-  tier           Tier
-  amount         Decimal                   @db.Decimal(12, 2)
-  currency       String                    @default("GHS")
-  studentCount   Int
-  periodStart    DateTime
-  periodEnd      DateTime
-  status         SubscriptionInvoiceStatus @default(PENDING)
-  /// Our own reference, sent to the gateway and echoed back on the webhook.
-  reference      String                    @unique
-  provider       GatewayProvider?
-  /// Gateway's transaction id, once it settles.
-  externalId     String?
-  paidAt         DateTime?
-  createdById    String?
-  createdAt      DateTime                  @default(now())
-
-  @@index([schoolId, createdAt])
-  @@index([status])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

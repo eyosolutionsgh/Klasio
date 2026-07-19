@@ -178,10 +178,6 @@ export class AuthGuard implements CanActivate {
           extraPermissions: true,
           revokedPermissions: true,
           staffRole: { select: { permissions: true } },
-          // Suspension has to bite on the request, not just at sign-in. Tokens live 12h, so a
-          // school suspended at nine in the morning would otherwise carry on until nine at
-          // night. This rides the lookup that already happens, so it costs nothing.
-          school: { select: { suspendedAt: true, suspendedReason: true } },
         },
       }),
     );
@@ -196,13 +192,6 @@ export class AuthGuard implements CanActivate {
      */
     if ((user.tokenVersion ?? 0) !== account.tokenVersion) {
       throw new UnauthorizedException('Your password was changed. Please sign in again.');
-    }
-    if (account.school?.suspendedAt) {
-      throw new ForbiddenException(
-        account.school.suspendedReason
-          ? `This school's access is suspended: ${account.school.suspendedReason}`
-          : "This school's access is suspended. Please contact Klasio.",
-      );
     }
     // Trust the database over the token for role, tenant and permissions, so a demotion or a
     // withdrawn permission applies at once rather than when the token happens to expire.

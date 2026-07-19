@@ -84,8 +84,6 @@ async function wipe(sid: string) {
   await db.level.deleteMany({ where: { schoolId: sid } });
   await db.gradingScheme.deleteMany({ where: { schoolId: sid } });
   await db.smsMessage.deleteMany({ where: { schoolId: sid } });
-  await db.subscriptionInvoice.deleteMany({ where: { schoolId: sid } });
-  await db.subscription.deleteMany({ where: { schoolId: sid } });
   await db.term.deleteMany({ where: { academicYear: { schoolId: sid } } });
   await db.academicYear.deleteMany({ where: { schoolId: sid } });
   await db.auditLog.deleteMany({ where: { schoolId: sid } });

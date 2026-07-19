@@ -14,7 +14,6 @@ import {
   UnauthorizedException,
   UseGuards,
   createParamDecorator,
-  ForbiddenException,
 } from '@nestjs/common';
 import { IsString, MinLength } from 'class-validator';
 import * as jwt from 'jsonwebtoken';
@@ -124,7 +123,7 @@ export class StudentPortalService {
     const student = await this.db.system.student.findFirst({
       where: { admissionNo: dto.admissionNo.trim(), status: 'ACTIVE' },
       include: {
-        school: { select: { id: true, name: true, suspendedAt: true, suspendedReason: true } },
+        school: { select: { id: true, name: true } },
       },
     });
     const refuse = () => new UnauthorizedException('That admission number or PIN is not right');
@@ -165,16 +164,6 @@ export class StudentPortalService {
         },
       });
       throw refuse();
-    }
-
-    // Suspension has to stop every door, not just the staff one. A child signing in to a school
-    // EYO has cut off would be reading records the school itself can no longer reach.
-    if (student.school.suspendedAt) {
-      throw new ForbiddenException(
-        student.school.suspendedReason
-          ? `This school's access is suspended: ${student.school.suspendedReason}`
-          : "This school's access is suspended. Please ask at the school office.",
-      );
     }
 
     // A correct PIN clears the run of failures, so an honest child who mistypes twice and then

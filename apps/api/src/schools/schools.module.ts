@@ -262,22 +262,31 @@ export class SchoolsService {
 
     const key = objectKey(auth.schoolId, 'logo', auth.schoolId, file.originalname);
     await storage().put(key, file.buffer, file.mimetype);
-    await this.db.school.update({ where: { id: auth.schoolId }, data: { logoUrl: key } });
+    // The type is stored alongside the key: the crest is now served to the open internet by
+    // GET /public/branding/logo, and answering "image/png" for a jpeg there is us being wrong and
+    // the browser being forgiving.
+    await this.db.school.update({
+      where: { id: auth.schoolId },
+      data: { logoUrl: key, logoMimeType: file.mimetype },
+    });
     await this.db.audit(auth.schoolId, auth.sub, 'school.logo.upload', 'School', auth.schoolId);
     return { ok: true };
   }
 
-  /** Bytes for the crest. Behind auth like every other stored object — no public URLs. */
+  /** Bytes for the crest, and what they are. Still no public URLs — see common/storage.ts. */
   async readLogo(auth: AuthUser) {
     const s = await this.db.school.findUnique({ where: { id: auth.schoolId } });
     if (!s?.logoUrl) throw new NotFoundException('No logo uploaded');
-    return storage().get(s.logoUrl);
+    return { buf: await storage().get(s.logoUrl), mimeType: s.logoMimeType ?? 'image/png' };
   }
 
   async removeLogo(auth: AuthUser) {
     const s = await this.db.school.findUnique({ where: { id: auth.schoolId } });
     if (s?.logoUrl) await storage().delete(s.logoUrl);
-    await this.db.school.update({ where: { id: auth.schoolId }, data: { logoUrl: null } });
+    await this.db.school.update({
+      where: { id: auth.schoolId },
+      data: { logoUrl: null, logoMimeType: null },
+    });
     await this.db.audit(auth.schoolId, auth.sub, 'school.logo.remove', 'School', auth.schoolId);
     return { ok: true };
   }
@@ -569,8 +578,8 @@ export class SchoolsController {
   // Any signed-in member of the school may render the crest — it is on every page.
   @Get('logo')
   async logo(@CurrentUser() user: AuthUser) {
-    const buf = await this.svc.readLogo(user);
-    return new StreamableFile(buf, { type: 'image/png' });
+    const { buf, mimeType } = await this.svc.readLogo(user);
+    return new StreamableFile(buf, { type: mimeType });
   }
 
   @Delete('logo')

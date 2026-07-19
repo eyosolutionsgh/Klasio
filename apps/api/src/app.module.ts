@@ -28,10 +28,9 @@ import { TimetableModule } from './timetable/timetable.module';
 import { CustomFieldsModule } from './customfields/customfields.module';
 import { RemarksModule } from './remarks/remarks.module';
 import { ReturnsModule } from './returns/returns.module';
-import { BillingModule } from './billing/billing.module';
-import { PlatformModule } from './platform/platform.module';
 import { RolesModule } from './roles/roles.module';
 import { LicenceModule } from './licence/licence.module';
+import { SetupModule } from './setup/setup.module';
 
 @Module({
   imports: [
@@ -39,6 +38,9 @@ import { LicenceModule } from './licence/licence.module';
     // Before AuthModule: signing in reports what the school is entitled to, and that is
     // whatever the licence says at boot.
     LicenceModule,
+    // Creates the school on a fresh box, and answers the branding the login page needs
+    // before anyone can sign in.
+    SetupModule,
     AuthModule,
     SchoolsModule,
     StudentsModule,
@@ -64,9 +66,7 @@ import { LicenceModule } from './licence/licence.module';
     CustomFieldsModule,
     RemarksModule,
     ReturnsModule,
-    BillingModule,
     RolesModule,
-    PlatformModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: AuthGuard },

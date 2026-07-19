@@ -1,32 +1,27 @@
 'use client';
 
 import { Suspense, use, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
 import { Button, useAsyncAction } from '@/components/Button';
 import { CheckIcon, CloseIcon } from '@/components/icons';
 
 /** Which service settles this reference. Anything else is treated as a school fee payment. */
-const ROUTES = ['payments', 'billing'] as const;
 
 /**
  * Stand-in for a real gateway's hosted checkout, used when a school has connected no
  * gateway (dev/demo). Completing here posts the same signed callback a real gateway sends,
  * so the production settlement path is what gets exercised.
  *
- * The gateway tells us who to call back with `?via=`. School fees and a school's own
- * subscription are settled by different services against different tables, and guessing from
- * the reference would put one module's naming convention in this page.
+ * There is one settling module now. `?via=` used to pick between school fees and a school's own
+ * subscription to the vendor; subscriptions are gone with the SaaS plane, so every mock
+ * completion is a school fee.
  */
 function MockCheckout({ params }: { params: Promise<{ reference: string }> }) {
   const { reference } = use(params);
-  const search = useSearchParams();
-  const requested = search.get('via');
-  const via = ROUTES.includes(requested as (typeof ROUTES)[number]) ? requested : 'payments';
   const [error, setError] = useState<string | null>(null);
 
   async function complete(outcome: 'success' | 'failed') {
     setError(null);
-    const res = await fetch(`/api/pay/${via}/mock/${encodeURIComponent(reference)}/complete`, {
+    const res = await fetch(`/api/pay/payments/mock/${encodeURIComponent(reference)}/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ outcome }),
@@ -37,11 +32,7 @@ function MockCheckout({ params }: { params: Promise<{ reference: string }> }) {
       setError(d.message ?? 'Could not complete');
       throw new Error('rejected');
     }
-    // Back where that kind of payer belongs: a guardian to the public return page, a school
-    // owner to their own subscription page, which reads `ref` to report what happened.
-    const ref = encodeURIComponent(reference);
-    window.location.href =
-      via === 'billing' ? `/settings/billing?ref=${ref}` : `/pay/return?ref=${ref}`;
+    window.location.href = `/pay/return?ref=${encodeURIComponent(reference)}`;
   }
 
   const approve = useAsyncAction(() => complete('success'));
@@ -102,8 +93,8 @@ function MockCheckout({ params }: { params: Promise<{ reference: string }> }) {
   );
 }
 
-// `useSearchParams` suspends, and this page is only ever reached by a gateway redirect, so
-// there is nothing worth rendering before the query string is known.
+// `use(params)` suspends, and this page is only ever reached by a gateway redirect, so there is
+// nothing worth rendering before the reference is known.
 export default function MockCheckoutPage(props: { params: Promise<{ reference: string }> }) {
   return (
     <Suspense fallback={<main className="min-h-dvh" />}>
