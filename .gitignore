@@ -4,6 +4,10 @@ dist/
 # Isolated build output for the e2e server (NEXT_DIST_DIR), so it cannot collide with a dev server.
 .next-e2e/
 coverage/
+# Uploaded objects — school crests, student photos and documents. Tenant data written at runtime
+# under a random key, so a seed run leaves a fresh untracked directory every time and no two
+# machines ever agree. The provider mkdirs on write, so nothing needs the folder to exist.
+apps/api/storage/
 *.log
 .env
 .env.local
