@@ -676,7 +676,7 @@ export class AssessmentService {
     });
     if (published.length > 0 && !dto.regeneratePublished) {
       throw new BadRequestException(
-        `${published.length} of these reports ${published.length === 1 ? 'has' : 'have'} already been published and shared with parents. ` +
+        `${published.length} of these reports ${published.length === 1 ? 'has' : 'have'} already been published and shared with guardians. ` +
           'Regenerating will replace what they have seen — confirm to go ahead.',
       );
     }
@@ -828,7 +828,7 @@ export class AssessmentService {
       this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } }),
       this.db.term.findUnique({ where: { id: dto.termId } }),
     ]);
-    const body = `${school.name}: ${term?.name ?? 'This term'} report cards are now available. Sign in at the parent portal with your phone number to view your child's results.`;
+    const body = `${school.name}: ${term?.name ?? 'This term'} terminal reports are now available. Sign in at the guardian portal with your phone number to view your child's results.`;
 
     /**
      * One batch id per student, not one for the class.

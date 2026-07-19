@@ -54,7 +54,7 @@ export default function DismissalInbox() {
   return (
     <section className="card p-6 rise rise-4">
       <h2 className="font-display text-xl">
-        Pickup change requests
+        Collection change requests
         {pending.length > 0 && (
           <span className="ml-2 text-[11px] uppercase tracking-wider bg-clay/10 text-clay rounded-full px-2 py-0.5 align-middle">
             {pending.length} waiting
@@ -62,7 +62,7 @@ export default function DismissalInbox() {
         )}
       </h2>
       <p className="text-sm text-oat mt-1.5">
-        From parents. Nothing changes at the gate until you decide — the parent is texted either
+        From guardians. Nothing changes at the gate until you decide — the guardian is texted either
         way.
       </p>
 
@@ -80,7 +80,7 @@ export default function DismissalInbox() {
             <input
               value={note[r.id] ?? ''}
               onChange={(e) => setNote((n) => ({ ...n, [r.id]: e.target.value }))}
-              placeholder="Note back to the parent (optional)"
+              placeholder="Note back to the guardian (optional)"
               className="w-full min-h-11 rounded-lg border border-mist bg-white px-3 py-2 text-sm mt-3 outline-none focus:border-brand"
             />
             <div className="flex items-center gap-2 mt-2">

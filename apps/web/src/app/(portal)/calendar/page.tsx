@@ -85,7 +85,7 @@ export default async function CalendarPage({
   return (
     <div>
       <div className="rise rise-1">
-        <h1 className="font-display text-3xl">School Calendar</h1>
+        <h1 className="font-display text-3xl">School calendar</h1>
         <p className="text-sm text-oat mt-1.5">
           Term dates, examinations, PTA meetings and holidays. Each event shows only to the audience
           it was written for.

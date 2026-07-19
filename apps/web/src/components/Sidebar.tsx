@@ -12,7 +12,7 @@ import SchoolCrest from './SchoolCrest';
  * because the alternative is worse than a locked door: an unentitled request 401s the portal
  * session and dumps the user back at the login screen, which reads as the app breaking.
  */
-type Group = 'Daily' | 'Academic' | 'Money' | 'Communication' | 'Setup';
+type Group = 'Daily' | 'Academic' | 'Finance' | 'Communication' | 'Setup';
 
 interface NavItem {
   href: string;
@@ -30,10 +30,10 @@ interface NavItem {
  * who is here, what they are learning, what they owe, what you are telling families, and then
  * the settings you touch once a term.
  */
-const GROUPS: Group[] = ['Daily', 'Academic', 'Money', 'Communication', 'Setup'];
+const GROUPS: Group[] = ['Daily', 'Academic', 'Finance', 'Communication', 'Setup'];
 
 const ADMIN = ['OWNER', 'HEAD'];
-const MONEY = ['OWNER', 'HEAD', 'BURSAR'];
+const FINANCE = ['OWNER', 'HEAD', 'BURSAR'];
 
 const NAV: NavItem[] = [
   {
@@ -84,7 +84,7 @@ const NAV: NavItem[] = [
     href: '/reports',
     label: 'Terminal Reports',
     icon: 'M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z',
-    tip: 'Generate and print GES report cards',
+    tip: 'Generate and print GES terminal reports',
     group: 'Academic',
   },
   {
@@ -92,8 +92,8 @@ const NAV: NavItem[] = [
     label: 'Fees',
     icon: 'M11.8 10.9c-2.3-.6-3-1.2-3-2.1 0-1.1 1-1.8 2.7-1.8 1.8 0 2.4.8 2.5 2h2.2c-.1-1.6-1.1-3.1-3-3.6V3.2h-3v2.2c-1.9.4-3.4 1.6-3.4 3.5 0 2.3 1.9 3.4 4.6 4 2.4.6 2.9 1.4 2.9 2.3 0 .7-.5 1.7-2.7 1.7-2 0-2.8-.9-3-2H6.4c.1 2 1.6 3.2 3.4 3.6v2.3h3v-2.2c1.9-.4 3.5-1.5 3.5-3.5 0-2.8-2.4-3.7-4.5-4.2z',
     tip: 'Billing, payments and defaulters',
-    roles: MONEY,
-    group: 'Money',
+    roles: FINANCE,
+    group: 'Finance',
   },
   {
     href: '/pickup',
@@ -170,12 +170,12 @@ const NAV: NavItem[] = [
     label: 'Fee Structure',
     icon: 'M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z',
     tip: 'What each student is billed per term',
-    roles: MONEY,
-    group: 'Money',
+    roles: FINANCE,
+    group: 'Finance',
   },
   {
     href: '/settings/staff',
-    label: 'Staff & Access',
+    label: 'Staff Accounts',
     icon: 'M16 11c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 3-1.34 3-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z',
     tip: 'Staff accounts and what each role may do',
     roles: ADMIN,
@@ -183,7 +183,7 @@ const NAV: NavItem[] = [
   },
   {
     href: '/settings/roles',
-    label: 'Roles & Access',
+    label: 'Roles & Permissions',
     icon: 'M12 1L3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5l-9-4zm0 4a2.5 2.5 0 110 5 2.5 2.5 0 010-5zm0 6.5c1.9 0 4.5.9 4.5 2.6V16h-9v-1.9c0-1.7 2.6-2.6 4.5-2.6z',
     tip: 'What each role may do, and who holds it',
     roles: ADMIN,
@@ -195,8 +195,8 @@ const NAV: NavItem[] = [
     icon: 'M12 1L3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5l-9-4zm0 6a2 2 0 110 4 2 2 0 010-4zm0 5c1.7 0 5 .8 5 2.5V16H7v-1.5C7 12.8 10.3 12 12 12z',
     tip: 'Connect your Hubtel or Paystack account',
     needs: 'fees.online',
-    roles: MONEY,
-    group: 'Money',
+    roles: FINANCE,
+    group: 'Finance',
   },
   {
     href: '/settings/reconciliation',
@@ -204,8 +204,8 @@ const NAV: NavItem[] = [
     icon: 'M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4zM12 3.5l-1.9 1.1 1.9 3.3 1.9-3.3L12 3.5zm0 17l1.9-1.1-1.9-3.3-1.9 3.3 1.9 1.1z',
     tip: 'Match a gateway settlement file against the payments you hold',
     needs: 'fees.reconciliation',
-    roles: MONEY,
-    group: 'Money',
+    roles: FINANCE,
+    group: 'Finance',
   },
   {
     href: '/settings/returns',
@@ -223,7 +223,7 @@ const NAV: NavItem[] = [
     // Deliberately no `needs`: a Basic school is exactly who needs to find this page.
     tip: 'What this school pays EYO, and how to change package',
     roles: ADMIN,
-    group: 'Money',
+    group: 'Finance',
   },
   {
     href: '/audit',
@@ -262,7 +262,7 @@ export default function Sidebar({
   const sections = GROUPS.map((name) => ({
     name,
     items: visible.filter((i) => i.group === name),
-    // A section a school cannot use is not rendered at all — an empty "Money" heading for a
+    // A section a school cannot use is not rendered at all — an empty "Finance" heading for a
     // teacher is worse than no heading.
   })).filter((sec) => sec.items.length > 0);
 

@@ -96,7 +96,7 @@ export default function FeeStructurePage() {
             (body.skipped
               ? ` ${body.skipped} already had a bill for this term and were skipped.`
               : '')
-        : (body.message ?? 'Could not generate invoices.'),
+        : (body.message ?? 'Could not generate the term bills.'),
     );
   }
 
@@ -146,7 +146,7 @@ export default function FeeStructurePage() {
   /**
    * Re-price or rename an item in the structure.
    *
-   * This changes what future invoices are built from. Bills already issued carry their own
+   * This changes what future bills are built from. Bills already issued carry their own
    * `lines` snapshot and are not touched — which is right, but is the opposite of what a bursar
    * correcting a price expects, so the table says so beside the button.
    */
@@ -191,7 +191,7 @@ export default function FeeStructurePage() {
         <h1 className="font-display text-3xl">Fee structure</h1>
         <p className="text-sm text-oat mt-1.5">
           What each student is billed for {termName || 'the current term'}. Compulsory items make up
-          the term invoice; optional items (transport, feeding) are billed only to the students who
+          the term bill; optional items (transport, feeding) are billed only to the students who
           take them, set on each student's page.
         </p>
       </div>
@@ -279,13 +279,13 @@ export default function FeeStructurePage() {
                           Cancel
                         </button>
                         <p className="w-full text-[11px] text-oat">
-                          This changes what future invoices are built from.{' '}
+                          This changes what future bills are built from.{' '}
                           <strong className="text-ink">
                             Bills already issued are not re-priced
                           </strong>{' '}
-                          — each invoice keeps the lines it was raised with, so the ledger still
-                          says what was actually billed. To correct a bill already sent, reverse it
-                          and raise it again.
+                          — each bill keeps the lines it was raised with, so the ledger still says
+                          what was actually billed. To correct a bill already sent, reverse it and
+                          raise it again.
                         </p>
                       </form>
                     </td>
@@ -315,14 +315,14 @@ export default function FeeStructurePage() {
                               setDraft({ ...i });
                               setMessage(null);
                             }}
-                            data-tip="Re-prices future invoices; bills already issued are unchanged"
+                            data-tip="Re-prices future bills; bills already issued are unchanged"
                             className="tip text-[12.5px] font-medium text-brand hover:underline underline-offset-2"
                           >
                             Change
                           </button>
                           <button
                             onClick={() => remove(i.id)}
-                            data-tip="Removes it from future invoices; bills already issued are unchanged"
+                            data-tip="Removes it from future bills; bills already issued are unchanged"
                             className="tip ml-3 text-[12.5px] text-clay hover:underline underline-offset-2"
                           >
                             Remove
@@ -336,7 +336,7 @@ export default function FeeStructurePage() {
               {items.length === 0 && (
                 <tr>
                   <td colSpan={4} className="px-5 py-10 text-center text-oat">
-                    No fee items yet for this term — add one below, then generate invoices.
+                    No fee items yet for this term — add one below, then generate the term bills.
                   </td>
                 </tr>
               )}
@@ -373,7 +373,7 @@ export default function FeeStructurePage() {
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Tuition"
+              placeholder="School Fees"
               className={`${field} w-48`}
             />
           </label>
@@ -424,7 +424,7 @@ export default function FeeStructurePage() {
       </form>
 
       <section className="card p-6 mt-6 rise rise-3 max-w-2xl">
-        <h2 className="font-display text-xl">Generate term invoices</h2>
+        <h2 className="font-display text-xl">Generate term bills</h2>
         <p className="text-sm text-oat mt-1.5">
           Bills every active student the compulsory items above for {termName || 'the current term'}
           . Students who already have a bill for this term are skipped, so it is safe to run again
@@ -458,7 +458,7 @@ export default function FeeStructurePage() {
         {billResult && <p className="text-sm mt-3">{billResult}</p>}
       </section>
 
-      {/* After invoicing, because a concession only means anything against a bill. */}
+      {/* After billing, because a concession only means anything against a bill. */}
       <ConcessionRules levels={levels} />
 
       <div className="mt-6">

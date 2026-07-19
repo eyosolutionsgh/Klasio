@@ -29,7 +29,13 @@ export interface PermissionDef {
 }
 
 export type PermissionGroup =
-  'Students' | 'Attendance' | 'Academics' | 'Money' | 'Safety' | 'Communication' | 'Administration';
+  | 'Students'
+  | 'Attendance'
+  | 'Academics'
+  | 'Finance'
+  | 'Safety'
+  | 'Communication'
+  | 'Administration';
 
 export const PERMISSIONS = [
   // ── Students ──────────────────────────────────────────────────────
@@ -69,78 +75,78 @@ export const PERMISSIONS = [
     caution: 'Teachers can only enter marks for classes and subjects they teach.',
   },
   { code: 'assessment.configure', label: 'Set up assessments and grading', group: 'Academics' },
-  { code: 'reports.view', label: 'See report cards', group: 'Academics' },
-  { code: 'reports.generate', label: 'Generate report cards', group: 'Academics' },
+  { code: 'reports.view', label: 'See terminal reports', group: 'Academics' },
+  { code: 'reports.generate', label: 'Generate terminal reports', group: 'Academics' },
   { code: 'reports.remark.teacher', label: "Write the class teacher's remark", group: 'Academics' },
   { code: 'reports.remark.head', label: "Write the head teacher's remark", group: 'Academics' },
   {
     code: 'reports.publish',
     label: 'Publish results to families',
     group: 'Academics',
-    caution: 'Releases marks to parents and cannot be quietly undone.',
+    caution: 'Releases marks to guardians and cannot be quietly undone.',
   },
   { code: 'timetable.view', label: 'See the timetable', group: 'Academics' },
   { code: 'timetable.manage', label: 'Build the timetable', group: 'Academics' },
   { code: 'resources.view', label: 'See learning resources', group: 'Academics' },
   { code: 'resources.manage', label: 'Upload and publish learning resources', group: 'Academics' },
 
-  // ── Money ─────────────────────────────────────────────────────────
-  { code: 'fees.view', label: 'See fee balances and the ledger', group: 'Money' },
+  // ── Finance ───────────────────────────────────────────────────────
+  { code: 'fees.view', label: 'See fee balances and the ledger', group: 'Finance' },
   {
     code: 'fees.record_payment',
     label: 'Record a payment',
-    group: 'Money',
+    group: 'Finance',
     caution: 'Takes money in. Keep separate from setting what is owed.',
   },
   {
     code: 'fees.structure',
     label: 'Set fees and what each student is charged',
-    group: 'Money',
+    group: 'Finance',
     caution: 'Decides what families owe. Keep separate from recording payments.',
   },
   {
     code: 'fees.invoice',
-    label: 'Raise invoices for a term',
-    group: 'Money',
+    label: 'Raise the term bills',
+    group: 'Finance',
   },
   {
     code: 'fees.concessions',
     label: 'Grant discounts, waivers and scholarships',
-    group: 'Money',
+    group: 'Finance',
     caution: 'Reduces what a family owes.',
   },
   {
     code: 'fees.reverse',
     label: 'Reverse a ledger entry',
-    group: 'Money',
+    group: 'Finance',
     caution:
       'Cancels a charge or a recorded payment. Deliberately not held by the person who takes money at the counter.',
   },
   {
     code: 'fees.reconcile',
     label: 'Reconcile gateway settlements',
-    group: 'Money',
+    group: 'Finance',
     caution:
       'Confirms which payments really arrived. Best held by someone who cannot record payments.',
   },
   {
     code: 'fees.deposit_submit',
     label: 'Lodge a bank deposit slip',
-    group: 'Money',
+    group: 'Finance',
     caution: 'Records a claim, not money. Confirming it is a separate permission.',
   },
   {
     code: 'fees.deposits',
     label: 'Confirm or reject bank deposits',
-    group: 'Money',
+    group: 'Finance',
     caution: 'This is the step that turns a claimed deposit into money in the ledger.',
   },
-  { code: 'fees.gateways', label: 'Connect payment gateways', group: 'Money' },
-  { code: 'fees.export', label: 'Export financial data', group: 'Money' },
+  { code: 'fees.gateways', label: 'Connect payment gateways', group: 'Finance' },
+  { code: 'fees.export', label: 'Export financial data', group: 'Finance' },
   {
     code: 'billing.manage',
     label: "Change the school's EYO package",
-    group: 'Money',
+    group: 'Finance',
     caution: 'Commits the school to a bill.',
   },
 
@@ -152,7 +158,7 @@ export const PERMISSIONS = [
     group: 'Safety',
     caution: 'The gate decision itself.',
   },
-  { code: 'pickup.manage', label: 'Manage collectors and pickup cards', group: 'Safety' },
+  { code: 'pickup.manage', label: 'Manage collectors and gate passes', group: 'Safety' },
 
   // ── Communication ─────────────────────────────────────────────────
   { code: 'comms.announce', label: 'Post announcements', group: 'Communication' },
@@ -350,7 +356,7 @@ export const ROLE_PRESETS: RolePreset[] = [
   {
     key: 'BURSAR',
     name: 'Bursar',
-    description: 'Runs the school’s finances: fees, invoicing, reconciliation.',
+    description: 'Runs the school’s finances: fees, billing, reconciliation.',
     permissions: [
       'students.view',
       'fees.view',
@@ -380,7 +386,7 @@ export const ROLE_PRESETS: RolePreset[] = [
       'students.view',
       'fees.view',
       'fees.record_payment',
-      // Lodges the slip a parent brings to the counter, but cannot confirm it into the ledger.
+      // Lodges the slip a guardian brings to the counter, but cannot confirm it into the ledger.
       'fees.deposit_submit',
     ],
   },

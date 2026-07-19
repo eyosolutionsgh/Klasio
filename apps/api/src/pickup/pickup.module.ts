@@ -212,7 +212,7 @@ export class PickupService {
   // ── Credentials ────────────────────────────────────────────────────
 
   /**
-   * Issue (or rotate) a pickup card. The PIN is shown once, here, and never again — it is
+   * Issue (or rotate) a gate pass. The PIN is shown once, here, and never again — it is
    * stored hashed, exactly like a password, because it opens a door to a child.
    */
   async issueCard(auth: AuthUser, kind: CollectorKind, id: string) {
@@ -298,6 +298,12 @@ export class PickupService {
         address: school.address,
         phone: school.phone,
         brandColor: school.brandColor,
+        // A crest that cannot be read must not stop a pass being issued.
+        logo: school.logoUrl
+          ? await storage()
+              .get(school.logoUrl)
+              .catch(() => null)
+          : null,
       },
       holder,
       children,

@@ -139,7 +139,7 @@ export default async function AdmissionsPage({
             {pipeline.applicants.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-5 py-10 text-center text-oat">
-                  No applications here yet. Parents applying through your public form land at
+                  No applications here yet. Guardians applying through your public form land at
                   Applied.
                 </td>
               </tr>

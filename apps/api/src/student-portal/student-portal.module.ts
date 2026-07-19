@@ -82,7 +82,7 @@ export class StudentPortalService {
     private resources: ResourcesService,
   ) {}
 
-  /** Staff issue a PIN; it is shown once and stored hashed, like the pickup card PIN. */
+  /** Staff issue a PIN; it is shown once and stored hashed, like the gate pass PIN. */
   async issuePin(auth: AuthUser, studentId: string) {
     const student = await this.db.student.findFirst({
       where: { id: studentId, schoolId: auth.schoolId },

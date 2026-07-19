@@ -75,7 +75,7 @@ export default async function DashboardPage() {
             label: 'Fees collected',
             value: `${feePct}%`,
             sub: `${money(stats.fees.collected)} of ${money(stats.fees.invoiced)}`,
-            tip: 'Collected against invoiced this term',
+            tip: 'Collected against billed this term',
             cls: 'rise-4',
           },
         ].map((s) => (
@@ -111,7 +111,7 @@ export default async function DashboardPage() {
           </div>
           <div className="mt-5 grid grid-cols-3 gap-4 text-sm">
             <div>
-              <p className="text-[11px] uppercase tracking-widest text-oat">Invoiced</p>
+              <p className="text-[11px] uppercase tracking-widest text-oat">Billed</p>
               <p className="tabular font-medium mt-1">{money(stats.fees.invoiced)}</p>
             </div>
             <div>

@@ -159,7 +159,7 @@ export default function SchemeActions({
             </>
           ) : (
             <>
-              Remove {scheme.name}? No level uses it, so no report card changes. Reports already
+              Remove {scheme.name}? No level uses it, so no terminal report changes. Reports already
               generated keep the grades they were built with.
             </>
           )}
@@ -209,7 +209,7 @@ export default function SchemeActions({
           <form onSubmit={save} className="card w-full max-w-3xl p-6 max-h-[90vh] overflow-y-auto">
             <h2 className="font-display text-2xl">Change grading scheme</h2>
             <p className="text-sm text-oat mt-1.5">
-              These bands turn a total into the grade and remark printed on every report card
+              These bands turn a total into the grade and remark printed on every terminal report
               produced from now on.{' '}
               {usedBy.length > 0
                 ? `${usedBy.join(', ')} ${usedBy.length === 1 ? 'grades' : 'grade'} with this scheme.`

@@ -159,7 +159,9 @@ export default function ReportRemarks({
   return (
     <div className="no-print card p-5 mt-6">
       <h3 className="font-display text-lg">Remarks</h3>
-      <p className="text-xs text-oat mt-1">These appear on the printed report card and the PDF.</p>
+      <p className="text-xs text-oat mt-1">
+        These appear on the printed terminal report and the PDF.
+      </p>
       <div className="grid sm:grid-cols-2 gap-3 mt-4">
         <div className="text-[13px]">
           <label className="block">

@@ -479,7 +479,7 @@ async function main() {
 
   // Fees for current term
   const feeDefs: Array<[string, number, string | null, boolean]> = [
-    ['Tuition', 1200, null, false],
+    ['School Fees', 1200, null, false],
     ['PTA Dues', 50, null, false],
     ['Examination Fee', 80, null, false],
     ['ICT Levy', 60, null, false],
@@ -539,7 +539,7 @@ async function main() {
   let rcpSeq = 1;
   for (const st of allStudents) {
     const lines = [
-      { name: 'Tuition', amount: 1200 },
+      { name: 'School Fees', amount: 1200 },
       { name: 'PTA Dues', amount: 50 },
       { name: 'Examination Fee', amount: 80 },
       { name: 'ICT Levy', amount: 60 },

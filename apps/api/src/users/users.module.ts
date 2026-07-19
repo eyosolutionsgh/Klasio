@@ -169,7 +169,7 @@ export class UsersService {
 
   private async loadTarget(auth: AuthUser, id: string) {
     const user = await this.db.user.findFirst({ where: { id, schoolId: auth.schoolId } });
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) throw new NotFoundException('Staff member not found');
     if (!canManageUser(auth.role, user.role)) {
       throw new ForbiddenException('You cannot manage an account above your own role');
     }

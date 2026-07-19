@@ -117,8 +117,8 @@ export default function BrandingPage() {
       <div className="rise rise-1">
         <h1 className="font-display text-3xl">School profile &amp; branding</h1>
         <p className="text-sm text-oat mt-1.5">
-          Your crest, colour and contact details. These appear across the portal, on report cards
-          and on receipts.
+          Your crest, colour and contact details. These appear across the portal, on terminal
+          reports and on receipts.
         </p>
       </div>
 
@@ -226,7 +226,7 @@ export default function BrandingPage() {
 
         <h2 className="font-display text-xl mt-8">Contact details</h2>
         <p className="text-sm text-oat mt-1.5">
-          Printed on report cards and receipts, and shown to parents in the portal.
+          Printed on terminal reports and receipts, and shown to guardians in the portal.
         </p>
         <div className="mt-4 grid sm:grid-cols-2 gap-4">
           <label className="block text-[13px] sm:col-span-2">

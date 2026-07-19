@@ -298,7 +298,7 @@ export default function ReportsPage() {
                     href={`/reports/${r.studentId}/${termId}`}
                     className="text-brand font-medium text-[13px] hover:underline underline-offset-2"
                   >
-                    View report card →
+                    View terminal report →
                   </Link>
                 </td>
               </tr>

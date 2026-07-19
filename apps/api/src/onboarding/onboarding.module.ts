@@ -76,7 +76,7 @@ const TEMPLATES: Record<Kind, TemplateSpec> = {
     sheetName: 'Fee Structure',
     headers: ['Item Name', 'Amount', 'Level', 'Optional'],
     sample: [
-      ['Tuition', 1200, '', 'No'],
+      ['School Fees', 1200, '', 'No'],
       ['PTA Dues', 50, '', 'No'],
       ['Transport', 300, '', 'Yes'],
     ],

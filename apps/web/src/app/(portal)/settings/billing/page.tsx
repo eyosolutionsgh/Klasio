@@ -286,8 +286,8 @@ export default async function BillingPage({
         <div className="px-6 pt-5 pb-3">
           <h2 className="font-display text-xl">Subscription invoices</h2>
           <p className="text-xs text-oat mt-1">
-            What EYO has charged this school. Separate from the fees you bill parents — the two are
-            never summed together.
+            What EYO has charged this school. Separate from the fees you bill guardians — the two
+            are never summed together.
           </p>
         </div>
         <div className="overflow-x-auto">

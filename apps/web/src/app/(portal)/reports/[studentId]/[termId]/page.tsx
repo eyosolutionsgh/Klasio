@@ -65,7 +65,7 @@ export default async function ReportCardPage({
             filename={`report-${card.student.admissionNo}-${termId}.pdf`}
             label="Download PDF"
             variant="ghost"
-            tip="Server-generated PDF report card"
+            tip="Server-generated PDF terminal report"
           />
           <PrintButton />
         </div>

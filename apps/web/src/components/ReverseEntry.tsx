@@ -90,7 +90,7 @@ export default function ReverseEntry({
             name="reason"
             required
             minLength={4}
-            placeholder="Invoice raised twice in error"
+            placeholder="Bill raised twice in error"
             className={field}
           />
           <span className="block text-[11px] text-oat mt-1">

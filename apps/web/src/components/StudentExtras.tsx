@@ -103,13 +103,13 @@ export default function StudentExtras({ studentId }: { studentId: string }) {
       {takenTotal > 0 && (
         <p className="text-[13px] mt-3 pt-3 border-t border-mist/60">
           Adds <span className="tabular font-medium">{money(takenTotal)}</span> to this
-          student&apos;s term invoice.
+          student&apos;s term bill.
         </p>
       )}
       {invoiced && (
         <p className="text-xs text-oat mt-2">
-          This term&apos;s invoice has already been issued — it keeps the items it was raised with.
-          Changes here apply to the next invoice.
+          This term&apos;s bill has already been issued — it keeps the items it was raised with.
+          Changes here apply to the next bill.
         </p>
       )}
       {error && <p className="text-sm text-danger mt-2">{error}</p>}

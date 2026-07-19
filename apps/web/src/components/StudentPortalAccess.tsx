@@ -63,7 +63,7 @@ export default function StudentPortalAccess({
     <section className="card p-6 rise rise-4">
       <h2 className="font-display text-xl">Student sign-in</h2>
       <p className="text-xs text-oat mt-1">
-        Lets {studentName} see their own report cards and school notices at the student portal.
+        Lets {studentName} see their own terminal reports and school notices at the student portal.
       </p>
 
       {pin ? (

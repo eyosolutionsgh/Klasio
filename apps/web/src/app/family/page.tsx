@@ -260,11 +260,11 @@ export default function FamilyPage() {
             </section>
 
             <section className="card p-6">
-              <h2 className="font-display text-xl">Report cards</h2>
+              <h2 className="font-display text-xl">Terminal reports</h2>
               {reports.length === 0 ? (
                 <p className="text-sm text-oat mt-2">
-                  No report cards have been released yet. They appear here once the school publishes
-                  them.
+                  No terminal reports have been released yet. They appear here once the school
+                  publishes them.
                 </p>
               ) : (
                 <ul className="mt-4 space-y-3">
@@ -341,7 +341,7 @@ export default function FamilyPage() {
 
         {overview && (
           <section className="card p-6">
-            <h2 className="font-display text-xl">Change today&apos;s pickup</h2>
+            <h2 className="font-display text-xl">Change today&apos;s collection</h2>
             <p className="text-sm text-oat mt-1.5">
               Someone else collecting, or an early finish? Tell the school here. They will confirm —
               nothing changes until they do.

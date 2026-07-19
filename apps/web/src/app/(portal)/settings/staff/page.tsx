@@ -2,15 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Combobox from '@/components/Combobox';
+import { roleLabel } from '@/lib/roles';
 
 /**
  * Staff accounts, and what each person may do.
  *
  * Two things govern access and they are not the same:
  *
- * - **Account type** (owner, head, bursar, teacher, front desk) is the coarse legacy role. It still
+ * - **Account type** (proprietor, head teacher, bursar, teaching staff, administrative staff) is the coarse legacy role. It still
  *   decides who may manage whose account, and the proprietor's is special.
- * - **The staff role** is the bundle of permissions the school defined on Roles & access. That is
+ * - **The staff role** is the bundle of permissions the school defined on Roles & permissions. That is
  *   what actually decides what the person can reach.
  *
  * Per-person adjustments exist for exceptions, not as the ordinary way to grant access. A
@@ -55,7 +56,7 @@ interface PermissionDef {
 }
 
 const ROLES = ['OWNER', 'HEAD', 'BURSAR', 'TEACHER', 'FRONT_DESK'];
-const label = (r: string) => r.toLowerCase().replace('_', ' ');
+const label = roleLabel;
 
 const field =
   'rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
@@ -189,12 +190,12 @@ export default function StaffPage() {
     <div>
       <div className="rise rise-1 flex items-end justify-between flex-wrap gap-4">
         <div>
-          <h1 className="font-display text-3xl">Staff &amp; access</h1>
+          <h1 className="font-display text-3xl">Staff accounts</h1>
           <p className="text-sm text-oat mt-1.5">
             Who can sign in, and what each person may do. A staff role decides the access — the
             bundles themselves are edited on{' '}
             <a href="/settings/roles" className="text-brand hover:underline underline-offset-2">
-              Roles &amp; access
+              Roles &amp; permissions
             </a>
             .
           </p>
@@ -265,7 +266,7 @@ export default function StaffPage() {
                       ))}
                     </select>
                   ) : (
-                    <span className="capitalize">{label(u.role)}</span>
+                    <span>{label(u.role)}</span>
                   )}
                 </td>
                 <td className="px-5 py-3">

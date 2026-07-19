@@ -112,7 +112,7 @@ export default function EditStudent({
       <form onSubmit={submit} className="card w-full max-w-lg p-6">
         <h2 className="font-display text-2xl">Edit details</h2>
         <p className="text-sm text-oat mt-1.5">
-          These appear on report cards, receipts and the ID card. The admission number cannot be
+          These appear on terminal reports, receipts and the ID card. The admission number cannot be
           changed — documents already issued carry it.
         </p>
 
@@ -184,8 +184,7 @@ export default function EditStudent({
               onChange={setClassId}
             />
             <p className="text-[11px] text-oat mt-1">
-              Use this to correct a class set wrongly. To move a whole class up a year, use
-              Promote.
+              Use this to correct a class set wrongly. To move a whole class up a year, use Promote.
             </p>
           </div>
         </div>

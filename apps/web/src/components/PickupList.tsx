@@ -79,7 +79,7 @@ export default function PickupList({ studentId }: { studentId: string }) {
       // Shown once — the PIN is stored hashed and cannot be read back.
       setIssued({ name: p.name, pin: d.pin, kind: p.kind, id: p.id });
       load();
-    } else setError(d.message ?? 'Could not issue a card.');
+    } else setError(d.message ?? 'Could not issue a gate pass.');
   }
 
   async function printCard() {
@@ -97,17 +97,17 @@ export default function PickupList({ studentId }: { studentId: string }) {
   }
 
   /**
-   * Cancel a printed card.
+   * Cancel a printed gate pass.
    *
-   * A card carries a PIN that opens the gate, so a lost or stolen one has to be stoppable without
-   * removing the person — a parent whose card went missing must stay on the list. Until now the
+   * A pass carries a PIN that opens the gate, so a lost or stolen one has to be stoppable without
+   * removing the person — a guardian whose pass went missing must stay on the list. Until now the
    * only lever was removing them entirely, which is the wrong answer for exactly the people most
-   * likely to have a card.
+   * likely to have one.
    */
   async function revokeCard(p: Person) {
     if (
       !confirm(
-        `Cancel ${p.name}'s pickup card? Their PIN and QR code stop working straight away. They stay on the list and can be issued a new card.`,
+        `Cancel ${p.name}'s gate pass? Their PIN and QR code stop working straight away. They stay on the list and can be issued a new one.`,
       )
     )
       return;
@@ -115,7 +115,7 @@ export default function PickupList({ studentId }: { studentId: string }) {
     const res = await fetch(`/api/proxy/pickup/cards/${p.kind}/${p.id}`, { method: 'DELETE' });
     setBusy(false);
     if (res.ok) load();
-    else setError('Could not cancel that card.');
+    else setError('Could not cancel that gate pass.');
   }
 
   /**
@@ -196,17 +196,17 @@ export default function PickupList({ studentId }: { studentId: string }) {
 
       {issued && (
         <div className="mt-4 rounded-lg border border-gold/40 bg-gold-soft/40 p-4">
-          <p className="text-sm font-medium">Card issued for {issued.name}</p>
+          <p className="text-sm font-medium">Gate pass issued for {issued.name}</p>
           <p className="text-[13px] text-oat mt-1">
             PIN <span className="font-display text-lg tabular text-ink">{issued.pin}</span> — shown
-            once. Print the card now or write it down.
+            once. Print the pass now or write it down.
           </p>
           <div className="flex items-center gap-3 mt-2">
             <button
               onClick={printCard}
               className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition"
             >
-              Print card
+              Print gate pass
             </button>
             <button onClick={() => setIssued(null)} className="min-h-11 px-2 text-[13px] text-oat">
               Done
@@ -244,7 +244,7 @@ export default function PickupList({ studentId }: { studentId: string }) {
                   disabled={busy}
                   className="text-[12px] text-brand hover:underline underline-offset-2"
                 >
-                  {p.hasCard ? 'Reissue card' : 'Issue card'}
+                  {p.hasCard ? 'Reissue pass' : 'Issue pass'}
                 </button>
               )}
               {p.kind === 'GUARDIAN' && (
@@ -269,7 +269,7 @@ export default function PickupList({ studentId }: { studentId: string }) {
                   disabled={busy}
                   className="text-[12px] text-clay hover:underline underline-offset-2"
                 >
-                  Cancel card
+                  Cancel pass
                 </button>
               )}
               {p.kind === 'DELEGATE' && (

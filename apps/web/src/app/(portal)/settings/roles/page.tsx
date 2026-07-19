@@ -114,7 +114,7 @@ export default function RolesPage() {
     return data;
   }
 
-  /** "Students 8 · Money 3" — what a role is for, without forty codes. */
+  /** "Students 8 · Finance 3" — what a role is for, without forty codes. */
   const summary = (role: Role) => {
     const counts = new Map<string, number>();
     for (const code of role.permissions) {
@@ -145,7 +145,7 @@ export default function RolesPage() {
     <div className="space-y-8">
       <div className="rise rise-1 flex items-end justify-between flex-wrap gap-4">
         <div>
-          <h1 className="font-display text-3xl">Roles &amp; access</h1>
+          <h1 className="font-display text-3xl">Roles &amp; permissions</h1>
           <p className="text-sm text-oat mt-1.5">
             A role is a named bundle of what a job may do. Give each person the least their work
             needs — it is far easier to add one thing later than to discover months on that everyone

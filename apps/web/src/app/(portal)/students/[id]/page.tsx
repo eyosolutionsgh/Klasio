@@ -17,7 +17,7 @@ import ReverseEntry from '@/components/ReverseEntry';
 import StudentPortalAccess from '@/components/StudentPortalAccess';
 import EditStudent from '@/components/EditStudent';
 
-/** One place for the human words, so a parent and a bursar never read different labels. */
+/** One place for the human words, so a guardian and a bursar never read different labels. */
 const METHOD_LABEL: Record<string, string> = {
   MOMO: 'Mobile Money',
   CASH: 'Cash',
@@ -27,7 +27,7 @@ const METHOD_LABEL: Record<string, string> = {
 
 const LEDGER_LABEL = (type: string, method?: string | null) => {
   if (type === 'PAYMENT') return `Payment${method ? ` · ${METHOD_LABEL[method] ?? method}` : ''}`;
-  if (type === 'INVOICE') return 'Invoice';
+  if (type === 'INVOICE') return 'School bill';
   if (type === 'DISCOUNT') return 'Discount';
   if (type === 'WAIVER') return 'Waiver';
   if (type === 'REVERSAL') return 'Correction — entry reversed';
@@ -149,7 +149,7 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
         </div>
         <div className="flex flex-col items-end gap-2">
           <div
-            data-tip="Invoices minus payments across all terms"
+            data-tip="Bills minus payments across all terms"
             className={`tip card px-5 py-3 text-right ${s.feeBalance > 0 ? 'border-clay/40' : ''}`}
           >
             <p className="text-[11px] uppercase tracking-widest text-oat">Fee balance</p>

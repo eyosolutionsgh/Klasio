@@ -124,7 +124,7 @@ test.describe('EYO SMS portal — end-to-end', () => {
     await expect(page.getByRole('status')).toContainText('Scores saved', { timeout: 15_000 });
   });
 
-  test('head generates terminal reports and views a GES report card', async ({ page }) => {
+  test('head generates terminal reports and views a GES terminal report', async ({ page }) => {
     await login(page, 'head@demo.school');
     await visit(page, '/reports');
     // pick JHS 2 (has full scores) and wait for the class switch to take effect. The combobox
@@ -138,7 +138,7 @@ test.describe('EYO SMS portal — end-to-end', () => {
     await page.waitForSelector('tbody tr');
     await page.screenshot({ path: `${SHOTS}/07-reports-list.png`, fullPage: true });
 
-    await page.getByRole('link', { name: 'View report card →' }).first().click();
+    await page.getByRole('link', { name: 'View terminal report →' }).first().click();
     await expect(page.getByText(/Terminal Report — Term/)).toBeVisible();
     await expect(page.getByText('Position in Class:')).toBeVisible();
     await expect(page.getByText('Next Term Begins:')).toBeVisible();

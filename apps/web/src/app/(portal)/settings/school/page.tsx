@@ -169,10 +169,11 @@ export default function SchoolSetupPage() {
 
       {/* Report template */}
       <section className="card p-6 rise rise-2">
-        <h2 className="font-display text-xl">Student ID numbers</h2>
+        <h2 className="font-display text-xl">Admission numbers</h2>
         <p className="text-xs text-oat mt-1">
-          How this school numbers its students. Whatever you already print on report cards and ID
-          cards, put it here — you should not have to keep two sets of numbers.
+          How this school numbers its students. Every admission number is unique and permanent.
+          Whatever you already print on terminal reports and ID cards, put it here — you should not
+          have to keep two sets of numbers.
         </p>
 
         <form
@@ -185,7 +186,7 @@ export default function SchoolSetupPage() {
               { admissionNoFormat: idFormat, admissionNoNext: Number(idNext) },
               'PATCH',
             );
-            if (ok) setIdSaved('Saved. New students will be numbered this way.');
+            if (ok) setIdSaved('Saved. New admission numbers will be issued this way.');
           }}
         >
           <label className="text-[13px]">
@@ -215,7 +216,7 @@ export default function SchoolSetupPage() {
         <div className="mt-4 rounded-lg bg-parchment/60 p-4">
           {previewId(idFormat, Number(idNext) || 1) ? (
             <p className="text-sm">
-              The next student enrolled will be{' '}
+              The next admission number issued will be{' '}
               <span className="font-display text-lg">
                 {previewId(idFormat, Number(idNext) || 1)}
               </span>
@@ -499,7 +500,7 @@ export default function SchoolSetupPage() {
                 />
               </div>
               <label className="block text-[12px] text-oat">
-                Next term begins (printed on report cards)
+                Next term begins (printed on terminal reports)
                 <input
                   type="date"
                   value={termNext}

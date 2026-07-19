@@ -4,6 +4,7 @@ import {
   reportCardPdf,
   receiptPdf,
   broadsheetPdf,
+  pickupCardPdf,
   ReportCardData,
 } from './pdf';
 
@@ -104,6 +105,55 @@ describe('PDF builders', () => {
       signatory: 'Mrs. Adjei',
     });
     expect(isPdf(buf)).toBe(true);
+  });
+
+  describe('gate pass', () => {
+    const pass = {
+      school: {
+        name: 'Brighton Academy',
+        motto: null,
+        address: 'Adjiringanor Road, East Legon, Accra',
+        phone: '+233 24 000 0000',
+      },
+      holder: 'Priscilla Agyemang',
+      children: ['Samuel Agyemang', 'Esi Agyemang'],
+      token: 'tok_abc123',
+      pin: '637887',
+    };
+
+    it('renders with a crest, and without one', async () => {
+      const qrcode = await import('qrcode');
+      const crest = await qrcode.toBuffer('EYO', { type: 'png', width: 120, margin: 1 });
+      expect(isPdf(await pickupCardPdf({ ...pass, school: { ...pass.school, logo: crest } }))).toBe(
+        true,
+      );
+      expect(isPdf(await pickupCardPdf(pass))).toBe(true);
+    });
+
+    /**
+     * The card is laid out at fixed coordinates, so a school name long enough to wrap used to
+     * put a second line straight through the QR block. It is measured and shrunk now; this only
+     * catches a throw, but it pins the case that regressed.
+     */
+    it('survives a very long school name and an unreadable crest', async () => {
+      const buf = await pickupCardPdf({
+        ...pass,
+        school: {
+          ...pass.school,
+          name: 'Our Lady of Perpetual Succour International Preparatory School',
+          logo: Buffer.from('not an image at all'),
+        },
+      });
+      expect(isPdf(buf)).toBe(true);
+    });
+
+    it('omits the contact line when a school has neither address nor phone', async () => {
+      const buf = await pickupCardPdf({
+        ...pass,
+        school: { ...pass.school, address: null, phone: null },
+      });
+      expect(isPdf(buf)).toBe(true);
+    });
   });
 
   it('renders a broadsheet PDF', async () => {

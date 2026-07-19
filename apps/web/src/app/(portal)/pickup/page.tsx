@@ -199,9 +199,11 @@ export default function PickupPage() {
 
           {studentId && !check && (
             <div className="mt-5 rounded-lg bg-parchment/60 p-4">
-              <p className="text-[11px] uppercase tracking-wider text-oat">Scan or enter a card</p>
+              <p className="text-[11px] uppercase tracking-wider text-oat">
+                Scan or enter a gate pass
+              </p>
               <p className="text-xs text-oat mt-1">
-                Scanning fills this automatically. If the card is at home, pick the person below and
+                Scanning fills this automatically. If the pass is at home, pick the person below and
                 enter their PIN instead.
               </p>
               <form
@@ -214,7 +216,7 @@ export default function PickupPage() {
                 <input
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
-                  placeholder="Card code from the QR"
+                  placeholder="Pass code from the QR"
                   autoFocus
                   className="flex-1 min-w-[12rem] min-h-11 rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
                 />
@@ -222,7 +224,7 @@ export default function PickupPage() {
                   disabled={busy || !token.trim()}
                   className="min-h-11 rounded-lg bg-brand text-paper text-sm font-medium px-4 hover:bg-brand-deep transition disabled:opacity-50"
                 >
-                  Check card
+                  Check pass
                 </button>
               </form>
               <QrScanner
@@ -259,7 +261,7 @@ export default function PickupPage() {
                         <span className="font-medium text-sm">{p.name}</span>
                         <span className="text-[11px] text-oat shrink-0">
                           {p.relationship}
-                          {p.hasCard ? ' · card' : ''}
+                          {p.hasCard ? ' · pass' : ''}
                         </span>
                       </span>
                       <span
@@ -339,7 +341,7 @@ export default function PickupPage() {
                 {check.student.className && ` · ${check.student.className}`}
               </p>
               <div className="flex items-center gap-3 mt-3">
-                {/* The card proves the card; only the face proves the person holding it. */}
+                {/* The pass proves the pass; only the face proves the person holding it. */}
                 {check.collector.hasPhoto ? (
                   <img
                     src={`/api/proxy/pickup/guardians/${check.collector.id}/photo`}
@@ -357,7 +359,7 @@ export default function PickupPage() {
                   </p>
                   {!check.collector.hasPhoto && (
                     <p className="text-[11px] text-oat mt-0.5">
-                      Check their face against the card or ask for ID.
+                      Check their face against the pass or ask for ID.
                     </p>
                   )}
                 </div>

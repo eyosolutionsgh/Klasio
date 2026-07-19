@@ -57,9 +57,9 @@ export default async function ResourcesPage({
   return (
     <div>
       <div className="rise rise-1">
-        <h1 className="font-display text-3xl">Learning Resources</h1>
+        <h1 className="font-display text-3xl">Learning resources</h1>
         <p className="text-sm text-oat mt-1.5">
-          Notes, homework and past questions. Nothing reaches a pupil or a parent until it is
+          Notes, homework and past questions. Nothing reaches a pupil or a guardian until it is
           published.
         </p>
       </div>

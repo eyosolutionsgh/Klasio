@@ -90,7 +90,7 @@ export default function StudentGuardians({
       `${g.name} is also guardian to ${children(g.alsoGuardianTo)} at this school.\n\n` +
         `Changing the name or phone number updates their record everywhere — ` +
         `including who the school calls about those children, and the phone they sign in ` +
-        `to the parent portal with.\n\nApply this change to all of them?`,
+        `to the guardian portal with.\n\nApply this change to all of them?`,
     );
   }
 
@@ -187,7 +187,7 @@ export default function StudentGuardians({
                 {g.alsoGuardianTo > 0 && (
                   <p className="text-xs text-clay bg-clay/10 rounded-md px-3 py-2">
                     Shared contact — also guardian to {children(g.alsoGuardianTo)}. The name and
-                    phone below are theirs everywhere; custody, pickup and primary apply to this
+                    phone below are theirs everywhere; custody, collection and primary apply to this
                     child only.
                   </p>
                 )}
@@ -304,8 +304,8 @@ export default function StudentGuardians({
                     : g.custodyFlag === 'RESTRICTED'
                       ? 'Restricted — check with the head before release'
                       : g.canPickup
-                        ? 'Authorized to pick this child up'
-                        : 'NOT authorized for pickup'
+                        ? 'Authorised to collect this child'
+                        : 'NOT authorised to collect'
                 }
                 className={`tip text-[10px] uppercase tracking-wider rounded-full px-2 py-1 shrink-0 ${
                   g.custodyFlag !== 'NONE'
@@ -318,8 +318,8 @@ export default function StudentGuardians({
                 {g.custodyFlag !== 'NONE'
                   ? g.custodyFlag.toLowerCase()
                   : g.canPickup
-                    ? 'Pickup ✓'
-                    : 'No pickup'}
+                    ? 'May collect ✓'
+                    : 'Cannot collect'}
               </span>
             </li>
           ),

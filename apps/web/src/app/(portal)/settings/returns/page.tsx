@@ -1,6 +1,7 @@
 import { api } from '@/lib/api';
 import DownloadButton from '@/components/DownloadButton';
 import ReturnsFilters from '@/components/ReturnsFilters';
+import { ROLE_LABELS } from '@/lib/roles';
 
 interface Summary {
   school: {
@@ -26,15 +27,6 @@ interface Summary {
 interface Structure {
   years: { id: string; name: string; terms: { id: string; name: string }[] }[];
 }
-
-const ROLE_LABELS: Record<string, string> = {
-  OWNER: 'Proprietor',
-  HEAD: 'Head teacher',
-  BURSAR: 'Bursar',
-  TEACHER: 'Teaching staff',
-  FRONT_DESK: 'Administrative staff',
-  GUARDIAN: 'Guardian accounts',
-};
 
 /** PRE_SCHOOL → Pre school. The enum is an implementation detail, not something to file. */
 const humanise = (s: string) =>

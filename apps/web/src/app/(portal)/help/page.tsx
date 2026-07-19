@@ -3,16 +3,16 @@ import { getMe } from '@/lib/api';
 
 const FAQ = [
   {
-    q: 'A parent says they cannot sign in.',
+    q: 'A guardian says they cannot sign in.',
     a: 'Check the phone number on the student’s record matches the one they are typing — any format works (024…, +233 24…), but it must be the same number. If it is right and no code arrives, the school’s SMS credit may be exhausted; see Messaging.',
   },
   {
-    q: 'A parent cannot see a report card.',
-    a: 'Reports appear to parents only once published. Open Terminal Reports, confirm the class and term, and check the report shows as published.',
+    q: 'A guardian cannot see a terminal report.',
+    a: 'Reports appear to guardians only once published. Open Terminal Reports, confirm the class and term, and check the report shows as published.',
   },
   {
     q: 'Someone was billed twice / not at all.',
-    a: 'Generating invoices skips anyone already billed for that term, so re-running it is safe. If an amount is genuinely wrong, record a reversal rather than editing — the ledger is append-only by design and the audit trail must stay intact.',
+    a: 'Generating the term bills skips anyone already billed for that term, so re-running it is safe. If an amount is genuinely wrong, record a reversal rather than editing — the ledger is append-only by design and the audit trail must stay intact.',
   },
   {
     q: 'A member of staff has left.',

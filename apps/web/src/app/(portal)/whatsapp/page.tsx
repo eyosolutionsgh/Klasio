@@ -59,7 +59,7 @@ export default async function WhatsAppPage({
         <h1 className="font-display text-3xl">WhatsApp</h1>
         <p className="text-sm text-oat mt-1.5">
           Replies to families who have written to the school. Every conversation here was started by
-          a parent.
+          a guardian.
         </p>
       </div>
 
@@ -70,12 +70,12 @@ export default async function WhatsAppPage({
       <div className="card p-5 mt-6 rise rise-2 border-l-[3px] border-l-gold">
         <p className="text-sm font-medium">The school cannot start a WhatsApp conversation.</p>
         <p className="text-[13px] text-oat mt-1.5">
-          WhatsApp is a family&apos;s personal channel. A parent who has not written to you has not
-          asked to be reached on it, so there is no way to compose a new message here — by design,
-          not by omission. Once a parent writes in, you may reply freely for 24 hours; after that
-          the window shuts and WhatsApp will not deliver. Anything you need to send unprompted —
-          notices, fee reminders, absence alerts — goes by SMS, where the number was given to you
-          for exactly that.
+          WhatsApp is a family&apos;s personal channel. A guardian who has not written to you has
+          not asked to be reached on it, so there is no way to compose a new message here — by
+          design, not by omission. Once a guardian writes in, you may reply freely for 24 hours;
+          after that the window shuts and WhatsApp will not deliver. Anything you need to send
+          unprompted — notices, fee reminders, absence alerts — goes by SMS, where the number was
+          given to you for exactly that.
         </p>
       </div>
 
@@ -124,8 +124,8 @@ export default async function WhatsAppPage({
             {conversations.length === 0 && (
               <li className="px-5 pb-6 text-sm text-oat border-t border-mist/60 pt-4">
                 No family has messaged the school on WhatsApp yet. Threads appear here on their own
-                the moment one does — put your WhatsApp number on report cards, invoices and the
-                school gate so parents know they can write to it.
+                the moment one does — put your WhatsApp number on terminal reports, bills and the
+                school gate so guardians know they can write to it.
               </li>
             )}
           </ul>
@@ -136,8 +136,8 @@ export default async function WhatsAppPage({
             <div className="py-10 text-center">
               <p className="font-display text-xl">Nothing to answer</p>
               <p className="text-sm text-oat mt-2 max-w-md mx-auto">
-                When a parent messages your WhatsApp number their thread opens here and the 24-hour
-                reply window starts. There is nothing to set up, and nothing to send first.
+                When a guardian messages your WhatsApp number their thread opens here and the
+                24-hour reply window starts. There is nothing to set up, and nothing to send first.
               </p>
             </div>
           ) : (

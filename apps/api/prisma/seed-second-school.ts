@@ -301,7 +301,7 @@ async function main() {
   const tuition = await db.feeItem.create({
     data: {
       schoolId: sid,
-      name: 'Tuition (Trinity)',
+      name: 'School Fees (Trinity)',
       amount: 2400,
       termId: currentTerm.id,
       optional: false,

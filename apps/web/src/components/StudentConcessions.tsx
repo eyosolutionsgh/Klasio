@@ -138,14 +138,14 @@ export default function StudentConcessions({
   // Anything reaching this child that nobody awarded them is a sibling discount, by definition.
   const siblingRule = probe.applied.find((a) => !awards.some((w) => w.ruleId === a.ruleId));
   const worth = (a: Award) =>
-    a.basis === 'PERCENT' ? `${a.value}% of each invoice` : `${money(a.value)} off`;
+    a.basis === 'PERCENT' ? `${a.value}% of each bill` : `${money(a.value)} off`;
 
   return (
     <section className="card p-6 rise rise-3">
       <h2 className="font-display text-xl">Concessions</h2>
       <p className="text-sm text-oat mt-1.5">
         What {studentName} is let off, and why. This is the policy that will be applied the next
-        time this child is invoiced — the ledger opposite is the record of what has actually been
+        time this child is billed — the ledger opposite is the record of what has actually been
         billed.
       </p>
 
@@ -215,7 +215,7 @@ export default function StudentConcessions({
                           setError(null);
                           setConfirming(a.id);
                         }}
-                        data-tip="Stops it from the next invoice; discounts already given stand"
+                        data-tip="Stops it from the next bill; discounts already given stand"
                         className="tip no-print text-[12.5px] text-clay hover:underline underline-offset-2"
                       >
                         Revoke
@@ -229,15 +229,15 @@ export default function StudentConcessions({
         </ul>
       ) : (
         <p className="text-sm text-oat mt-2">
-          No scholarship has been awarded to this child — they are billed the full invoice, less any
-          sibling discount above.
+          No scholarship has been awarded to this child — they are billed in full, less any sibling
+          discount above.
         </p>
       )}
       {error && <p className="text-sm text-danger mt-2">{error}</p>}
       <p className="text-[11px] text-oat mt-2">
         Awarded from the fee settings page. Revoking one only changes future terms: the discounts
-        already written against invoiced terms were correct when those terms were billed, and the
-        fee ledger is append-only — they stand.
+        already written against billed terms were correct when those terms were billed, and the fee
+        ledger is append-only — they stand.
       </p>
 
       <div className="mt-5 pt-5 border-t border-mist/60">
@@ -290,7 +290,7 @@ export default function StudentConcessions({
           </p>
         )}
         <p className="text-[11px] text-oat mt-3">
-          A preview only. Concessions are written to the ledger when the term&apos;s invoices are
+          A preview only. Concessions are written to the ledger when the term&apos;s bills are
           generated, and what was written then stands even if a rule changes later.
         </p>
       </div>

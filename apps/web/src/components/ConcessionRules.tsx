@@ -47,7 +47,7 @@ const KINDS = [
   { value: 'SIBLING', label: 'Sibling discount', hint: 'Applies to families automatically' },
 ];
 const BASES = [
-  { value: 'PERCENT', label: 'Percentage of the invoice' },
+  { value: 'PERCENT', label: 'Percentage of the bill' },
   { value: 'AMOUNT', label: 'Fixed amount off' },
 ];
 
@@ -59,7 +59,7 @@ const errorText = (body: { message?: string | string[] }, fallback: string) =>
  *
  * The two kinds are not variations of one thing and the page does not pretend they are. A
  * scholarship is held by a named child; a sibling discount is held by a *family* and is worked
- * out afresh every time invoices are raised, which is why it can never be awarded to anyone.
+ * out afresh every time bills are raised, which is why it can never be awarded to anyone.
  */
 export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
   const [rules, setRules] = useState<Rule[] | null>(null);
@@ -185,7 +185,7 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
       const what = scholarships.find((r) => r.id === awardRuleId)?.name ?? 'the scholarship';
       setAwardStudentId('');
       setReason('');
-      setAwardMessage(`${what} awarded to ${who}. It applies from the next invoice raised.`);
+      setAwardMessage(`${what} awarded to ${who}. It applies from the next bill raised.`);
       load();
     } else {
       setAwardMessage(errorText(body, 'Could not award that scholarship.'));
@@ -205,7 +205,7 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
           Standing rules for money the school lets a family off. A <strong>scholarship</strong> is
           awarded to named children and follows them wherever they are billed. A{' '}
           <strong>sibling discount</strong> belongs to a family, not a child: it is worked out
-          afresh each time invoices are raised, from who is actually on the roll that term, so it is
+          afresh each time bills are raised, from who is actually on the roll that term, so it is
           never awarded to anyone.
         </p>
       </div>
@@ -253,7 +253,7 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
                 <td className="px-5 py-3 text-right tabular font-medium">
                   {r.basis === 'PERCENT' ? `${r.value}%` : money(r.value)}
                   {r.basis === 'PERCENT' && (
-                    <span className="block text-[11px] font-normal text-oat">of the invoice</span>
+                    <span className="block text-[11px] font-normal text-oat">of the bill</span>
                   )}
                 </td>
                 <td className="px-5 py-3 text-right">
@@ -263,7 +263,7 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
                     </span>
                   ) : (
                     <span
-                      data-tip="Worked out from the roll at invoicing — nobody is named on it"
+                      data-tip="Worked out from the roll at billing — nobody is named on it"
                       className="tip text-oat text-[12.5px]"
                     >
                       Automatic
@@ -276,8 +276,8 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
                       onClick={() => setActive(r, !r.active)}
                       data-tip={
                         r.active
-                          ? 'Stops it applying to future invoices; discounts already given stand'
-                          : 'It will apply again from the next invoice raised'
+                          ? 'Stops it applying to future bills; discounts already given stand'
+                          : 'It will apply again from the next bill raised'
                       }
                       className="tip text-[12.5px] text-clay hover:underline underline-offset-2"
                     >
@@ -290,7 +290,7 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
             {rules.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-5 py-10 text-center text-oat">
-                  No concession rules yet — every student is billed the full invoice.
+                  No concession rules yet — every student is billed in full.
                 </td>
               </tr>
             )}
@@ -303,19 +303,19 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
         <p className="rounded-lg bg-parchment/60 px-3.5 py-3">
           <strong className="text-ink">Rules stack.</strong> A child who qualifies for both a 50%
           scholarship and a 25% sibling discount is let off <strong>75%</strong> of the bill, not
-          62.5% — each percentage is taken from the original invoice, not from what is left after
-          the other. The total is then capped at the invoice itself, so a concession can never
-          exceed the bill it discounts.
+          62.5% — each percentage is taken from the original bill, not from what is left after the
+          other. The total is then capped at the bill itself, so a concession can never exceed the
+          bill it discounts.
         </p>
         <p className="rounded-lg bg-parchment/60 px-3.5 py-3">
           <strong className="text-ink">Deactivating does not undo past discounts.</strong> The
-          discounts already written against invoiced terms were correct when those terms were
-          billed, and the fee ledger is append-only — they stand. Only future invoices change.
+          discounts already written against billed terms were correct when those terms were billed,
+          and the fee ledger is append-only — they stand. Only future bills change.
         </p>
         <p className="rounded-lg bg-parchment/60 px-3.5 py-3">
           <strong className="text-ink">The eldest always pays in full.</strong> Children are ranked
           by enrolment date, eldest first, across every family a guardian has on the roll. A sibling
-          rule that starts at the 2nd child leaves the first child&apos;s invoice untouched, and
+          rule that starts at the 2nd child leaves the first child&apos;s bill untouched, and
           enrolling a younger sibling never re-ranks the children already being billed.
         </p>
       </div>
@@ -418,7 +418,7 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
           </div>
           <p className="text-xs text-oat mt-2">
             {kind === 'SIBLING'
-              ? 'Nobody is named on a sibling discount — it reaches every family with enough children on the roll, from the next invoice raised.'
+              ? 'Nobody is named on a sibling discount — it reaches every family with enough children on the roll, from the next bill raised.'
               : 'A scholarship does nothing until it is awarded to a child, below.'}
             {' Leave the dates empty for a rule that runs until it is deactivated.'}
           </p>
@@ -480,7 +480,7 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
             </button>
           </div>
           <p className="text-xs text-oat mt-2">
-            The reason is kept with the award and in the audit log. Awarding does not touch invoices
+            The reason is kept with the award and in the audit log. Awarding does not touch bills
             already raised — it applies from the next one.
           </p>
           {awardMessage && <p className="text-sm mt-3">{awardMessage}</p>}

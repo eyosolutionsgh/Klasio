@@ -199,7 +199,7 @@ export class SmsService {
         schoolId: opts.schoolId,
         to: opts.phone,
         // Never the code. This column is readable by any role holding `comms.sms`.
-        body: 'Parent portal sign-in code (not stored)',
+        body: 'Guardian portal sign-in code (not stored)',
         status: result.ok ? 'SENT' : 'FAILED',
         provider: this.provider.name,
         providerRef: result.ref ?? null,

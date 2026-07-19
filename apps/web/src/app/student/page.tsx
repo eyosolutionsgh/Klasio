@@ -147,7 +147,7 @@ export default function StudentPage() {
           <h2 className="font-display text-xl">My results</h2>
           {me.reports.length === 0 ? (
             <p className="text-sm text-oat mt-2">
-              No report cards have been released yet. They appear here once the school publishes
+              No terminal reports have been released yet. They appear here once the school publishes
               them.
             </p>
           ) : (

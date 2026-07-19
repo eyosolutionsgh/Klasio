@@ -44,6 +44,28 @@ function drawCrest(doc: Doc, school: DocSchool, x: number, y: number, size: numb
   }
 }
 
+/**
+ * Set a font size at which `text` fits on one line, shrinking then truncating.
+ *
+ * pdfkit's own `lineBreak: false` / `ellipsis` did not hold here — a long school name still
+ * wrapped, and on a card laid out at fixed coordinates the second line lands on top of whatever
+ * is below it. Measuring is the only reliable way. Leaves the doc at the chosen size, so the
+ * caller draws immediately after.
+ */
+function fitOneLine(doc: Doc, text: string, maxWidth: number, from: number, min: number): string {
+  let size = from;
+  doc.fontSize(size);
+  while (size > min && doc.widthOfString(text) > maxWidth) {
+    size -= 0.5;
+    doc.fontSize(size);
+  }
+  if (doc.widthOfString(text) <= maxWidth) return text;
+  // Still too wide even at the floor: keep it legible and lose the tail instead.
+  let cut = text;
+  while (cut.length > 1 && doc.widthOfString(`${cut}…`) > maxWidth) cut = cut.slice(0, -1);
+  return `${cut}…`;
+}
+
 function toBuffer(doc: Doc): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -714,7 +736,7 @@ export function admissionLetterPdf(data: AdmissionLetterData): Promise<Buffer> {
   return toBuffer(doc);
 }
 
-// ── Pickup card ──────────────────────────────────────────────────────
+// ── Gate pass ────────────────────────────────────────────────────────
 
 export interface PickupCardData {
   school: DocSchool;
@@ -725,7 +747,7 @@ export interface PickupCardData {
 }
 
 /**
- * A wallet-sized card carrying the QR and the PIN.
+ * A wallet-sized pass carrying the QR and the PIN.
  *
  * This is the "printed card path for guardians without a smartphone" from docs/02 §2.5: the
  * gate scans the QR, and if the card is left at home the PIN still identifies the holder.
@@ -741,16 +763,21 @@ export async function pickupCardPdf(data: PickupCardData): Promise<Buffer> {
   const BRAND = brandOf(data.school);
 
   doc.rect(0, 0, doc.page.width, 8).fill(BRAND);
-  doc
-    .fillColor(BRAND)
-    .font('Helvetica-Bold')
-    .fontSize(13)
-    .text(data.school.name, left, 24, { width });
+
+  // Crest beside the name, so the pass identifies the school at a glance to someone who cannot
+  // read the wordmark. The header is then indented past it; without a crest it sits flush left.
+  const CREST = 32;
+  const headX = drawCrest(doc, data.school, left, 18, CREST) ? left + CREST + 8 : left;
+  const headW = width - (headX - left);
+  // One line, always: a long school name that wrapped would land on top of the QR block below.
+  doc.fillColor(BRAND).font('Helvetica-Bold');
+  const schoolName = fitOneLine(doc, data.school.name, headW, 13, 8);
+  doc.text(schoolName, headX, 24, { width: headW, lineBreak: false });
   doc
     .fillColor(OAT)
     .font('Helvetica')
     .fontSize(7.5)
-    .text('PICKUP CARD — present at the gate', { width });
+    .text('GATE PASS — present this at the gate', { width: headW });
 
   doc.image(qr, left, 58, { fit: [104, 104] });
 
@@ -776,7 +803,7 @@ export async function pickupCardPdf(data: PickupCardData): Promise<Buffer> {
     .fillColor(OAT)
     .font('Helvetica')
     .fontSize(7.5)
-    .text('PIN (if the card is not to hand)', infoX + 8, 134);
+    .text('PIN (if the pass is not to hand)', infoX + 8, 134);
   doc
     .fillColor(INK)
     .font('Helvetica-Bold')
@@ -788,13 +815,22 @@ export async function pickupCardPdf(data: PickupCardData): Promise<Buffer> {
     .font('Helvetica')
     .fontSize(7)
     .text(
-      'Keep this card safe and do not share the PIN. Report a lost card to the school at once — it will be cancelled and a new one issued.',
+      'Keep this pass safe and do not share the PIN. Report a lost pass to the school at once — it will be cancelled and a new one issued.',
       left,
       182,
       { width },
     );
-  if (data.school.phone) {
-    doc.fillColor(INK).fontSize(7.5).text(data.school.phone, left, 208, { width });
+
+  // Where to return it, and who to ring. Both are optional on a school record, so a school that
+  // has filled in neither simply gets no line rather than a stray separator. Flows from the text
+  // above rather than a fixed y, so a two-line address cannot land on top of it.
+  const contact = [data.school.address, data.school.phone].filter(Boolean).join(' · ');
+  if (contact) {
+    doc
+      .fillColor(INK)
+      .font('Helvetica')
+      .fontSize(7.5)
+      .text(contact, left, doc.y + 6, { width });
   }
   return toBuffer(doc);
 }

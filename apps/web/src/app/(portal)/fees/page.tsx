@@ -144,7 +144,7 @@ export default function FeesPage() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
             {[
               {
-                label: 'Invoiced',
+                label: 'Billed',
                 value: money(ov.invoiced),
                 tip: 'Total billed this term',
                 cls: 'rise-1',
@@ -152,7 +152,7 @@ export default function FeesPage() {
               {
                 label: 'Collected',
                 value: money(ov.collected),
-                tip: `${collectedPct}% of invoiced`,
+                tip: `${collectedPct}% of billed`,
                 cls: 'rise-2',
                 tone: 'text-leaf',
               },
@@ -257,7 +257,7 @@ export default function FeesPage() {
                     {defaulters.length === 0 && (
                       <tr>
                         <td colSpan={4} className="px-6 py-10 text-center text-oat">
-                          No outstanding balances — every invoice is settled. 🎉
+                          No outstanding balances — every bill is settled. 🎉
                         </td>
                       </tr>
                     )}

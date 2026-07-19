@@ -16,7 +16,7 @@ const SECTIONS = [
     steps: [
       'Students → Add a student for one at a time, or Import to bring in a class from an Excel template.',
       'The import template is downloadable from the Import page — keep the column headings as they are.',
-      'Each student needs at least one guardian with a phone number. That phone is how the parent signs in to the parent portal.',
+      'Each student needs at least one guardian with a phone number. That phone is how they sign in to the guardian portal.',
       'A guardian with more than one child at the school is matched on their phone number, so add them with the same number and they will see all their children.',
     ],
   },
@@ -33,24 +33,24 @@ const SECTIONS = [
       'Marks Entry → choose class and subject, enter continuous-assessment and exam scores.',
       'Terminal Reports → Generate for the class. SBA is scaled to 30 and the exam to 70 by default.',
       'Add the class teacher’s remark and, as head, the head’s remark. Then Publish.',
-      'Publishing is what releases the report to parents. Unpublishing retracts it immediately.',
+      'Publishing is what releases the report to guardians. Unpublishing retracts it immediately.',
     ],
   },
   {
     title: 'Fees',
     steps: [
-      'Fee Structure → list what each student is billed this term, then Generate term invoices.',
+      'Fee Structure → list what each student is billed this term, then Generate term bills.',
       'Re-running generation is safe: anyone already billed is skipped, so run it again after enrolling someone new.',
-      'Fees → record cash payments, confirm bank deposits against their uploaded proof, or send a parent a payment link.',
+      'Fees → record cash payments, confirm bank deposits against their uploaded proof, or send a guardian a payment link.',
       'The ledger is append-only. A correction is a reversal entry, never an edit — so the history always adds up.',
     ],
   },
   {
-    title: 'Reaching parents',
+    title: 'Reaching guardians',
     steps: [
-      'Announcements → notices that appear on the parent portal.',
+      'Announcements → notices that appear on the guardian portal.',
       'Messaging → bulk SMS to a class, a level or a custom list. SMS is pay-as-you-go from your credit balance.',
-      'Parents sign in at /family with their phone number and a code — no password to forget or reset.',
+      'Guardians sign in at /family with their phone number and a code — no password to forget or reset.',
     ],
   },
 ];

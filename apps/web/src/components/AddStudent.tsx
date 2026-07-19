@@ -159,8 +159,8 @@ export default function AddStudent({
 
         <h3 className="font-display text-lg mt-6">Guardian</h3>
         <p className="text-xs text-oat mt-1">
-          This phone number is how the parent signs in to the portal. An existing guardian with the
-          same number is reused, so siblings stay together.
+          This phone number is how the guardian signs in to the portal. An existing guardian with
+          the same number is reused, so siblings stay together.
         </p>
         <div className="grid sm:grid-cols-2 gap-3 mt-3">
           <label className="text-[13px]">
