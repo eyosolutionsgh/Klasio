@@ -42,6 +42,7 @@ function accepted(file: File, accept?: string) {
  */
 export default function FileField({
   id,
+  name,
   accept,
   hint,
   value,
@@ -50,6 +51,12 @@ export default function FileField({
   disabled,
 }: {
   id: string;
+  /**
+   * Sets the native input's `name`, for a form that reads itself with `new FormData(form)`
+   * instead of assembling the body by hand. See the DataTransfer note below — without that
+   * sync, a `name` here would submit nothing whenever the file arrived by drag.
+   */
+  name?: string;
   accept?: string;
   /** Shown under the control when nothing is wrong. */
   hint?: string;
@@ -65,10 +72,29 @@ export default function FileField({
   // the entire time you move inside the zone. Counting enters against leaves does not.
   const depth = useRef(0);
 
-  // The parent clearing `value` (after a successful submit) must also reset the native input,
-  // or re-picking the very same file fires no change event and the form looks stuck.
+  /**
+   * Keep the native input's FileList in step with `value`.
+   *
+   * A file chosen through the picker is already in `input.files`, but one that arrives by drag
+   * is not — the drop lands on the wrapper, and nothing writes it back. Any form that submits
+   * itself with `new FormData(form)` would then post everything *except* the file, and only for
+   * dragged files: it works when you click, silently drops the attachment when you drag.
+   * Assigning a DataTransfer's FileList is the only way to set `input.files` programmatically.
+   *
+   * Clearing matters for the same reason, plus one of its own: re-picking the very same file
+   * fires no change event unless the input was reset first, which reads as the form being stuck.
+   */
   useEffect(() => {
-    if (!value && inputRef.current) inputRef.current.value = '';
+    const el = inputRef.current;
+    if (!el) return;
+    if (!value) {
+      el.value = '';
+      return;
+    }
+    if (el.files?.[0] === value) return;
+    const dt = new DataTransfer();
+    dt.items.add(value);
+    el.files = dt.files;
   }, [value]);
 
   function take(file: File | undefined) {
@@ -114,6 +140,7 @@ export default function FileField({
     >
       <input
         id={id}
+        name={name}
         ref={inputRef}
         type="file"
         accept={accept}

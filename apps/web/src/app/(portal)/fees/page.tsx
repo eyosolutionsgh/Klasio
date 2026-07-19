@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import DepositQueue from '@/components/DepositQueue';
+import FileField from '@/components/FileField';
 import SendReminders from '@/components/SendReminders';
 
 interface Overview {
@@ -48,6 +49,15 @@ export default function FeesPage() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [depositFor, setDepositFor] = useState<Defaulter | null>(null);
+  const [proof, setProof] = useState<File | null>(null);
+
+  // One dialog serves every defaulter, so the attachment has to be dropped when it switches
+  // student. Keyed on depositFor rather than cleared at each open/close site: a teller slip
+  // submitted against the wrong child is a real accounting error, and this cannot be forgotten
+  // the next time someone adds a way to close the dialog.
+  useEffect(() => {
+    setProof(null);
+  }, [depositFor]);
   const [payLink, setPayLink] = useState<{ student: string; url: string } | null>(null);
   // Defaults to GHS so the first paint never shows a currency this school does not use.
   const [currency, setCurrency] = useState('GHS');
@@ -394,11 +404,14 @@ export default function FeesPage() {
             <label className="block text-sm font-medium mt-4 mb-1.5">
               Proof of payment <span className="text-oat font-normal">(photo or PDF)</span>
             </label>
-            <input
+            <FileField
+              id="deposit-proof"
               name="proof"
-              type="file"
               accept="image/jpeg,image/png,image/webp,application/pdf"
-              className="text-sm"
+              value={proof}
+              onChange={setProof}
+              disabled={busy}
+              hint="A photo of the teller or the bank's PDF receipt, up to 8MB."
             />
 
             <div className="flex gap-3 mt-7">
