@@ -269,6 +269,8 @@ export class SmsService {
     phones: string[];
     body: string;
     batchId: string;
+    /** Set when a Broadcast raised this, so the messaging log can say what a text belonged to. */
+    broadcastId?: string;
   }) {
     const recipients = [
       ...new Set(opts.phones.map(normalizeMsisdn).filter((x): x is string => !!x)),
@@ -296,6 +298,7 @@ export class SmsService {
           providerRef: result.ref ?? null,
           cost: 1,
           batchId: opts.batchId,
+          broadcastId: opts.broadcastId ?? null,
           error: result.error ?? null,
           createdById: opts.createdById,
         },

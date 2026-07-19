@@ -857,6 +857,8 @@ model Announcement {
   title       String
   body        String
   audience    String    @default("ALL")
+  /// Set when this notice was emitted by a Broadcast rather than posted straight to the board.
+  broadcastId String?
   createdById String
   publishedAt DateTime  @default(now())
 
@@ -880,6 +882,8 @@ model SmsMessage {
   providerRef String?
   cost        Int       @default(1)
   batchId     String?
+  /// Set when this text was sent by a Broadcast rather than the messaging screen.
+  broadcastId String?
   error       String?
   createdById String
   createdAt   DateTime  @default(now())
@@ -1467,4 +1471,172 @@ model Licence {
   /// Null when the licence came from LICENCE_FILE or LICENCE rather than the settings screen.
   installedById String?
   updatedAt     DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Broadcasts — one message, several channels
+//
+// Announcements and bulk SMS were two unrelated features with two different ideas of "audience":
+// SMS meant ALL/CLASS/LEVEL/CUSTOM (which people) and an announcement meant ALL/GUARDIANS/STUDENTS
+// (which portals). Those are orthogonal axes that got conflated, so they are separated here and a
+// Broadcast carries both.
+//
+// A Broadcast does not replace what it produces. It EMITS an Announcement for the portals,
+// SmsMessage rows for texts (which debit credits and feed the messaging log), BroadcastDelivery
+// rows for email, and SocialPost rows for social. Collapsing those into one delivery table would
+// have broken the SMS credit ledger and the four automated senders that write SmsMessage directly.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Broadcast {
+  id       String @id @default(cuid())
+  schoolId String
+  title    String
+  body     String
+
+  /// WHICH PEOPLE — the SMS vocabulary. ALL | CLASS | LEVEL | CUSTOM
+  audienceScope String   @default("ALL")
+  classId       String?
+  levelId       String?
+  /// Explicit numbers, for CUSTOM.
+  recipients    String[]
+  /// WHICH PORTALS — the Announcement vocabulary. GUARDIANS | STUDENTS | STAFF
+  audienceRoles String[] @default(["GUARDIANS"])
+  /// PORTAL | SMS | EMAIL | SOCIAL
+  channels      String[]
+
+  /// DRAFT | QUEUED | SENDING | SENT | PARTIAL | FAILED
+  status String @default("QUEUED")
+
+  /// Client-generated, so a double-submit is one broadcast.
+  ///
+  /// SmsMessage.batchId is `SMS-${Date.now()}` minted server-side, which cannot dedupe anything —
+  /// two clicks produce two batch ids and two sends. A key the client generates once per compose
+  /// is the only thing that closes that.
+  idempotencyKey String
+
+  createdById String
+  createdAt   DateTime  @default(now())
+  sentAt      DateTime?
+
+  media      BroadcastMedia[]
+  deliveries BroadcastDelivery[]
+  posts      SocialPost[]
+
+  @@unique([schoolId, idempotencyKey])
+  @@index([schoolId, createdAt])
+}
+
+/// An image attached to a broadcast. Field set mirrors LearningResource deliberately.
+model BroadcastMedia {
+  id          String    @id @default(cuid())
+  schoolId    String
+  broadcastId String
+  broadcast   Broadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+
+  key       String
+  filename  String
+  mimeType  String
+  sizeBytes Int
+  order     Int    @default(0)
+
+  /// Minted immediately before an Instagram publish and revoked straight after.
+  ///
+  /// Instagram accepts only a publicly fetchable image_url — there is no binary upload — so this
+  /// is the one place the no-public-URLs rule in common/storage.ts has to bend. It bends narrowly:
+  /// one route, a fifteen-minute life, cleared in the same transaction as the publish response,
+  /// and for a marketing image that is seconds away from being on a public Instagram account.
+  publicToken          String?   @unique
+  publicTokenExpiresAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([schoolId, broadcastId])
+}
+
+/// One row per email recipient. SMS keeps SmsMessage; social keeps SocialPost.
+model BroadcastDelivery {
+  id          String    @id @default(cuid())
+  schoolId    String
+  broadcastId String
+  broadcast   Broadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+
+  channel     String
+  target      String
+  /// QUEUED | SENT | FAILED
+  status      String    @default("QUEUED")
+  providerRef String?
+  error       String?
+  createdAt   DateTime  @default(now())
+  sentAt      DateTime?
+
+  /// Retrying a broadcast must not send the same person the same thing twice.
+  @@unique([schoolId, broadcastId, channel, target])
+  @@index([schoolId, broadcastId])
+}
+
+enum SocialPlatform {
+  FACEBOOK_PAGE
+  INSTAGRAM
+  X
+  TIKTOK
+}
+
+/// A school's own social account, connected by the school.
+///
+/// Modelled on GatewayAccount: composite unique, the credential encrypted at rest, and a list
+/// endpoint that returns whether a token exists rather than the token.
+model SocialAccount {
+  id       String         @id @default(cuid())
+  schoolId String
+  platform SocialPlatform
+
+  /// Page id, Instagram user id, or handle.
+  externalId  String
+  displayName String
+
+  accessTokenEnc  String
+  refreshTokenEnc String?
+  /// From the platform's own answer (Meta's debug_token), never from what the user typed.
+  tokenExpiresAt  DateTime?
+  scopes          String[]
+
+  /// ACTIVE | EXPIRING | EXPIRED | REVOKED
+  status    String  @default("ACTIVE")
+  active    Boolean @default(true)
+
+  connectedById String?
+  lastCheckedAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  posts SocialPost[]
+
+  @@unique([schoolId, platform, externalId])
+  @@index([schoolId, status])
+}
+
+/// One attempt to put one broadcast on one account.
+model SocialPost {
+  id          String    @id @default(cuid())
+  schoolId    String
+  broadcastId String
+  broadcast   Broadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  accountId   String
+  account     SocialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  platform    SocialPlatform
+
+  /// QUEUED | PUBLISHED | FAILED | SKIPPED
+  status      String    @default("QUEUED")
+  /// The platform's own post id — the WhatsAppMessage idempotency pattern.
+  externalId  String?
+  permalink   String?
+  error       String?
+  attempts    Int       @default(0)
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([schoolId, platform, externalId])
+  /// Enqueueing the same broadcast twice must not post twice.
+  @@unique([broadcastId, accountId])
+  @@index([schoolId, status])
 }

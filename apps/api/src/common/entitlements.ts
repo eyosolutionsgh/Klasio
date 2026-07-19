@@ -34,6 +34,9 @@ export const ENTITLEMENTS = {
     'comms.absence-alerts',
     'comms.results-push',
     'comms.whatsapp.templates',
+    // Publishing to the school's own Facebook/Instagram/X/TikTok. A marketing capability rather
+    // than a duty of care, so Basic schools keep the portal and SMS and do without this.
+    'comms.social',
     'resources.documents',
     'timetable.core',
     'platform.ges-returns',

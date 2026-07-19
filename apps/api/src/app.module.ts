@@ -10,7 +10,8 @@ import { AttendanceModule } from './attendance/attendance.module';
 import { AssessmentModule } from './assessment/assessment.module';
 import { FeesModule } from './fees/fees.module';
 import { DashboardModule } from './dashboard/dashboard.module';
-import { AnnouncementsModule } from './announcements/announcements.module';
+import { BroadcastsModule } from './broadcasts/broadcasts.module';
+import { SocialModule } from './social/social.module';
 import { SmsModule } from './sms/sms.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { AuditModule } from './audit/audit.module';
@@ -48,7 +49,8 @@ import { SetupModule } from './setup/setup.module';
     AssessmentModule,
     FeesModule,
     DashboardModule,
-    AnnouncementsModule,
+    SocialModule,
+    BroadcastsModule,
     SmsModule,
     OnboardingModule,
     AuditModule,

@@ -190,6 +190,15 @@ const NAV: NavItem[] = [
     group: 'Setup',
   },
   {
+    href: '/settings/social',
+    label: 'Social Accounts',
+    icon: 'M18 16.1c-.8 0-1.5.3-2 .8l-7.1-4.2c.1-.2.1-.5.1-.7s0-.5-.1-.7L16 7.2c.5.5 1.2.8 2 .8 1.7 0 3-1.3 3-3s-1.3-3-3-3-3 1.3-3 3c0 .2 0 .5.1.7L8 9.9c-.5-.5-1.2-.9-2-.9-1.7 0-3 1.3-3 3s1.3 3 3 3c.8 0 1.5-.3 2-.8l7.1 4.2c-.1.2-.1.4-.1.6 0 1.6 1.3 2.9 2.9 2.9s2.9-1.3 2.9-2.9-1.2-2.9-2.8-2.9z',
+    tip: 'Facebook, Instagram and more — post announcements straight to them',
+    needs: 'comms.social',
+    roles: ADMIN,
+    group: 'Communication',
+  },
+  {
     href: '/settings/gateways',
     label: 'Payment Setup',
     icon: 'M12 1L3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5l-9-4zm0 6a2 2 0 110 4 2 2 0 010-4zm0 5c1.7 0 5 .8 5 2.5V16H7v-1.5C7 12.8 10.3 12 12 12z',
