@@ -1,8 +1,34 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { usePathname } from 'next/navigation';
 import SchoolCrest from './SchoolCrest';
 import { useBrand } from './Brand';
+
+/**
+ * Which photograph each door wears, chosen by route rather than passed in.
+ *
+ * There are fifteen `<AuthShell>` call sites across seven pages, and threading a prop through all
+ * of them to express "this page is the staff one" would put art direction into pages that are
+ * otherwise entirely about forms. The route already says which door this is.
+ *
+ * Both images are CC0 and neither shows an identifiable child — see public/photos/LICENSES.md,
+ * which explains why that is a rule rather than a coincidence.
+ */
+const PHOTOS: { match: (p: string) => boolean; src: string; srcSet: string }[] = [
+  {
+    // Guardians, students, and anyone recovering an account: the quieter of the two.
+    match: (p) => p.startsWith('/family') || p.startsWith('/student') || p.includes('password'),
+    src: '/photos/auth/courtyard-800.webp',
+    srcSet: '/photos/auth/courtyard-800.webp 800w, /photos/auth/courtyard-1400.webp 1400w',
+  },
+  {
+    // Staff, first-run setup and the public application form.
+    match: () => true,
+    src: '/photos/auth/schoolyard-800.webp',
+    srcSet: '/photos/auth/schoolyard-800.webp 800w, /photos/auth/schoolyard-1400.webp 1400w',
+  },
+];
 
 /**
  * The frame every sign-in page sits in.
@@ -32,17 +58,16 @@ export default function AuthShell({
   subtitle,
   children,
   footer,
-  /** Optional art for the panel. Falls back to the woven texture when absent — see /photos. */
-  photo,
 }: {
   title: string;
   /** Optional: the staff page deliberately has none. */
   subtitle?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
-  photo?: { src: string; alt: string };
 }) {
   const brand = useBrand();
+  const pathname = usePathname() ?? '';
+  const photo = PHOTOS.find((p) => p.match(pathname))!;
   // A box that has not been set up yet genuinely has no school, and the setup page is the one
   // that runs there. Naming the product is the honest answer rather than an empty heading.
   const schoolName = brand.name ?? 'Klasio';
@@ -65,17 +90,32 @@ export default function AuthShell({
           className="texture-weave hidden lg:block absolute inset-y-0 right-0 w-[52%] bg-forest-deep overflow-hidden"
           style={{ clipPath: 'polygon(16% 0, 100% 0, 100% 100%, 16% 100%, 0 50%)' }}
         >
-          {photo && (
-            /*
-              Behind a scrim, always. The display copy over it has to stay readable against a
-              photograph nobody has colour-checked, and a school that swaps in its own picture of
-              a bright courtyard must not silently break the contrast of the words on top.
-            */
-            <>
-              <img src={photo.src} alt="" className="absolute inset-0 w-full h-full object-cover" />
-              <div className="absolute inset-0 bg-forest-deep/65" />
-            </>
-          )}
+          {/*
+            Behind a scrim, always. The display copy over it has to stay readable against a
+            photograph nobody has colour-checked, and a school swapping in its own picture of a
+            bright courtyard must not silently break the contrast of the words on top.
+
+            `onError` hides the image rather than showing a broken one: the panel's woven texture
+            and navy are underneath, so a missing file degrades to exactly how this looked before
+            there were any photographs.
+          */}
+          <img
+            src={photo.src}
+            srcSet={photo.srcSet}
+            sizes="(min-width: 1024px) 52vw, 0px"
+            alt=""
+            className="absolute inset-0 w-full h-full object-cover"
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+            }}
+          />
+          {/*
+            Graded, not flat. The copy sits in the panel's left third (see `left-[16%]` below), so
+            that is where the scrim needs to be heavy; carrying the same 65% across the whole panel
+            paid full contrast cost everywhere and flattened the photograph to grey for nothing.
+            Heavy left, light right: the words stay legible and the picture still reads as one.
+          */}
+          <div className="absolute inset-0 bg-gradient-to-r from-forest-deep/90 via-forest-deep/75 to-forest-deep/45" />
           {/* A teal bloom against the navy — the mark's own pairing. */}
           <div
             className="absolute -right-24 -bottom-24 w-96 h-96 rounded-full opacity-[0.16]"
@@ -101,12 +141,10 @@ export default function AuthShell({
         */}
         <section className="relative p-8 sm:p-12 lg:w-[45%] lg:pr-0 lg:py-14 lg:pl-14">
           {/*
-            The school, at the top, at size. The crest is 88px — larger than anywhere else in the
-            product, including the sidebar's 76 — because this is the one screen with nothing else
-            competing for attention, and the one most likely to be seen by someone deciding
-            whether they are in the right place.
-          */}
-          {/*
+            The school, at the top, at size — this is the one screen with nothing else competing
+            for attention, and the one most likely to be seen by someone working out whether they
+            are in the right place.
+
             Stacked, not side by side. The form column is 45% of the card, and a crest beside the
             name leaves barely 200px for it — "Sunbeam International School" broke to three lines
             and shoved the form down the page. Above it, the name gets the whole column and the
