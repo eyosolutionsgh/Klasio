@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-EYO SMS — school management for African private schools (Ghana-first, pre-school→SHS). One codebase ships two ways: multi-tenant **SaaS** and per-school **standalone** (Docker, online or offline). The product plan lives in [`docs/`](docs/README.md); `docs/03-architecture.md` and `docs/04-tech-stack.md` are the authoritative references for the rules below.
+Klasio — school management for African private schools (Ghana-first, pre-school→SHS). **One school, one server**: every school is deployed on its own cloud VM or on-prem box, online or offline. There is no multi-tenant hosted estate and no vendor console — what a school is entitled to comes from a vendor-signed licence file it installs (`apps/api/src/licence/`). The product plan lives in [`docs/`](docs/README.md); `docs/03-architecture.md` and `docs/04-tech-stack.md` are the authoritative references for the rules below.
 
 Monorepo (pnpm workspaces): `apps/api` (NestJS), `apps/web` (Next.js), `packages/shared` (currently empty scaffold). Requires Node 22+, pnpm 10, PostgreSQL 16.
 
@@ -23,6 +23,7 @@ pnpm test:e2e            # Playwright — needs both apps running + seeded db
 cp .env.example apps/api/.env
 pnpm db:deploy           # apply migration chain (must run clean on any empty DB)
 pnpm db:seed             # demo school "Brighton Academy"
+pnpm --filter @eyo/api licence:mint -- --school "X" --slug x --tier MEDIUM   # a dev licence
 pnpm db:migrate          # prisma migrate dev — creates a new migration
 pnpm --filter @eyo/api db:drift-check   # assert migrations == schema.prisma
 
@@ -36,9 +37,12 @@ pnpm --filter @eyo/web exec playwright test e2e/portal.spec.ts
 
 Demo logins (password `Password1!`): `owner@ · head@ · bursar@ · teacher@` `demo.school`.
 
+A **fresh** install has no school at all: the first visit lands on `/setup`, which creates the
+school and its owner and then closes permanently (guarded on `school.count() === 0`, not a token).
+
 ## Architecture
 
-**API is a NestJS modulith.** Each domain (`auth`, `schools`, `students`, `attendance`, `assessment`, `fees`, `dashboard`, `announcements`) is a single `*.module.ts` file that co-locates the Controller, Service, DTOs (class-validator), and `@Module` — there are no separate `.controller.ts`/`.service.ts`/`.dto.ts` files. Follow that one-file-per-module convention when adding features. Modules are wired in `apps/api/src/app.module.ts`.
+**API is a NestJS modulith.** Each domain (`auth`, `schools`, `students`, `attendance`, `assessment`, `fees`, `dashboard`, `broadcasts`) is a single `*.module.ts` file that co-locates the Controller, Service, DTOs (class-validator), and `@Module` — there are no separate `.controller.ts`/`.service.ts`/`.dto.ts` files. Follow that one-file-per-module convention when adding features. Two modules deviate, `licence` and `social`, and say why in their own headers: the auth guard imports both services, and the guard cannot be imported by a file that imports the guard. Modules are wired in `apps/api/src/app.module.ts`.
 
 **Auth & authorization are enforced by one global guard** (`apps/api/src/common/auth.ts`, registered as `APP_GUARD`). Every route is protected unless decorated `@Public()`. The guard verifies the JWT, attaches `AuthUser` (`{ sub, schoolId, role, tier, name }`), then checks decorators layered on the handler:
 
@@ -64,9 +68,9 @@ Reach for `get_errors` before reading files when a page is broken, and `get_rout
 
 2. **The fee ledger is append-only.** `LedgerEntry` rows are never updated or deleted. Corrections are new `REVERSAL` entries pointing at `reversedId`. All money math derives from summing ledger entries (see `FeesService.overview`). Amounts are stored positive; `type` determines direction (INVOICE increases balance owed, PAYMENT/DISCOUNT/WAIVER decrease it).
 
-3. **Feature code checks entitlement codes, never tier names.** Tiers (BASIC/MEDIUM/ADVANCED) are bundles of entitlements defined in `apps/api/src/common/entitlements.ts`; standalone installs get the same set from a vendor-signed license. Gate with `@RequireEntitlement('some.code')` or `hasEntitlement(tier, code)` — never branch on `tier === 'ADVANCED'`.
+3. **Feature code checks entitlement codes, never tier names.** Tiers (BASIC/MEDIUM/ADVANCED) are bundles of entitlements defined in `apps/api/src/common/entitlements.ts`. The bundle in force comes from the vendor-signed licence; `LicenceService` is the only writer of `School.tier`. Gate with `@RequireEntitlement('some.code')` — never branch on `tier === 'ADVANCED'`, and never call `hasEntitlement(tier, code)` on a request path, because it misses the individual codes a licence can grant on top of its bundle.
 
-4. **Multi-tenancy: every tenant-owned table carries `schoolId`,** and every query must filter by `auth.schoolId`. There is no automatic tenant scoping — it is manual in each query.
+4. **Every tenant-owned table carries `schoolId`,** and every query must filter by `auth.schoolId`. There is no automatic tenant scoping — it is manual in each query. Row-level security stays switched on even though there is one school per box: it turns a forgotten `where` from "returns everything" into "returns nothing". That depends on `APP_DATABASE_URL` pointing at the non-owner `eyo_app` role. A new tenant table needs **both** a `tenant_isolation` policy and a `GRANT` to `eyo_app` — the missing policy fails open and silently, the missing grant fails closed and loudly.
 
 5. **No AI attribution in commits.** The husky `commit-msg` hook (commitlint + custom policy) rejects `Co-Authored-By` / "Generated with" trails. Commits follow Conventional Commits.
 

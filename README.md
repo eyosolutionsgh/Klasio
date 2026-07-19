@@ -1,6 +1,8 @@
 # EYO School Management System
 
-AI-powered school management for private schools in Ghana and across Africa — pre-school (creche/KG) through high school (SHS). Ships two ways from one codebase: **SaaS** (multi-tenant cloud, Free/Medium/Advanced packages) and **standalone** (deployed per school, online or offline, tier locked by a vendor-signed license).
+AI-powered school management for private schools in Ghana and across Africa — pre-school (creche/KG) through high school (SHS).
+
+**One school, one server.** Every school runs its own deployment — a cloud VM it controls, or a box in the school office, online or offline. There is no shared multi-tenant estate: the school's data sits on the school's own machine. What the school has paid for is stated in a vendor-signed licence file it installs, checked locally with no call home, so a school on an intermittent line or a LAN with no internet at all keeps working.
 
 Full product plan and research live in [`docs/`](docs/README.md).
 
@@ -45,18 +47,40 @@ pnpm lint && pnpm typecheck
 pnpm --filter @eyo/api db:drift-check   # migration chain == schema, always
 ```
 
-## Standalone deployment
+## Deploying a school
 
 ```bash
-JWT_SECRET=$(openssl rand -hex 32) docker compose up -d
+JWT_SECRET=$(openssl rand -hex 32) \
+APP_DB_PASSWORD=$(openssl rand -hex 16) \
+APP_ENCRYPTION_KEY=$(openssl rand -hex 32) \
+docker compose up -d
 ```
 
-Boots Postgres + API (running `migrate deploy` first) + web. The vendor-signed license file mechanism (tier locking for standalone installs) is specified in `docs/03-architecture.md §3.5` and lands with the licensing service.
+Boots Postgres + Redis + API (running `migrate deploy` first) + web, and creates the non-owner
+`eyo_app` role the API connects as — without which row-level security is switched off.
+
+Then open the box and go to **`/setup`**. It creates the school and its owner account, and closes
+permanently once it has run. Do not expose the port to the internet before that: `/setup` is
+guarded on "no school exists yet", so between first boot and first use, whoever reaches it first
+claims the server.
+
+`SETUP_SCHOOL_NAME` / `SETUP_OWNER_EMAIL` / `SETUP_OWNER_PASSWORD` do the same thing unattended.
+
+### Licences
+
+A licence sets the package and the student cap. Install it at `/setup`, or later under
+**Settings → Licence**, or mount it at `LICENCE_FILE`. Without one the school runs on the free
+package; if one lapses it keeps working through a grace period and then falls back to the free
+package — records are never locked away, and export always works.
+
+Vendors mint licences with `pnpm --filter @eyo/api licence:mint`. Generate the signing key once
+with `licence:new-key` and set the public half as `LICENCE_PUBLIC_KEY` on every deployment; the
+API refuses to validate against the built-in development key when `NODE_ENV=production`.
 
 ## Repository layout
 
 ```
-apps/api        NestJS API — modules: auth, schools, students, attendance, assessment, fees, announcements, dashboard
+apps/api        NestJS API — modules: auth, setup, licence, schools, students, attendance, assessment, fees, broadcasts, social, dashboard
 apps/web        Next.js staff portal
 docs/           Product plan: research, feature catalog & tiers, architecture, roadmap, practices, UX
 .github/        CI: lint → typecheck → unit → migration gates → build → E2E

@@ -4,24 +4,29 @@ One codebase, three deployment shapes, tier decided by entitlements.
 
 ## 3.1 Deployment shapes
 
+**One product, one school per server.** The multi-tenant SaaS shape was removed in July 2026: a
+school's records now live on the school's own machine, and there is no hosted estate and no vendor
+console. What remains is one deployment, in two topologies that differ only in where the box sits.
+
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  SHAPE 1 — SaaS (multi-tenant cloud)                                │
-│  cloud API + Postgres (tenant-per-school via school_id + RLS)       │
-│  Web portal · guardian PWA · teacher mobile · WhatsApp bot          │
-│  Billing: subscription (Free/Medium/Advanced) via MoMo/card         │
+│  INTERNET-FACING — the school's own cloud VM                        │
+│  Docker Compose: Postgres + Redis + API + web, one school           │
+│  Reachable by guardians, by Meta (for social publishing), by MoMo   │
+│  Tier from the vendor-signed licence file                           │
 ├─────────────────────────────────────────────────────────────────────┤
-│  SHAPE 2 — Standalone ONLINE (single-tenant, vendor- or self-hosted)│
-│  Same Docker images, single-school database                         │
-│  Tier locked by vendor-signed license file                          │
-├─────────────────────────────────────────────────────────────────────┤
-│  SHAPE 3 — Standalone OFFLINE (school LAN server)                   │
-│  Mini-PC/NUC running Docker Compose: app + Postgres + sync agent    │
-│  Staff devices use it over Wi-Fi; syncs to cloud when internet      │
-│  returns (or runs fully air-gapped)                                 │
-│  Tier locked by vendor-signed license file (offline-verifiable)     │
+│  LAN / OFFLINE — a mini-PC in the school office                     │
+│  Identical images and database, staff devices over Wi-Fi            │
+│  Runs fully air-gapped: the licence verifies with no call home      │
+│  Connectivity-dependent features simply never fire — online         │
+│  payments, and Instagram publishing, which needs Meta to reach the  │
+│  image. Everything else is unaffected.                              │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+A school is created by the first-run wizard at `/setup`, guarded on "no school row exists" rather
+than a token — a token has to be generated, shown and stored, and each of those can leak, whereas
+a row count closes permanently after one use.
 
 ## 3.2 High-level components
 
@@ -34,10 +39,19 @@ One codebase, three deployment shapes, tier decided by entitlements.
 - **Integration adapters** — payment gateways (Hubtel, Paystack, Flutterwave), SMS (Arkesel/Hubtel), WhatsApp Cloud API (via 360dialog as BSP partner, one WABA number per school or shared vendor number), USSD aggregator.
 - **AI service** — a thin internal gateway that wraps LLM/OCR providers; all AI calls flow through it (prompt templates, tenant data grounding, PII redaction, usage metering, human-approval workflow). Cloud-only feature: offline installs queue AI jobs for when connectivity returns (AI never blocks core workflows).
 
-## 3.3 Multi-tenancy & data isolation
+## 3.3 Data isolation
 
-- Tenant = school (Advanced supports school groups/multi-campus: `organization → school → campus`).
-- Every table carries `school_id`; RLS policies enforce isolation at the DB layer; app-layer guards enforce it at the API layer (defense in depth).
+- One school per deployment. Every tenant-owned table still carries `school_id` and still has an
+  RLS policy, and both stay: with a single school, RLS stops being a tenancy mechanism and becomes
+  a **forgotten-where-clause detector** — a query that loses its filter returns nothing instead of
+  everything. (Advanced supports campuses within the one school: `school → campus`.)
+- Two things are needed for a new tenant table, and only one of them fails loudly: a
+  `tenant_isolation` policy **and** a `GRANT` to `eyo_app`. A missing grant fails closed with
+  "permission denied"; a missing policy fails **open, and silently**.
+- The policies only apply if the API connects as `APP_DATABASE_URL` (the non-owner `eyo_app`
+  role). Connecting as the owner bypasses every one of them — which shipped, undetected, for
+  months, because the boot warning went into container logs nobody read. `e2e/rls.spec.ts` exists
+  to catch precisely that.
 - Per-tenant encryption of sensitive columns (guardian phone numbers, medical notes). Child-data protection by design: least-privilege roles, custody flags gate who sees/collects a child, full audit log. Ghana Data Protection Act, 2012 (Act 843) registration and NaSIA expectations tracked as compliance items.
 - Backups: per-tenant logical export (SaaS nightly; standalone local + optional encrypted cloud copy).
 
@@ -59,11 +73,32 @@ Design rules:
 
 ## 3.5 Licensing & entitlements (vendor-controlled tiers)
 
-- Single entitlement model for SaaS and standalone: features check `entitlements.has('safety.carline')`, never `if (plan === 'advanced')` — tiers are bundles of entitlements, letting us regrade bundles without code changes.
-- **SaaS:** entitlements come from the subscription record; upgrades/downgrades apply instantly; Free tier is a first-class subscription (no card required).
-- **Standalone:** entitlements come from a **vendor-signed license file** (Ed25519). Contains: school identity, tier entitlements, student-count cap, expiry + grace period, max offline duration, machine fingerprint (optional). App verifies with an embedded public key — works fully air-gapped; **only the vendor can mint or change a tier** (Keygen/GitLab pattern). Renewal = new file by email/USB, or auto-fetch when online.
-- Anti-tamper posture: signed licenses + periodic re-validation + fingerprinting is commercially sufficient; we do not chase perfect DRM.
-- **Lapse & churn policy (no data hostage-taking):** SaaS non-payment → grace period → read-only mode → 90-day export window before deletion; free-cap overflow blocks _new_ enrollments only; expired standalone license → read-only with export always available. Data export is a right at every tier.
+Implemented in `apps/api/src/licence/`.
+
+- Features check entitlement **codes** — `@RequireEntitlement('safety.carline')` — never
+  `if (tier === 'ADVANCED')`. Tiers are bundles, so a bundle can be regraded without a code change.
+- Entitlements come from a **vendor-signed licence file** (Ed25519, `node:crypto`). It carries
+  school identity (bound to the slug, since the vendor mints it before the box exists), tier,
+  student cap, expiry, grace period, and `extraEntitlements` — individual codes granted on top of
+  the bundle, so one Advanced feature can be sold to a Medium school without cutting a release.
+- Format is `<base64url(payload)>.<base64url(signature)>`, JWS-shaped and deliberately not JWS:
+  one algorithm, no header, so there is no algorithm confusion to get wrong. Verification is over
+  the received bytes rather than a re-serialisation, which removes canonical-JSON drift entirely.
+- The app verifies with an embedded public key and works fully air-gapped. Only the vendor can
+  mint one. `LICENCE_PUBLIC_KEY` must be set in production; the API refuses to validate against
+  the committed development key when `NODE_ENV=production`, because that private half is public.
+- Re-validated hourly. Install at `/setup`, from **Settings → Licence**, or by mounting
+  `LICENCE_FILE`. No machine fingerprint in v1: a fingerprint that breaks on a routine VM
+  migration costs more support time than it saves in piracy.
+- Anti-tamper posture: a signed licence plus periodic re-validation is commercially sufficient. We
+  do not chase perfect DRM.
+
+**Lapse policy (no data hostage-taking).** Valid → grace (full tier, banner) → **BASIC**. This
+supersedes the earlier "expired licence → read-only": Basic is a genuinely usable product — roll,
+attendance, terminal reports, manual fees, SMS — and a school whose licence lapsed over a holiday
+must still be able to mark this morning's register. A missing or tampered licence lands on Basic
+too; the box never refuses to boot. Cap overflow blocks _new_ enrolments only. **Export works in
+every state**, and is a right at every tier.
 
 ## 3.6 WhatsApp chatbot architecture (Advanced)
 

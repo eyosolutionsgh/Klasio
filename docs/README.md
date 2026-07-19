@@ -2,10 +2,16 @@
 
 Planning docs for an AI-powered school management system for private schools in Ghana and other African countries, covering pre-school (creche/nursery/KG) through high school (SHS).
 
-The system ships two ways from one codebase:
+**One school, one server.** Every school runs its own deployment — a cloud VM it controls, or a
+mini-PC in the school office, online or fully offline on the school LAN. The package tier comes
+from a vendor-signed licence file the school installs, verified locally with no call home, and
+only the vendor can mint one.
 
-- **SaaS** — multi-tenant cloud subscription (Free/Basic, Medium, Advanced packages).
-- **Standalone** — deployed for a single school (online or fully offline on a school LAN), with the package tier locked by a vendor-signed license that only the vendor can change.
+> **Note (July 2026).** The product was previously multi-tenant SaaS plus a standalone variant.
+> The hosted estate, the vendor console and subscription billing were removed; see
+> `03-architecture.md` §3.1 and §3.5, which are current. Sections of `01-market-research.md` and
+> `05-roadmap.md` still describe the SaaS commercial model and have not been rewritten — treat the
+> architecture doc as authoritative where they disagree.
 
 ## Document index
 
@@ -27,5 +33,5 @@ The system ships two ways from one codebase:
 4. **Meet parents where they are.** WhatsApp and SMS, not email. Feature-phone parents matter (USSD, SMS, printed QR/PIN cards).
 5. **AI as a differentiator, not a gimmick.** AI writes report remarks, reads marked scripts, predicts fee defaults, and answers guardian questions — tasks that save real hours.
 6. **Offline is a feature, not an afterthought.** Schools with poor connectivity get the same product, synced when the network returns.
-7. **One codebase, license-gated tiers.** SaaS subscriptions and standalone installs share code; entitlements decide what's on, and only the vendor can change them.
+7. **Licence-gated tiers.** Entitlements decide what is on, and only the vendor can change them — a signed file the school installs, not a switch we flip remotely.
 8. **No LMS (yet).** Full LMS is deferred; the only learning feature at launch is school-published documents/resources students can access from home.

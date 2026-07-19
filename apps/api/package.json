@@ -15,8 +15,7 @@
     "licence:mint": "ts-node --transpile-only scripts/mint-licence.ts",
     "licence:new-key": "ts-node --transpile-only scripts/mint-licence.ts --new-key",
     "db:seed:second": "ts-node --transpile-only prisma/seed-second-school.ts",
-    "db:drift-check": "bash scripts/drift-check.sh",
-    "db:seed:platform": "ts-node --transpile-only prisma/seed-platform.ts"
+    "db:drift-check": "bash scripts/drift-check.sh"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1090.0",
