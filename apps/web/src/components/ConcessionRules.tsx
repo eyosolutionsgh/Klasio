@@ -27,8 +27,6 @@ export interface LevelOption {
   name: string;
 }
 
-const money = (n: number) =>
-  `GHS ${n.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtDate = (d: string) =>
   new Date(d).toLocaleDateString('en-GH', { day: 'numeric', month: 'short', year: 'numeric' });
 
@@ -69,6 +67,11 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
   const [canManage, setCanManage] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [entitled, setEntitled] = useState(true);
+  // Defaults to GHS so the first paint never shows a currency this school does not use.
+  const [currency, setCurrency] = useState('GHS');
+
+  const money = (n: number) =>
+    `${currency} ${n.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   // Create form
   const [name, setName] = useState('');
@@ -102,7 +105,10 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
     load();
     fetch('/api/proxy/me')
       .then((r) => r.json())
-      .then((me) => setCanManage(['OWNER', 'HEAD'].includes(me?.user?.role)))
+      .then((me) => {
+        setCanManage(['OWNER', 'HEAD'].includes(me?.user?.role));
+        if (me?.school?.currency) setCurrency(me.school.currency);
+      })
       .catch(() => setCanManage(false));
     fetch('/api/proxy/students')
       .then((r) => (r.ok ? r.json() : []))
@@ -348,7 +354,7 @@ export default function ConcessionRules({ levels }: { levels: LevelOption[] }) {
             />
             <label className="text-[13px]">
               <span className="block text-oat mb-1">
-                {basis === 'PERCENT' ? 'Percent off' : 'Amount off (GHS)'}
+                {basis === 'PERCENT' ? 'Percent off' : `Amount off (${currency})`}
               </span>
               <input
                 required

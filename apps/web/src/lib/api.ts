@@ -46,6 +46,8 @@ export interface Me {
     nextTermBegins: string | null;
     academicYear: { name: string };
   } | null;
+  /** What this person may do — gates which actions the UI offers. The API enforces it too. */
+  permissions?: string[];
   entitlements: string[];
 }
 

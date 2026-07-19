@@ -27,9 +27,6 @@ interface AcademicYear {
   terms: { id: string; name: string }[];
 }
 
-const money = (n: number) =>
-  `GHS ${n.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
 export default function FeeStructurePage() {
   const [termId, setTermId] = useState('');
   const [termName, setTermName] = useState('');
@@ -46,6 +43,11 @@ export default function FeeStructurePage() {
   const [optional, setOptional] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  // Defaults to GHS so the first paint never shows a currency this school does not use.
+  const [currency, setCurrency] = useState('GHS');
+
+  const money = (n: number) =>
+    `${currency} ${n.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   useEffect(() => {
     Promise.all([
@@ -56,6 +58,7 @@ export default function FeeStructurePage() {
         setTermId(me.currentTerm.id);
         setTermName(`${me.currentTerm.academicYear?.name ?? ''} · ${me.currentTerm.name}`);
       }
+      if (me.school?.currency) setCurrency(me.school.currency);
       setLevels(s.levels ?? []);
       setClasses(s.classes ?? []);
       // Years come back newest first; the rollover picker reads better oldest first, so a term
@@ -232,7 +235,7 @@ export default function FeeStructurePage() {
             />
           </label>
           <label className="text-[13px]">
-            <span className="block text-oat mb-1">Amount (GHS)</span>
+            <span className="block text-oat mb-1">Amount ({currency})</span>
             <input
               required
               type="number"

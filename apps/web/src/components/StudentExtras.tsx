@@ -21,11 +21,14 @@ export default function StudentExtras({ studentId }: { studentId: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // Defaults to GHS so the first paint never shows a currency this school does not use.
+  const [currency, setCurrency] = useState('GHS');
 
   useEffect(() => {
     fetch('/api/proxy/me')
       .then((r) => r.json())
       .then((me) => {
+        if (me.school?.currency) setCurrency(me.school.currency);
         if (me.currentTerm) {
           setTermId(me.currentTerm.id);
           setTermName(`${me.currentTerm.academicYear?.name ?? ''} · ${me.currentTerm.name}`);
@@ -68,7 +71,7 @@ export default function StudentExtras({ studentId }: { studentId: string }) {
   if (items.length === 0) return null;
 
   const money = (n: number) =>
-    `GHS ${n.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    `${currency} ${n.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const takenTotal = items.filter((i) => i.subscribed).reduce((a, i) => a + i.amount, 0);
 
   return (

@@ -95,6 +95,15 @@ export class AuthService {
       },
       currentTerm,
       entitlements: entitlementsForTier(school.tier),
+      /**
+       * What this person may actually do.
+       *
+       * The guard has always resolved this, but /me never returned it, so the web app had no way
+       * to know — every screen offered every action and relied on the API to refuse. A librarian
+       * saw a "Record payment" button that always failed. Gating the UI is not a security
+       * boundary (the guard is), it is how a person can tell what their job includes.
+       */
+      permissions: auth.permissions ?? [],
     };
   }
 }

@@ -107,12 +107,19 @@ export default function LoginPage() {
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
 
-          <p className="mt-8 text-xs text-oat leading-relaxed">
-            Demo school: <span className="font-medium text-ink">bursar@demo.school</span> ·{' '}
-            <span className="font-medium text-ink">head@demo.school</span> ·{' '}
-            <span className="font-medium text-ink">teacher@demo.school</span> — password{' '}
-            <span className="font-medium text-ink">Password1!</span>
-          </p>
+          {/*
+            Working credentials, so this must never render anywhere real. It was unconditional:
+            anyone reaching a school's login page was handed a bursar account for any deployment
+            where the demo seed had been run.
+          */}
+          {process.env.NEXT_PUBLIC_SHOW_DEMO_LOGINS === 'true' && (
+            <p className="mt-8 text-xs text-oat leading-relaxed">
+              Demo school: <span className="font-medium text-ink">bursar@demo.school</span> ·{' '}
+              <span className="font-medium text-ink">head@demo.school</span> ·{' '}
+              <span className="font-medium text-ink">teacher@demo.school</span> — password{' '}
+              <span className="font-medium text-ink">Password1!</span>
+            </p>
+          )}
         </form>
       </section>
     </main>

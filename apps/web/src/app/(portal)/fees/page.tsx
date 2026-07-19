@@ -30,9 +30,6 @@ interface Defaulter {
   balance: number;
 }
 
-const money = (n: number) =>
-  `GHS ${n.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
 const METHOD_LABEL: Record<string, string> = {
   MOMO: 'Mobile Money',
   CASH: 'Cash',
@@ -52,11 +49,19 @@ export default function FeesPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [depositFor, setDepositFor] = useState<Defaulter | null>(null);
   const [payLink, setPayLink] = useState<{ student: string; url: string } | null>(null);
+  // Defaults to GHS so the first paint never shows a currency this school does not use.
+  const [currency, setCurrency] = useState('GHS');
+
+  const money = (n: number) =>
+    `${currency} ${n.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   useEffect(() => {
     fetch('/api/proxy/me')
       .then((r) => r.json())
-      .then((me) => me.currentTerm && setTermId(me.currentTerm.id));
+      .then((me) => {
+        if (me.currentTerm) setTermId(me.currentTerm.id);
+        if (me.school?.currency) setCurrency(me.school.currency);
+      });
   }, []);
 
   const load = useCallback(async () => {
@@ -199,7 +204,7 @@ export default function FeesPage() {
                 </span>
               </div>
               <div className="px-6 pb-1">
-                <SendReminders termId={termId} currency="GHS" />
+                <SendReminders termId={termId} currency={currency} />
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm min-w-[380px]">
@@ -348,7 +353,7 @@ export default function FeesPage() {
               <span className="tabular font-medium text-clay">{money(depositFor.balance)}</span>
             </p>
 
-            <label className="block text-sm font-medium mt-6 mb-1.5">Amount (GHS)</label>
+            <label className="block text-sm font-medium mt-6 mb-1.5">Amount ({currency})</label>
             <input
               name="amount"
               type="number"
@@ -469,7 +474,7 @@ export default function FeesPage() {
             </p>
 
             <label className="block text-sm font-medium mt-6 mb-1.5" htmlFor="amount">
-              Amount (GHS)
+              Amount ({currency})
             </label>
             <input
               id="amount"

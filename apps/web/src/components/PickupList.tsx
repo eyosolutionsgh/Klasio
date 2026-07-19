@@ -8,6 +8,7 @@ interface Person {
   name: string;
   relationship: string;
   hasCard: boolean;
+  hasPhoto?: boolean;
   message: string;
   expiresAt?: string | null;
   verdict: { allowed: boolean; requiresOverride?: boolean };
@@ -93,6 +94,52 @@ export default function PickupList({ studentId }: { studentId: string }) {
     const url = URL.createObjectURL(blob);
     window.open(url, '_blank');
     setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  }
+
+  /**
+   * Cancel a printed card.
+   *
+   * A card carries a PIN that opens the gate, so a lost or stolen one has to be stoppable without
+   * removing the person — a parent whose card went missing must stay on the list. Until now the
+   * only lever was removing them entirely, which is the wrong answer for exactly the people most
+   * likely to have a card.
+   */
+  async function revokeCard(p: Person) {
+    if (
+      !confirm(
+        `Cancel ${p.name}'s pickup card? Their PIN and QR code stop working straight away. They stay on the list and can be issued a new card.`,
+      )
+    )
+      return;
+    setBusy(true);
+    const res = await fetch(`/api/proxy/pickup/cards/${p.kind}/${p.id}`, { method: 'DELETE' });
+    setBusy(false);
+    if (res.ok) load();
+    else setError('Could not cancel that card.');
+  }
+
+  /**
+   * Attach a face photo to a guardian.
+   *
+   * The release screen has always *shown* this photo to whoever is handing a child over, and
+   * nothing in the product could ever put one there — so gate staff saw a broken image at exactly
+   * the moment they were meant to be checking a face. This is the missing half.
+   */
+  async function uploadPhoto(p: Person, file: File) {
+    setBusy(true);
+    setError(null);
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch(`/api/proxy/pickup/guardians/${p.id}/photo`, {
+      method: 'POST',
+      body: form,
+    });
+    setBusy(false);
+    if (res.ok) load();
+    else {
+      const d = await res.json().catch(() => ({}));
+      setError(d.message ?? 'Could not save that photo.');
+    }
   }
 
   async function removeDelegate(id: string) {
@@ -198,6 +245,31 @@ export default function PickupList({ studentId }: { studentId: string }) {
                   className="text-[12px] text-brand hover:underline underline-offset-2"
                 >
                   {p.hasCard ? 'Reissue card' : 'Issue card'}
+                </button>
+              )}
+              {p.kind === 'GUARDIAN' && (
+                <label className="text-[12px] text-brand hover:underline underline-offset-2 cursor-pointer">
+                  {p.hasPhoto ? 'Replace photo' : 'Add photo'}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png"
+                    className="sr-only"
+                    disabled={busy}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) uploadPhoto(p, f);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              )}
+              {p.hasCard && (
+                <button
+                  onClick={() => revokeCard(p)}
+                  disabled={busy}
+                  className="text-[12px] text-clay hover:underline underline-offset-2"
+                >
+                  Cancel card
                 </button>
               )}
               {p.kind === 'DELEGATE' && (

@@ -34,7 +34,7 @@ import {
   objectKey,
   storage,
 } from '../common/storage';
-import { balanceOf } from '../common/ledger';
+import { balanceOf, reversedIds } from '../common/ledger';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
@@ -182,6 +182,7 @@ export class StudentsService {
       }),
     ]);
     const balance = balanceOf(ledger);
+    const cancelled = reversedIds(ledger);
     return {
       id: s.id,
       admissionNo: s.admissionNo,
@@ -223,6 +224,9 @@ export class StudentsService {
         alsoGuardianTo: Math.max(0, g.guardian._count.students - 1),
       })),
       feeBalance: mayReadFees ? Math.round(balance * 100) / 100 : undefined,
+      // Whether the child can sign in, never the PIN itself — that is shown once, at the moment
+      // it is issued, and is a hash from then on.
+      hasPortalPin: !!s.portalPinHash,
       ledger: !mayReadFees
         ? undefined
         : ledger.slice(0, 20).map((e) => ({
@@ -234,6 +238,10 @@ export class StudentsService {
             receiptNumber: e.receipt?.number ?? null,
             note: e.note,
             createdAt: e.createdAt,
+            reversedId: e.reversedId,
+            // Both halves of a correction stay visible, but the cancelled entry has to *look*
+            // cancelled or the ledger reads as if the family were charged twice.
+            reversed: cancelled.has(e.id),
           })),
       attendanceSummary: attendance.reduce(
         (acc, a) => ({ ...acc, [a.status]: a._count }),

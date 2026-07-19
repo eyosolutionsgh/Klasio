@@ -20,8 +20,6 @@ interface Preview {
   payable: number;
 }
 
-const money = (n: number) =>
-  `GHS ${n.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtDate = (d: string) =>
   new Date(d).toLocaleDateString('en-GH', { day: 'numeric', month: 'short', year: 'numeric' });
 
@@ -55,12 +53,17 @@ export default function StudentConcessions({
   studentName,
   balance,
   canManage,
+  currency,
 }: {
   studentId: string;
   studentName: string;
   balance: number;
   canManage: boolean;
+  currency: string;
 }) {
+  const money = (n: number) =>
+    `${currency} ${n.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
   const [awards, setAwards] = useState<Award[] | null>(null);
   const [probe, setProbe] = useState<Preview | null>(null);
   const [live, setLive] = useState<Preview | null>(null);
@@ -241,7 +244,7 @@ export default function StudentConcessions({
         <div className="flex flex-wrap items-end justify-between gap-3">
           <h3 className="text-sm font-medium">What that comes to today</h3>
           <label className="text-[13px]">
-            <span className="block text-oat mb-1">Against a bill of (GHS)</span>
+            <span className="block text-oat mb-1">Against a bill of ({currency})</span>
             <input
               type="number"
               min="0"

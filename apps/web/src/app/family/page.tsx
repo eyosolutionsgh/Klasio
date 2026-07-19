@@ -4,6 +4,29 @@ import { useCallback, useEffect, useState } from 'react';
 import GuardianPay from '@/components/GuardianPay';
 import { useRouter } from 'next/navigation';
 
+/**
+ * Human words for a parent.
+ *
+ * This list used to fall through to the raw enum, so a family granted a scholarship read
+ * "DISCOUNT" on their own bill, a hardship waiver read "WAIVER", and a corrected charge read
+ * "REVERSAL" — the most emotionally loaded rows on the page, shown as database values.
+ */
+const METHOD_LABEL: Record<string, string> = {
+  MOMO: 'Mobile Money',
+  CASH: 'Cash',
+  BANK: 'Bank transfer',
+  CARD: 'Card',
+};
+
+const LEDGER_LABEL = (type: string, method?: string | null) => {
+  if (type === 'INVOICE') return 'School bill';
+  if (type === 'PAYMENT') return `Payment${method ? ` · ${METHOD_LABEL[method] ?? method}` : ''}`;
+  if (type === 'DISCOUNT') return 'Discount applied';
+  if (type === 'WAIVER') return 'Amount waived by the school';
+  if (type === 'REVERSAL') return 'Correction — earlier entry cancelled';
+  return type;
+};
+
 interface Ward {
   id: string;
   name: string;
@@ -240,13 +263,7 @@ export default function FamilyPage() {
                     className="flex justify-between gap-3 text-sm border-b border-mist/50 last:border-0 pb-2.5 last:pb-0"
                   >
                     <div className="min-w-0">
-                      <p className="font-medium">
-                        {e.type === 'INVOICE'
-                          ? 'School bill'
-                          : e.type === 'PAYMENT'
-                            ? `Payment${e.method ? ` · ${e.method}` : ''}`
-                            : e.type}
-                      </p>
+                      <p className="font-medium">{LEDGER_LABEL(e.type, e.method)}</p>
                       <p className="text-[11px] text-oat tabular">
                         {fmtDate(e.createdAt)}
                         {e.receiptNumber && ` · receipt ${e.receiptNumber}`}

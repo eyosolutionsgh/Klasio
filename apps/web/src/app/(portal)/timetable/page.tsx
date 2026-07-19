@@ -2,14 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Combobox from '@/components/Combobox';
+import SchoolDay, { type Period } from '@/components/SchoolDay';
 
-interface Period {
-  id: string;
-  name: string;
-  isBreak: boolean;
-  startsAt: string;
-  endsAt: string;
-}
 interface Slot {
   id: string;
   periodId: string;
@@ -36,8 +30,6 @@ interface Options {
 
 type View = 'CLASS' | 'TEACHER';
 
-const EDITORS = ['OWNER', 'HEAD'];
-
 export default function TimetablePage() {
   const [options, setOptions] = useState<Options | null>(null);
   const [view, setView] = useState<View>('CLASS');
@@ -58,9 +50,11 @@ export default function TimetablePage() {
     Promise.all([
       fetch('/api/proxy/timetable/options').then((r) => r.json()),
       fetch('/api/proxy/me').then((r) => r.json()),
-    ]).then(([o, me]: [Options, { user: { id: string; role: string } }]) => {
+    ]).then(([o, me]: [Options, { user: { id: string }; permissions?: string[] }]) => {
       setOptions(o);
-      setCanEdit(EDITORS.includes(me.user.role));
+      // What this person may do, not what they are called: a school can put building the
+      // timetable on any staff role it likes, and role names would miss that.
+      setCanEdit((me.permissions ?? []).includes('timetable.manage'));
       if (o.classes[0]) setClassId(o.classes[0].id);
       // Default the teacher view to whoever is looking, when they are on the list.
       const self = o.teachers.find((t) => t.id === me.user.id);
@@ -205,8 +199,13 @@ export default function TimetablePage() {
           />
         )}
 
-        {canEdit && view === 'CLASS' && (
-          <p className="ml-auto text-[13px] text-oat">Select a cell to timetable a lesson.</p>
+        {canEdit && (
+          <div className="ml-auto flex items-center gap-3">
+            {view === 'CLASS' && (
+              <p className="text-[13px] text-oat">Select a cell to timetable a lesson.</p>
+            )}
+            <SchoolDay onChanged={load} />
+          </div>
         )}
       </div>
 
@@ -343,9 +342,21 @@ export default function TimetablePage() {
           </tbody>
         </table>
         {grid && grid.periods.length === 0 && (
-          <p className="px-5 py-8 text-sm text-oat">
-            No periods yet. Set out the school day before timetabling lessons.
-          </p>
+          <div className="px-5 py-8">
+            <p className="text-sm text-oat">
+              No periods yet. Divide the day into periods — first lesson, break, lunch and the rest
+              — before timetabling any lessons.
+            </p>
+            {canEdit ? (
+              <div className="mt-4">
+                <SchoolDay variant="primary" onChanged={load} />
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-oat">
+                Ask whoever builds the timetable at your school to set the periods out.
+              </p>
+            )}
+          </div>
         )}
       </div>
     </div>

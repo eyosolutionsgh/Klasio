@@ -139,6 +139,10 @@ export class PickupService {
         custodyFlag: l.custodyFlag,
         canPickup: l.canPickup,
         hasCard: !!l.guardian.pickupCredential && !l.guardian.pickupCredential.revokedAt,
+        // Gate staff compare a face to this at handoff, so the UI needs to know when it is
+        // missing — the release screen was rendering a permanently broken image because nothing
+        // in the product could ever upload one.
+        hasPhoto: !!l.guardian.photoUrl,
         verdict,
         message: verdictMessage(verdict),
       };

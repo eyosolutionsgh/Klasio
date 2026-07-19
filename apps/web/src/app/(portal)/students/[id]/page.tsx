@@ -13,6 +13,25 @@ import GrantConcession from '@/components/GrantConcession';
 import StudentConcessions from '@/components/StudentConcessions';
 import PickupList from '@/components/PickupList';
 import CumulativeRecord from '@/components/CumulativeRecord';
+import ReverseEntry from '@/components/ReverseEntry';
+import StudentPortalAccess from '@/components/StudentPortalAccess';
+
+/** One place for the human words, so a parent and a bursar never read different labels. */
+const METHOD_LABEL: Record<string, string> = {
+  MOMO: 'Mobile Money',
+  CASH: 'Cash',
+  BANK: 'Bank transfer',
+  CARD: 'Card',
+};
+
+const LEDGER_LABEL = (type: string, method?: string | null) => {
+  if (type === 'PAYMENT') return `Payment${method ? ` · ${METHOD_LABEL[method] ?? method}` : ''}`;
+  if (type === 'INVOICE') return 'Invoice';
+  if (type === 'DISCOUNT') return 'Discount';
+  if (type === 'WAIVER') return 'Waiver';
+  if (type === 'REVERSAL') return 'Correction — entry reversed';
+  return type;
+};
 
 interface Detail {
   id: string;
@@ -40,6 +59,7 @@ interface Detail {
     alsoGuardianTo: number;
   }[];
   feeBalance: number;
+  hasPortalPin: boolean;
   ledger: {
     id: string;
     type: string;
@@ -49,6 +69,8 @@ interface Detail {
     receiptNumber: string | null;
     note: string | null;
     createdAt: string;
+    reversedId: string | null;
+    reversed: boolean;
   }[];
   attendanceSummary: Record<string, number>;
 }
@@ -59,6 +81,8 @@ const fmtDate = (d: string) =>
 export default async function StudentDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const [s, me] = await Promise.all([api<Detail>(`/students/${id}`), getMe()]);
+  const canReverse = me.permissions?.includes('fees.reverse') ?? false;
+  const canEditStudent = me.permissions?.includes('students.edit') ?? false;
   const att = s.attendanceSummary;
   const attTotal = Object.values(att).reduce((a, b) => a + b, 0);
   // Both are presentation only — the API refuses either way. Hiding them keeps a teacher from
@@ -155,11 +179,21 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
             studentName={s.firstName}
             balance={s.feeBalance}
             canManage={canAwardConcessions}
+            currency={me.school.currency}
           />
 
           <InstallmentPlan studentId={s.id} balance={s.feeBalance} canEdit={canPlan} />
 
           <MedicalNotes studentId={s.id} notes={s.medicalNotes} />
+
+          {canEditStudent && (
+            <StudentPortalAccess
+              studentId={s.id}
+              studentName={s.firstName}
+              admissionNo={s.admissionNo}
+              hasPin={s.hasPortalPin}
+            />
+          )}
 
           {/* Attendance summary */}
           <section className="card p-6 rise rise-3">
@@ -206,36 +240,53 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
               <tbody>
                 {s.ledger.map((e) => (
                   <tr key={e.id} className="border-b border-mist/50 last:border-0">
-                    <td className="py-2.5 text-oat tabular whitespace-nowrap">
+                    <td className="py-2.5 text-oat tabular whitespace-nowrap align-top">
                       {fmtDate(e.createdAt)}
                     </td>
                     <td className="py-2.5">
-                      <p className="font-medium text-[13px]">
-                        {e.type === 'INVOICE'
-                          ? 'Invoice'
-                          : e.type === 'PAYMENT'
-                            ? `Payment · ${e.method}`
-                            : e.type === 'DISCOUNT'
-                              ? 'Discount'
-                              : e.type === 'WAIVER'
-                                ? 'Waiver'
-                                : e.type}
+                      <p
+                        className={`font-medium text-[13px] ${e.reversed ? 'line-through text-oat' : ''}`}
+                      >
+                        {LEDGER_LABEL(e.type, e.method)}
                       </p>
                       <p className="text-[11px] text-oat tabular">
                         {e.reference}
                         {e.receiptNumber && ` · ${e.receiptNumber}`}
                       </p>
-                      {e.type === 'PAYMENT' && e.receiptNumber && (
-                        <a
-                          href={`/api/proxy/fees/receipts/${e.reference}/pdf`}
-                          className="no-print text-[11px] text-brand hover:underline underline-offset-2"
-                        >
-                          Download receipt ↓
-                        </a>
+                      {/* The reason a correction was made matters more than the correction. */}
+                      {e.type === 'REVERSAL' && e.note && (
+                        <p className="text-[11px] text-oat italic">{e.note}</p>
                       )}
+                      {e.reversed && (
+                        <p className="text-[11px] text-danger">Reversed — no longer counted</p>
+                      )}
+                      <span className="flex items-center gap-3">
+                        {e.type === 'PAYMENT' && e.receiptNumber && !e.reversed && (
+                          <a
+                            href={`/api/proxy/fees/receipts/${e.reference}/pdf`}
+                            className="no-print text-[11px] text-brand hover:underline underline-offset-2"
+                          >
+                            Download receipt ↓
+                          </a>
+                        )}
+                        {/* Append-only: a mistake is cancelled by recording that it was. */}
+                        {canReverse && !e.reversed && e.type !== 'REVERSAL' && (
+                          <ReverseEntry
+                            entryId={e.id}
+                            label={LEDGER_LABEL(e.type, e.method)}
+                            amount={money(e.amount)}
+                          />
+                        )}
+                      </span>
                     </td>
                     <td
-                      className={`py-2.5 text-right tabular font-medium ${e.type === 'INVOICE' ? 'text-ink' : 'text-leaf'}`}
+                      className={`py-2.5 text-right tabular font-medium align-top ${
+                        e.reversed
+                          ? 'line-through text-oat'
+                          : e.type === 'INVOICE'
+                            ? 'text-ink'
+                            : 'text-leaf'
+                      }`}
                     >
                       {e.type === 'INVOICE' ? '' : '−'}
                       {money(e.amount)}
