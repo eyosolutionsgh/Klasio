@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import GuardianPay from '@/components/GuardianPay';
 import { useRouter } from 'next/navigation';
+import PortalBrandHeader from '@/components/PortalBrandHeader';
 import { Button, useAsyncAction } from '@/components/Button';
 import { CalendarIcon, SendIcon } from '@/components/icons';
 import { fileKind, fileSize } from '@/lib/files';
@@ -198,21 +199,18 @@ export default function FamilyPage() {
 
   return (
     <main className="min-h-dvh">
-      <header className="bg-forest-deep text-paper pt-[env(safe-area-inset-top)]">
-        <div className="accent-rule h-[3px]" />
-        <div className="max-w-3xl mx-auto px-5 py-5 flex items-start justify-between gap-4">
-          <div>
-            <p className="font-display text-xl text-gold-bright leading-none">{me.school.name}</p>
-            <p className="text-[13px] text-paper/70 mt-1.5">Welcome, {me.guardian.name}</p>
-          </div>
+      <PortalBrandHeader
+        schoolName={me.school.name}
+        subtitle={`Welcome, ${me.guardian.name}`}
+        action={
           <button
             onClick={signOut}
             className="shrink-0 -mr-2 -mt-1 min-h-11 px-2 text-[13px] text-paper/70 hover:text-gold-bright transition underline underline-offset-2"
           >
             Sign out
           </button>
-        </div>
-      </header>
+        }
+      />
 
       <div className="max-w-3xl mx-auto px-5 py-6 space-y-6">
         {me.wards.length > 1 && (

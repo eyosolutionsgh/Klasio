@@ -107,14 +107,16 @@ export default function PortalShell({
             </button>
 
             {/*
-              Hidden from `lg` up, where the sidebar is a permanent column already showing the
-              crest and the school's name — two crests a few hundred pixels apart read as a
-              mistake. Below `lg` the sidebar is an off-canvas drawer, so this is the only place
-              the school is named and it has to stay.
+              Shown at every width, including `lg` and up where the sidebar also carries a crest.
+              That used to be hidden on the theory that two crests a few hundred pixels apart read
+              as a mistake — but they are at different sizes in different planes, and the school
+              being present on the page a member of staff actually looks at all day matters more
+              than the tidiness of showing it once. The sidebar is an off-canvas drawer below `lg`,
+              so on a phone this is the only place the school is named at all.
             */}
-            <Link href="/dashboard" className="lg:hidden flex items-center gap-2.5 min-w-0">
-              <SchoolCrest name={school} hasLogo={hasLogo} size={34} />
-              <span className="block text-[13.5px] font-medium truncate max-w-[12rem] sm:max-w-none">
+            <Link href="/dashboard" className="flex items-center gap-2.5 min-w-0">
+              <SchoolCrest name={school} hasLogo={hasLogo} size={40} />
+              <span className="block text-[15px] font-medium truncate max-w-[12rem] sm:max-w-none">
                 {school}
               </span>
             </Link>

@@ -3,20 +3,26 @@
 import { useState } from 'react';
 
 /**
- * The school's crest, falling back to its initials. The image is fetched through the
- * authenticated proxy — logos live in the same tenant-scoped storage as student photos and
- * are never exposed on a public URL.
+ * The school's crest, falling back to its initials.
+ *
+ * Two sources, and which one is right depends on whether the viewer has a session. Inside the
+ * portal the bytes come through the authenticated proxy, alongside student photos. On the sign-in
+ * pages nobody has a session yet, so `pub` switches to the unauthenticated branding route — the
+ * one deliberate carve-out, for the one image that has to render on a closed door.
  */
 export default function SchoolCrest({
   name,
   hasLogo,
   size = 36,
   onDark = false,
+  pub = false,
 }: {
   name: string;
   hasLogo: boolean;
   size?: number;
   onDark?: boolean;
+  /** Fetch the crest without a session — for pages shown before sign-in. */
+  pub?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
   const letters = name
@@ -52,7 +58,7 @@ export default function SchoolCrest({
         style={{ width: size, height: size, borderRadius: radius, padding: pad }}
       >
         <img
-          src="/api/proxy/school/logo"
+          src={pub ? '/api/branding/logo' : '/api/proxy/school/logo'}
           alt={`${name} crest`}
           onError={() => setFailed(true)}
           className="w-full h-full object-contain"

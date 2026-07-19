@@ -1,6 +1,9 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import RegisterServiceWorker from '@/components/RegisterServiceWorker';
+import { BrandProvider, type Branding } from '@/components/Brand';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 export const metadata: Metadata = {
   title: 'Klasio — School Management',
@@ -17,12 +20,55 @@ export const viewport: Viewport = {
   themeColor: '#001d40', // --color-forest-deep, matching the portal header
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+const UNBRANDED: Branding = {
+  configured: false,
+  name: null,
+  motto: null,
+  brandColor: null,
+  hasLogo: false,
+};
+
+/**
+ * Whose school this is, fetched once for the whole app.
+ *
+ * Revalidated rather than fetched per request: the answer changes when someone edits the branding
+ * screen, which happens a handful of times in a school's life. A failure is not fatal — the pages
+ * fall back to Klasio's own colours, which is exactly how they looked before this existed.
+ */
+async function loadBranding(): Promise<Branding> {
+  try {
+    const res = await fetch(`${API_URL}/public/branding`, { next: { revalidate: 60 } });
+    if (!res.ok) return UNBRANDED;
+    return (await res.json()) as Branding;
+  } catch {
+    return UNBRANDED;
+  }
+}
+
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const branding = await loadBranding();
+
   return (
     <html lang="en">
-      <body className="paper-bg min-h-dvh antialiased">
+      {/*
+        `brand-scope` at the root, not only inside the portal.
+
+        globals.css derives --brand-deep and --brand-mist from --brand wherever this class lands,
+        so a school's own colour now reaches the sign-in pages — the first thing anyone ever sees
+        of the product. It could not before: on a shared hostname the login page had no idea which
+        school was at the door. PortalShell still sets its own, which is harmless duplication —
+        it resolves to the same value.
+      */}
+      <body
+        className="paper-bg brand-scope min-h-dvh antialiased"
+        style={
+          branding.brandColor
+            ? ({ '--brand': branding.brandColor } as React.CSSProperties)
+            : undefined
+        }
+      >
         <RegisterServiceWorker />
-        {children}
+        <BrandProvider value={branding}>{children}</BrandProvider>
       </body>
     </html>
   );

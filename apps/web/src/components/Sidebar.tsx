@@ -424,14 +424,21 @@ export default function Sidebar({
         someone's logo to suit our palette is not ours to do, so the surface changes instead.
       */}
       <div className="mt-auto shrink-0 px-5 py-4 border-t border-paper/10">
-        <div className="rounded-lg bg-paper/95 px-3 py-2.5 grid place-items-center">
+        {/*
+          Labelled, and smaller than it was. The school owns this sidebar — its crest is at the top
+          at 76px — so the supplier's mark at the foot should read as a signature rather than a
+          second brand competing with it.
+        */}
+        <p className="text-[10px] uppercase tracking-widest text-paper/35">Powered by</p>
+        <div className="mt-1.5 rounded-lg bg-paper/95 px-3 py-2 grid place-items-center">
           {/* Sized by width, not height. At a fixed 24px tall the mark floated in a mostly empty
               panel and the strapline collapsed into a smudge; filling the column's width gives
-              both room to be read. */}
+              both room to be read. It stays on a light plate: the artwork was keyed off white and
+              washes out rather than failing obviously on the navy. */}
           <img
             src="/brand/klasio-lockup.png"
             alt="Klasio — School Management System"
-            className="w-full max-w-[150px] h-auto"
+            className="w-full max-w-[120px] h-auto"
           />
         </div>
         <p className="mt-2 text-[11px] text-paper/40 leading-relaxed">
