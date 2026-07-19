@@ -12,6 +12,7 @@ const ALLOW: RegExp[] = [
   /^payments\/public\/[^/]+\/checkout$/, // start checkout
   /^payments\/[^/]+\/status$/, // read-only status (cannot settle)
   /^payments\/mock\/[^/]+\/complete$/, // mock gateway completion (dev/demo only)
+  /^billing\/mock\/[^/]+\/complete$/, // ditto, for a school's own subscription checkout
 ];
 
 async function forward(req: NextRequest, params: Promise<{ path: string[] }>) {

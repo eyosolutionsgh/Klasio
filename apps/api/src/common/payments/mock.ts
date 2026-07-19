@@ -19,16 +19,33 @@ import {
 
 export const MOCK_SECRET = 'mock-gateway-secret';
 
+/**
+ * Which module can settle the references this provider mints.
+ *
+ * A school fee reference lives in `PaymentIntent`, a subscription reference in
+ * `SubscriptionInvoice`, and the two are settled by different services on purpose. The checkout
+ * page therefore has to be told which one to call back: it used to assume `payments`, so
+ * approving a subscription payment answered "Unknown payment reference" and no school could
+ * complete an upgrade without a live gateway.
+ *
+ * Carried in the URL rather than inferred from the reference prefix, so the naming convention
+ * of one module is not something the web app has to know about.
+ */
+export type MockSettleRoute = 'payments' | 'billing';
+
 export class MockProvider implements PaymentProvider {
   readonly kind = 'MOCK' as const;
   readonly signsWebhooks = true;
 
+  constructor(private readonly settleVia: MockSettleRoute = 'payments') {}
+
   async initiate(input: InitiateInput): Promise<InitiateResult> {
+    const base = process.env.PUBLIC_BASE_URL ?? 'http://localhost:3000';
     return {
       status: 'PENDING',
       providerRef: `mock-${input.reference}`,
       // Points at our own mock checkout page, which posts the synthetic callback.
-      checkoutUrl: `${process.env.PUBLIC_BASE_URL ?? 'http://localhost:3000'}/pay/mock/${encodeURIComponent(input.reference)}`,
+      checkoutUrl: `${base}/pay/mock/${encodeURIComponent(input.reference)}?via=${this.settleVia}`,
     };
   }
 

@@ -115,13 +115,29 @@ export function periodFor(start: Date, termEnd?: Date | null): { start: Date; en
  * docs/03 §3.5 already says an over-cap school is blocked from new enrolments only, never from
  * its own data. `PAST_DUE` is a billing state, not a lockout.
  */
+export const GRACE_DAYS = 14;
+
+/** The moment a period that ended at `periodEnd` stops being entitled to its tier. */
+export function graceEndsAt(periodEnd: Date, graceDays = GRACE_DAYS): Date {
+  return new Date(periodEnd.getTime() + graceDays * 24 * 60 * 60 * 1000);
+}
+
+/**
+ * The newest `periodEnd` that is already out of grace at `now`.
+ *
+ * The same rule as `isEntitled`, turned around so a query can express it: `isEntitled` answers
+ * for one subscription in hand, this one selects the lapsed rows without loading every row.
+ */
+export function graceCutoff(now: Date = new Date(), graceDays = GRACE_DAYS): Date {
+  return new Date(now.getTime() - graceDays * 24 * 60 * 60 * 1000);
+}
+
 export function isEntitled(
   sub: { status: string; periodEnd: Date; tier: Tier },
   now: Date = new Date(),
-  graceDays = 14,
+  graceDays = GRACE_DAYS,
 ): boolean {
   if (sub.tier === 'BASIC') return true;
   if (sub.status === 'CANCELLED') return false;
-  const graceEnd = new Date(sub.periodEnd.getTime() + graceDays * 24 * 60 * 60 * 1000);
-  return now.getTime() <= graceEnd.getTime();
+  return now.getTime() <= graceEndsAt(sub.periodEnd, graceDays).getTime();
 }

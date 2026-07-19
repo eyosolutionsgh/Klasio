@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { changeEffect, isEntitled, isUpgrade, periodFor, quoteFor, TIER_PRICES } from './pricing';
+import {
+  changeEffect,
+  graceCutoff,
+  GRACE_DAYS,
+  isEntitled,
+  isUpgrade,
+  periodFor,
+  quoteFor,
+  TIER_PRICES,
+} from './pricing';
 
 const at = (iso: string) => new Date(iso);
 
@@ -124,5 +133,33 @@ describe('isEntitled', () => {
 
   it('is not entitled once cancelled outright', () => {
     expect(isEntitled({ ...base, status: 'CANCELLED' }, at('2026-11-01T00:00:00Z'))).toBe(false);
+  });
+});
+
+describe('graceCutoff', () => {
+  // The downgrade sweep selects rows with `periodEnd <= graceCutoff(now)`. If that disagreed
+  // with `isEntitled` in either direction the product would contradict itself: schools losing
+  // features the billing page still calls entitled, or the reverse.
+  const tier = 'MEDIUM' as const;
+
+  it('agrees with isEntitled on the day a subscription lapses', () => {
+    const now = at('2027-02-01T00:00:00Z');
+    const cutoff = graceCutoff(now);
+
+    // The sweep selects `periodEnd < cutoff`, strictly. The boundary itself is still entitled,
+    // because `isEntitled` compares inclusively — hence the strict `lt` in `applyLapses`.
+    expect(isEntitled({ status: 'PAST_DUE', periodEnd: cutoff, tier }, now)).toBe(true);
+
+    // A minute either side settles which way each falls.
+    const lapsed = new Date(cutoff.getTime() - 60_000);
+    expect(isEntitled({ status: 'PAST_DUE', periodEnd: lapsed, tier }, now)).toBe(false);
+    const inGrace = new Date(cutoff.getTime() + 60_000);
+    expect(isEntitled({ status: 'PAST_DUE', periodEnd: inGrace, tier }, now)).toBe(true);
+  });
+
+  it('is the grace period behind now', () => {
+    const now = at('2027-02-01T00:00:00Z');
+    const days = (now.getTime() - graceCutoff(now).getTime()) / (24 * 60 * 60 * 1000);
+    expect(days).toBe(GRACE_DAYS);
   });
 });

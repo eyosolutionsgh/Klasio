@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .next/
+# Isolated build output for the e2e server (NEXT_DIST_DIR), so it cannot collide with a dev server.
+.next-e2e/
 coverage/
 *.log
 .env
@@ -8,6 +10,8 @@ coverage/
 playwright-report/
 test-results/
 **/e2e/screenshots/
+# Run recordings (E2E_VIDEO=1) — regenerated on demand, never reviewed as source.
+**/e2e/videos/
 .turbo/
 
 *.tsbuildinfo

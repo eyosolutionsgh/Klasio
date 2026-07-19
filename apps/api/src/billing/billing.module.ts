@@ -10,6 +10,7 @@ import {
   NotFoundException,
   OnModuleDestroy,
   OnModuleInit,
+  Param,
   Post,
   Req,
 } from '@nestjs/common';
@@ -22,7 +23,14 @@ import { PaymentProvider } from '../common/payments/provider';
 import { PaystackProvider } from '../common/payments/paystack';
 import { HubtelProvider } from '../common/payments/hubtel';
 import { MockProvider, MOCK_SECRET } from '../common/payments/mock';
-import { changeEffect, isEntitled, periodFor, quoteFor, TIER_PRICES } from '../common/pricing';
+import {
+  changeEffect,
+  graceCutoff,
+  isEntitled,
+  periodFor,
+  quoteFor,
+  TIER_PRICES,
+} from '../common/pricing';
 
 /** Hourly: a tier change is due at a date, not a minute. */
 const SWEEP_EVERY_MS = 60 * 60_000;
@@ -82,7 +90,9 @@ export class BillingService {
         'Online subscription payment is not configured. Contact EYO to pay by transfer.',
       );
     }
-    return { provider: new MockProvider(), kind: 'MOCK' };
+    // 'billing': these references are subscription invoices, which the payments module cannot
+    // find and must not settle.
+    return { provider: new MockProvider('billing'), kind: 'MOCK' };
   }
 
   private async activeStudents(schoolId: string) {
@@ -268,6 +278,54 @@ export class BillingService {
   }
 
   /**
+   * Drop a school that stopped paying back to the free tier.
+   *
+   * `changeEffect`-driven downgrades below cover a school that *said* it was leaving. This covers
+   * one that simply stopped: no `pendingTier`, no cancellation, just a period that ended and a
+   * renewal that never arrived. Nothing lowered the tier in that case, so the paid features
+   * stayed on forever while the billing page told the school its subscription had lapsed.
+   *
+   * The wait is `isEntitled`'s grace period, not the period end, and that is the whole policy:
+   * a renewal a few days late must not take the register away mid-term (docs/03 §3.5), but a
+   * grace period that never expires is not a grace period. `PAST_DUE` still is not a lockout —
+   * the school keeps every record it has ever entered and can read all of it on BASIC.
+   */
+  private async applyLapses(schoolId?: string) {
+    const lapsed = await this.db.system.subscription.findMany({
+      where: {
+        ...(schoolId ? { schoolId } : {}),
+        // A scheduled change is the other method's business; applying both here would race.
+        pendingTier: null,
+        tier: { not: 'BASIC' },
+        status: { in: ['ACTIVE', 'PAST_DUE'] },
+        // Strictly before, because `isEntitled` is inclusive at the boundary: a period whose
+        // grace ends at this exact instant is still entitled, and the two must not disagree.
+        periodEnd: { lt: graceCutoff() },
+        // Already dropped by an earlier sweep — re-applying would write an audit row an hour.
+        school: { tier: { not: 'BASIC' } },
+      },
+      select: { id: true, schoolId: true, tier: true, periodEnd: true },
+    });
+
+    for (const sub of lapsed) {
+      await withTenant(sub.schoolId, async () => {
+        await this.db.school.update({ where: { id: sub.schoolId }, data: { tier: 'BASIC' } });
+        // `tier` is left alone: it records what the school bought and is what the billing page
+        // offers to put back. Only `status` changes, because only the paying has.
+        await this.db.subscription.update({
+          where: { id: sub.id },
+          data: { status: 'PAST_DUE' },
+        });
+        await this.db.audit(sub.schoolId, 'system', 'billing.lapsed', 'Subscription', sub.id, {
+          was: sub.tier,
+          periodEnd: sub.periodEnd,
+        });
+      });
+    }
+    return lapsed.length;
+  }
+
+  /**
    * Apply downgrades whose paid period has now ended.
    *
    * Two comments in this file named `applyDueChanges` as the thing that did this. It did not
@@ -317,7 +375,44 @@ export class BillingService {
       });
       applied++;
     }
-    return { applied };
+    const lapsed = await this.applyLapses(schoolId);
+    return { applied, lapsed };
+  }
+
+  /**
+   * Dev/demo: complete a subscription checkout on the mock gateway.
+   *
+   * The counterpart to `PaymentsService.mockComplete`, which settles school fees and looks its
+   * reference up in `PaymentIntent`. Subscriptions live in `SubscriptionInvoice`, so they need
+   * their own door — the alternative was teaching the fee module about subscriptions, and those
+   * two settlement paths are kept apart deliberately.
+   *
+   * Refuses anything not on the mock provider, and does not exist in production.
+   */
+  async mockComplete(reference: string, outcome: 'success' | 'failed' = 'success') {
+    if (process.env.NODE_ENV === 'production') throw new NotFoundException();
+    // The gateway knows a reference, not a school — the same deliberate unscoped read `settle`
+    // opens with, and for the same reason.
+    const invoice = await this.db.system.subscriptionInvoice.findUnique({ where: { reference } });
+    if (!invoice) throw new NotFoundException('Unknown payment reference');
+    if (invoice.provider !== 'MOCK') {
+      throw new BadRequestException('Only mock-gateway payments can be completed this way');
+    }
+
+    if (outcome === 'failed') {
+      // A declined payment leaves the tier exactly where it was; only the invoice moves.
+      if (invoice.status === 'PENDING') {
+        await withTenant(invoice.schoolId, async () => {
+          await this.db.subscriptionInvoice.update({
+            where: { id: invoice.id },
+            data: { status: 'FAILED' },
+          });
+        });
+      }
+      return { settled: false, status: 'FAILED' };
+    }
+
+    return this.settle(reference, `mock-${reference}`);
   }
 
   /**
@@ -479,6 +574,21 @@ export class BillingController {
    * Guarded by the mock secret and refused outright in production, so it can never become a way
    * to grant a school a paid tier for free.
    */
+  /**
+   * Development only: the mock gateway's checkout completing, as the school sees it.
+   *
+   * Public because a gateway callback carries no session, and narrow because it can only act on
+   * a `SubscriptionInvoice` an authenticated owner already created on the mock provider.
+   */
+  @Public()
+  @Post('mock/:reference/complete')
+  mockComplete(
+    @Param('reference') reference: string,
+    @Body() body: { outcome?: 'success' | 'failed' },
+  ) {
+    return this.svc.mockComplete(reference, body?.outcome ?? 'success');
+  }
+
   @Public()
   @Post('mock-settle')
   mockSettle(@Body() body: { reference: string; secret: string }) {
