@@ -72,6 +72,16 @@ enabled and starts on boot — nothing to do but wait, and `--sync` already wait
 to 150s for it. Do not re-register the runner because it looks offline right after
 a restore.
 
+`--sync` was rehearsed separately: restore in 50s, the runner came back inside the
+wait, the dispatched deploy ran to success on the restored box, and all the counts
+above were still intact afterwards — a rebuild does not touch the volumes.
+
+What that run did **not** prove: the box was already at the commit it converged to,
+so the deploy was a no-op convergence. It shows the mechanism works end to end —
+dispatch, runner pickup, rebuild, health checks — not that a box restored from an
+older snapshot picks up changes it slept through. Worth one deliberate test the
+first time a restore follows a snapshot that is genuinely behind `main`.
+
 ## Cost
 
 Idle cost after a destroy is the snapshot (a few cents per GB per month) plus the
