@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ENTITLEMENT_CATALOGUE } from '../../../../packages/shared/src/entitlements-catalogue';
-import { ENTITLEMENTS } from '../common/entitlements';
+import { ENTITLEMENT_LABELS, ENTITLEMENTS } from '../common/entitlements';
 
 /**
  * The vendor portal offers a list of features to tick; this application decides what those codes
@@ -10,6 +10,11 @@ import { ENTITLEMENTS } from '../common/entitlements';
  *
  * If this fails, reconcile deliberately. A code added here needs a label in the catalogue; a code
  * removed from the catalogue is a feature the portal can no longer sell.
+ *
+ * The labels are held together for a different reason: both ends show them to people. A school
+ * reading its own licence screen and a salesperson reading the invoice that produced it should see
+ * the same words for the same thing, or a support call starts with working out whether they are
+ * talking about the same feature.
  */
 describe('the portal offers exactly what this product recognises', () => {
   const product = new Set([
@@ -42,5 +47,23 @@ describe('the portal offers exactly what this product recognises', () => {
         actual,
       );
     }
+  });
+
+  it('calls each feature the same thing the portal called it', () => {
+    for (const entry of ENTITLEMENT_CATALOGUE) {
+      expect(
+        ENTITLEMENT_LABELS[entry.code],
+        `${entry.code} is sold as "${entry.label}" and shown to the school as "${ENTITLEMENT_LABELS[entry.code] ?? '(nothing)'}"`,
+      ).toBe(entry.label);
+    }
+  });
+
+  /**
+   * The other direction. A label left behind after its code was retired is dead weight that reads
+   * as a supported feature.
+   */
+  it('names nothing the catalogue has dropped', () => {
+    const stale = Object.keys(ENTITLEMENT_LABELS).filter((c) => !catalogue.has(c));
+    expect(stale, 'These have a label here and no entry in the catalogue').toEqual([]);
   });
 });

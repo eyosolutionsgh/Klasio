@@ -31,7 +31,7 @@ import { readFile } from 'fs/promises';
 import type { Tier } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { AuthUser } from '../common/auth';
-import { entitlementsFor } from '../common/entitlements';
+import { entitlementLabel, entitlementsFor } from '../common/entitlements';
 import {
   evaluateLicence,
   LicenceError,
@@ -294,7 +294,15 @@ export class LicenceService implements OnModuleInit, OnModuleDestroy {
     return {
       state: s.state,
       tier: s.tier,
-      extraEntitlements: s.extraEntitlements,
+      /*
+        Named, not coded. This is the screen a school opens to answer "what am I paying for", and
+        `ai.remarks` answers it for nobody. The code rides along for support, who ask for it by
+        name when reconciling against what the vendor issued.
+      */
+      extraEntitlements: s.extraEntitlements.map((code) => ({
+        code,
+        label: entitlementLabel(code),
+      })),
       daysRemaining: s.daysRemaining ?? null,
       reason: s.reason ?? null,
       usingDevKey: usingDevLicenceKey(),

@@ -80,6 +80,73 @@ export function entitlementsForTier(tier: Tier): string[] {
  * than by cutting a release with a new tier in it. Deduped, because a code that is already in the
  * bundle being listed again should be a no-op, not a double entry in the /me payload.
  */
+/**
+ * What each code is called on screen.
+ *
+ * A school's licence screen used to list raw codes: `ai.remarks` tells a head teacher nothing, and
+ * "what am I paying for" is exactly the question that screen exists to answer.
+ *
+ * A deliberate copy of the labels in `packages/shared/src/entitlements-catalogue.ts`, which is what
+ * the vendor portal sells from. The API cannot import that package at runtime — a Nest build
+ * resolves it to a TypeScript entrypoint and crashes — so the two are held in step by
+ * `licence/entitlements-parity.spec.ts` instead, which fails on any code or wording that drifts.
+ */
+export const ENTITLEMENT_LABELS: Record<string, string> = {
+  'sis.core': 'Student records',
+  'attendance.core': 'Daily register',
+  'assessment.core': 'Marks and assessment',
+  'reports.terminal': 'Terminal reports',
+  'fees.manual': 'Fees, recorded by hand',
+  'portal.readonly': 'Guardian and student portals',
+  'comms.announcements': 'Notice board',
+  'comms.sms': 'Bulk SMS',
+  'platform.export': 'Data export',
+
+  'attendance.dashboards': 'Attendance trends',
+  'sis.admissions': 'Admissions',
+  'sis.idcards': 'Student ID cards',
+  'fees.discounts': 'Concessions and discounts',
+  'fees.installments': 'Payment plans',
+  'fees.online': 'Online payments',
+  'fees.reconciliation': 'Bank reconciliation',
+  'fees.reminders': 'Automatic fee reminders',
+  'safety.pickup': 'Dismissal and pickup',
+  'comms.absence-alerts': 'Same-morning absence texts',
+  'comms.results-push': 'Results notifications',
+  'comms.whatsapp.templates': 'WhatsApp replies',
+  'comms.social': 'Social media publishing',
+  'resources.documents': 'Shared class resources',
+  'timetable.core': 'Timetable',
+  'platform.ges-returns': 'GES termly returns',
+  'branding.documents': 'Branded documents',
+
+  'ai.remarks': 'AI report remarks',
+  'ai.script-capture': 'AI script capture',
+  'ai.chatbot': 'AI assistant',
+  'ai.default-risk': 'Fee default prediction',
+  'ai.insights': 'AI insights',
+  'safety.carline': 'Car line',
+  'safety.transport': 'School transport',
+  'comms.whatsapp.chatbot': 'WhatsApp assistant',
+  'comms.ussd': 'USSD access',
+  'hr.payroll': 'Staff payroll',
+  'exams.cbt': 'Computer-based exams',
+  'platform.api': 'API access',
+  'platform.multicampus': 'Multi-campus',
+  'branding.apps': 'Branded mobile apps',
+};
+
+/**
+ * A code's label, falling back to the code itself.
+ *
+ * The fallback is load-bearing rather than defensive: a vendor can sell a code this build has
+ * never heard of, and showing `some.new.thing` is honest where showing nothing would hide a
+ * feature the school has paid for.
+ */
+export function entitlementLabel(code: string): string {
+  return ENTITLEMENT_LABELS[code] ?? code;
+}
+
 export function entitlementsFor(tier: Tier, extra: readonly string[] = []): string[] {
   return [...new Set([...entitlementsForTier(tier), ...extra])];
 }

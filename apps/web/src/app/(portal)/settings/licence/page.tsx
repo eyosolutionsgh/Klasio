@@ -7,7 +7,7 @@ import { AlertIcon, KeyIcon, SaveIcon } from '@/components/icons';
 interface LicenceView {
   state: 'VALID' | 'GRACE' | 'EXPIRED' | 'MISSING' | 'INVALID';
   tier: string;
-  extraEntitlements: string[];
+  extraEntitlements: { code: string; label: string }[];
   daysRemaining: number | null;
   reason: string | null;
   usingDevKey: boolean;
@@ -151,12 +151,14 @@ export default function LicencePage() {
               <div className="mt-5">
                 <p className="text-oat text-xs uppercase tracking-widest">Also included</p>
                 <ul className="mt-1.5 flex flex-wrap gap-1.5">
-                  {view.extraEntitlements.map((code) => (
+                  {/* `title` keeps the code reachable for a support call without printing it. */}
+                  {view.extraEntitlements.map((e) => (
                     <li
-                      key={code}
-                      className="text-[11px] rounded-full bg-gold-soft/60 text-gold px-2 py-0.5 tabular"
+                      key={e.code}
+                      title={e.code}
+                      className="text-[11px] rounded-full bg-gold-soft/60 text-gold px-2 py-0.5"
                     >
-                      {code}
+                      {e.label}
                     </li>
                   ))}
                 </ul>
