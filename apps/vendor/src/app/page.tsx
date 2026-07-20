@@ -75,9 +75,7 @@ export default async function Dashboard({
       const lic = c.licences[0] ?? null;
       const beat = c.heartbeats[0] ?? null;
       const { health, note, daysRemaining } = assessClient({
-        licence: lic
-          ? { tier: lic.tier, expiresAt: lic.expiresAt, studentCap: lic.studentCap }
-          : null,
+        licence: lic ? { tier: lic.tier, expiresAt: lic.expiresAt } : null,
         lastBeat: beat
           ? {
               receivedAt: beat.receivedAt,
@@ -215,12 +213,7 @@ export default async function Dashboard({
                         <p className="text-xs text-clay mt-0.5">{daysRemaining} days</p>
                       )}
                     </td>
-                    <td className="px-5 py-3.5 text-right tabular-nums">
-                      {beat?.students ?? '—'}
-                      {lic?.studentCap != null && (
-                        <span className="text-oat"> / {lic.studentCap}</span>
-                      )}
-                    </td>
+                    <td className="px-5 py-3.5 text-right tabular-nums">{beat?.students ?? '—'}</td>
                     <td className="px-5 py-3.5">{when(beat?.receivedAt ?? null)}</td>
                     <td className="px-5 py-3.5">
                       <span className={`pill ${HEALTH_LABEL[health].cls} bg-hush`}>

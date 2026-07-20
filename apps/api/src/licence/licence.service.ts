@@ -59,7 +59,6 @@ export class LicenceService implements OnModuleInit, OnModuleDestroy {
   private status: LicenceStatus = {
     state: 'MISSING',
     tier: 'BASIC',
-    studentCap: 150,
     extraEntitlements: [],
   };
   private timer?: NodeJS.Timeout;
@@ -164,10 +163,6 @@ export class LicenceService implements OnModuleInit, OnModuleDestroy {
   /** The entitlement set in force, tier bundle plus anything the licence granted on top. */
   entitlements(): string[] {
     return entitlementsFor(this.status.tier, this.status.extraEntitlements);
-  }
-
-  studentCap(): number | null {
-    return this.status.studentCap;
   }
 
   /**
@@ -275,7 +270,6 @@ export class LicenceService implements OnModuleInit, OnModuleDestroy {
       licenceId: payload.licenceId,
       schoolSlug: payload.schoolSlug,
       tier: payload.tier as Tier,
-      studentCap: payload.studentCap,
       expiresAt: new Date(payload.expiresAt),
       issuedAt: new Date(payload.issuedAt),
       installedById: auth.sub,
@@ -300,7 +294,6 @@ export class LicenceService implements OnModuleInit, OnModuleDestroy {
     return {
       state: s.state,
       tier: s.tier,
-      studentCap: s.studentCap,
       extraEntitlements: s.extraEntitlements,
       daysRemaining: s.daysRemaining ?? null,
       reason: s.reason ?? null,

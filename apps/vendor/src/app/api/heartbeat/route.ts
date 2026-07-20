@@ -48,7 +48,6 @@ export async function POST(req: NextRequest) {
       tierInForce: tier('tierInForce'),
       tierLicensed: tier('tierLicensed'),
       students: num('students'),
-      studentCap: num('studentCap'),
       verifiedWith: str('verifiedWith'),
       appVersion: str('appVersion'),
       // Kept whole: a payload that grows a field should still be recoverable from what we stored.

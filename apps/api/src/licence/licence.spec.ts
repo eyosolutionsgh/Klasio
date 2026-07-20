@@ -86,6 +86,24 @@ describe('licence signature', () => {
     expect(() => verifyLicence(licence, VENDOR.publicPem)).toThrow(/unknown tier/);
   });
 
+  /*
+    Both sides of the enrolment-cap removal, in one place.
+
+    The vendor kept minting `studentCap` after it stopped meaning anything, so that a school server
+    predating the change still accepts a licence issued today. Both shapes therefore have to parse,
+    and the factory above deliberately still carries the field so every other test in this file
+    exercises the old one.
+  */
+  it('accepts a licence with or without the retired studentCap field', () => {
+    const withCap = signLicence(payload({ studentCap: 150 }), VENDOR.privatePem);
+    expect(verifyLicence(withCap, VENDOR.publicPem).tier).toBe('MEDIUM');
+
+    const bare = payload();
+    delete bare.studentCap;
+    const withoutCap = signLicence(bare, VENDOR.privatePem);
+    expect(verifyLicence(withoutCap, VENDOR.publicPem).tier).toBe('MEDIUM');
+  });
+
   it('the committed dev key pair still matches itself', () => {
     /*
       Guards the two halves in ops/licence/ against drifting apart, which would break every fresh
@@ -106,11 +124,10 @@ describe('licence signature', () => {
 });
 
 describe('licence evaluation', () => {
-  it('is VALID before expiry and carries the licence tier and cap', () => {
+  it('is VALID before expiry and carries the licence tier', () => {
     const s = evaluateLicence(payload(), { now: day(-1), schoolSlug: 'brighton-academy' });
     expect(s.state).toBe('VALID');
     expect(s.tier).toBe('MEDIUM');
-    expect(s.studentCap).toBe(1000);
   });
 
   it('keeps the full tier through the grace period', () => {
@@ -136,24 +153,23 @@ describe('licence evaluation', () => {
   });
 
   /**
-   * The trap: `studentCap: null` means "unlimited" in a payload, so reusing null as the fallback
-   * would make an expired ADVANCED licence *better* than a valid one — a school past grace would
-   * get unlimited enrolment. Expiry must never be an upgrade.
+   * Expiry must never be an upgrade. The old trap was the enrolment cap — `null` meant unlimited,
+   * so a lapsed ADVANCED licence handed a school more than a valid one. Caps are gone, but the
+   * shape of the mistake is not, so the direction stays pinned: lapsing only ever loses features.
    */
-  it('falls back to the BASIC cap, not to unlimited, when a licence lapses', () => {
-    const uncapped = payload({ tier: 'ADVANCED', studentCap: null });
-    expect(evaluateLicence(uncapped, { now: day(-1) }).studentCap).toBeNull();
+  it('never grants more on lapse than the licence itself did', () => {
+    const advanced = payload({ tier: 'ADVANCED', extraEntitlements: ['ai.remarks'] });
+    expect(evaluateLicence(advanced, { now: day(-1) }).tier).toBe('ADVANCED');
 
-    const lapsed = evaluateLicence(uncapped, { now: day(400) });
+    const lapsed = evaluateLicence(advanced, { now: day(400) });
     expect(lapsed.tier).toBe('BASIC');
-    expect(lapsed.studentCap).toBe(150);
+    expect(lapsed.extraEntitlements).toEqual([]);
   });
 
-  it("falls back to BASIC with BASIC's cap when no licence is installed", () => {
+  it('falls back to BASIC when no licence is installed', () => {
     const s = evaluateLicence(null);
     expect(s.state).toBe('MISSING');
     expect(s.tier).toBe('BASIC');
-    expect(s.studentCap).toBe(150);
   });
 
   it('reports INVALID rather than MISSING when there was a reason', () => {

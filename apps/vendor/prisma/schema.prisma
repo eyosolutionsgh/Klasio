@@ -78,7 +78,6 @@ model Licence {
   /// The `licenceId` inside the payload — what support asks a school to read out.
   licenceId String @unique
   tier      Tier
-  studentCap Int?
   extraEntitlements String[] @default([])
   issuedAt  DateTime
   expiresAt DateTime
@@ -118,7 +117,6 @@ model Heartbeat {
   tierInForce  Tier?
   tierLicensed Tier?
   students   Int?
-  studentCap Int?
   /// vendor | development | none — the tamper signal.
   verifiedWith String?
   appVersion   String?

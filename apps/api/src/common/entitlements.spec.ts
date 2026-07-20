@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  ENTITLEMENTS,
-  enrolmentHeadroom,
-  entitlementsForTier,
-  hasEntitlement,
-  studentCapFor,
-} from './entitlements';
+import { ENTITLEMENTS, entitlementsForTier, hasEntitlement } from './entitlements';
 
 describe('entitlement engine', () => {
   it('BASIC includes the free core and nothing paid', () => {
@@ -32,21 +26,6 @@ describe('entitlement engine', () => {
     for (const e of medium) expect(advanced).toContain(e);
     expect(advanced).toContain('ai.remarks');
     expect(advanced).toContain('comms.whatsapp.chatbot');
-  });
-
-  it('caps enrolment per package, unlimited on ADVANCED', () => {
-    expect(studentCapFor('BASIC')).toBe(150);
-    expect(studentCapFor('MEDIUM')).toBe(1000);
-    expect(studentCapFor('ADVANCED')).toBeNull();
-  });
-
-  it('computes headroom and never reports negative', () => {
-    expect(enrolmentHeadroom('BASIC', 0)).toBe(150);
-    expect(enrolmentHeadroom('BASIC', 149)).toBe(1);
-    expect(enrolmentHeadroom('BASIC', 150)).toBe(0);
-    // Over cap (e.g. after a downgrade) blocks new enrolment but is never negative.
-    expect(enrolmentHeadroom('BASIC', 200)).toBe(0);
-    expect(enrolmentHeadroom('ADVANCED', 99999)).toBe(Infinity);
   });
 
   it('tier bundles have no duplicate codes', () => {

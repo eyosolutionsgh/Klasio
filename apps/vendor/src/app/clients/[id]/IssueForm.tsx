@@ -44,7 +44,7 @@ export default function IssueForm({
         <input type="hidden" name="clientId" value={clientId} />
 
         {/* items-start, so every field sits on the same top edge whether or not it carries a hint. */}
-        <div className="grid sm:grid-cols-4 gap-x-4 gap-y-4 items-start">
+        <div className="grid sm:grid-cols-3 gap-x-4 gap-y-4 items-start">
           <div>
             <label htmlFor="tier" className="label">
               Package
@@ -79,20 +79,6 @@ export default function IssueForm({
               className="field"
             />
             <span className="hint" />
-          </div>
-
-          <div>
-            <label htmlFor="studentCap" className="label">
-              Student cap
-            </label>
-            <input
-              id="studentCap"
-              name="studentCap"
-              placeholder="package default"
-              className="field"
-            />
-            {/* Blank and “unlimited” mean different things, so both are spelled out. */}
-            <span className="hint">Blank for the package default, a number, or “unlimited”.</span>
           </div>
 
           <div>

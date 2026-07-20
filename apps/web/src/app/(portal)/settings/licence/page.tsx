@@ -7,7 +7,6 @@ import { AlertIcon, KeyIcon, SaveIcon } from '@/components/icons';
 interface LicenceView {
   state: 'VALID' | 'GRACE' | 'EXPIRED' | 'MISSING' | 'INVALID';
   tier: string;
-  studentCap: number | null;
   extraEntitlements: string[];
   daysRemaining: number | null;
   reason: string | null;
@@ -82,8 +81,9 @@ export default function LicencePage() {
       <div className="rise rise-1">
         <h1 className="font-display text-3xl">Licence</h1>
         <p className="text-sm text-oat mt-1.5">
-          Your licence sets which features this school has and how many students it may enrol. It is
-          checked on this server, so it keeps working with no internet at all.
+          Your licence sets which features this school has. Enrol as many children as you like — the
+          package decides what the software does, never how big your school may be. It is checked on
+          this server, so it keeps working with no internet at all.
         </p>
       </div>
 
@@ -127,10 +127,6 @@ export default function LicencePage() {
               <div>
                 <dt className="text-oat text-xs uppercase tracking-widest">Package</dt>
                 <dd className="mt-0.5 font-medium">{view.tier}</dd>
-              </div>
-              <div>
-                <dt className="text-oat text-xs uppercase tracking-widest">Student limit</dt>
-                <dd className="mt-0.5 font-medium tabular">{view.studentCap ?? 'Unlimited'}</dd>
               </div>
               {view.licence && (
                 <>

@@ -2,7 +2,7 @@
 
 Every feature below is tagged with the package that unlocks it:
 
-- **B = Basic (Free)** — any school can sign up and run daily operations at no cost. Generous enough to be truly useful (the acquisition engine), bounded by student count and premium modules.
+- **B = Basic (Free)** — any school can sign up and run daily operations at no cost. Generous enough to be truly useful (the acquisition engine), bounded by premium modules rather than by school size.
 - **M = Medium** — the paid workhorse tier: full billing + online payments, communication automation, pickup security, document sharing.
 - **A = Advanced** — AI suite, WhatsApp chatbot, transport, payroll, analytics, multi-campus.
 
@@ -12,16 +12,15 @@ The same tiers apply to standalone deployments; the tier is fixed by the vendor-
 
 ## 2.1 Student Information System (SIS)
 
-| Feature                                                                                                                                        | Tier                                   |
-| ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| Student records: bio-data, photo, guardians (multiple per student, with relationship + custody flags), medical notes, documents                | B                                      |
-| School structure: campuses→levels (creche/nursery/KG/primary/JHS/SHS)→classes/streams, academic years, 3-term calendar with "Next Term Begins" | B                                      |
-| Enrollment, promotion (with arrears carry-over), transfers, withdrawals, alumni archive                                                        | B                                      |
-| Student count limit                                                                                                                            | B: ≤ 150✱ · M: ≤ 1,000✱ · A: unlimited |
-| Admissions: online application form, applicant pipeline, admission letters                                                                     | M                                      |
-| ID card generation (with QR used for pickup verification; canteen-ready for the future module)                                                 | M                                      |
-| Custom fields & document checklists per level                                                                                                  | M                                      |
-| Multi-campus management under one account                                                                                                      | A                                      |
+| Feature                                                                                                                                        | Tier |
+| ---------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| Student records: bio-data, photo, guardians (multiple per student, with relationship + custody flags), medical notes, documents                | B    |
+| School structure: campuses→levels (creche/nursery/KG/primary/JHS/SHS)→classes/streams, academic years, 3-term calendar with "Next Term Begins" | B    |
+| Enrollment, promotion (with arrears carry-over), transfers, withdrawals, alumni archive                                                        | B    |
+| Admissions: online application form, applicant pipeline, admission letters                                                                     | M    |
+| ID card generation (with QR used for pickup verification; canteen-ready for the future module)                                                 | M    |
+| Custom fields & document checklists per level                                                                                                  | M    |
+| Multi-campus management under one account                                                                                                      | A    |
 
 ## 2.2 Attendance
 
@@ -158,7 +157,6 @@ All AI features are human-in-the-loop (staff approve before anything reaches gua
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
 | Positioning          | Run your school digitally                                                                                                                                                                                                                     | Collect fees & keep kids safe                                                                    | AI-powered, fully automated school                                                |
 | Wedge                | Records, attendance, GES reports, manual fee tracking                                                                                                                                                                                         | Online MoMo payments + reconciliation, pickup security, WhatsApp notifications, document sharing | WhatsApp chatbot, AI suite, transport/GPS, payroll, USSD, analytics, multi-campus |
-| Students             | ≤150✱                                                                                                                                                                                                                                         | ≤1,000✱                                                                                          | Unlimited                                                                         |
 | Pricing model (SaaS) | Free forever                                                                                                                                                                                                                                  | Per-student/term or flat per term✱                                                               | Per-student/term + AI usage fair-use✱                                             |
 | Standalone           | Medium/Advanced only (a deployment + annual maintenance contract is inherently paid; the free tier is SaaS-only). Tier locked by vendor-signed license. Maintenance contract covers updates, backups, license renewals, and priority support. |                                                                                                  |                                                                                   |
 

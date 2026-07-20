@@ -17,10 +17,8 @@ const field =
  */
 export default function AddStudent({
   classes,
-  atCap,
 }: {
   classes: { id: string; name: string; studentCount: number }[];
-  atCap: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -70,13 +68,7 @@ export default function AddStudent({
 
   if (!open) {
     return (
-      <Button
-        onClick={() => setOpen(true)}
-        disabled={atCap}
-        data-tip={atCap ? 'Your package is at its student limit' : undefined}
-        icon={<PlusIcon />}
-        className="tip"
-      >
+      <Button onClick={() => setOpen(true)} icon={<PlusIcon />}>
         Add student
       </Button>
     );

@@ -43,9 +43,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
   const live = client.licences.find((l) => !l.revokedAt) ?? null;
   const beat = client.heartbeats[0] ?? null;
   const { health, note } = assessClient({
-    licence: live
-      ? { tier: live.tier, expiresAt: live.expiresAt, studentCap: live.studentCap }
-      : null,
+    licence: live ? { tier: live.tier, expiresAt: live.expiresAt } : null,
     lastBeat: beat
       ? {
           receivedAt: beat.receivedAt,
@@ -95,12 +93,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
               </div>
               <div>
                 <dt className="text-oat text-xs uppercase tracking-widest">Enrolled</dt>
-                <dd className="mt-0.5 tabular-nums">
-                  {beat.students ?? '—'}
-                  {beat.studentCap != null && (
-                    <span className="text-oat"> / {beat.studentCap}</span>
-                  )}
-                </dd>
+                <dd className="mt-0.5 tabular-nums">{beat.students ?? '—'}</dd>
               </div>
               <div>
                 <dt className="text-oat text-xs uppercase tracking-widest">Verifies with</dt>
@@ -157,8 +150,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                     </p>
                   </div>
                   <p className="text-sm mt-1">
-                    {l.tier} · cap {l.studentCap ?? 'unlimited'} · {day(l.issuedAt)} –{' '}
-                    {day(l.expiresAt)} · {l.graceDays}d grace
+                    {l.tier} · {day(l.issuedAt)} – {day(l.expiresAt)} · {l.graceDays}d grace
                   </p>
                   {/*
                   The features sold on top of the package. Shown as labels rather than codes: the

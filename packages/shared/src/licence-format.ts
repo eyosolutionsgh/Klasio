@@ -48,8 +48,18 @@ export interface LicencePayload {
    */
   schoolSlug: string;
   tier: LicenceTier;
-  /** Enrolment ceiling. `null` is unlimited, and overrides the tier's default. */
-  studentCap: number | null;
+  /**
+   * Legacy enrolment ceiling, retained for older servers and no longer honoured.
+   *
+   * Packages differ by what they can do, not by how many children a school may enrol — a cap's
+   * only real effect on a school's own box was to refuse a child mid-term. Nothing reads this.
+   *
+   * It is still *emitted* as `null` rather than dropped: a build that predates this change
+   * rejects a payload without the field, but reads `null` as "unlimited", which is exactly the
+   * behaviour we now want everywhere. Keeping it is what lets a new licence install on an old
+   * server. Remove it once no such server remains.
+   */
+  studentCap?: number | null;
   /** Individual entitlement codes granted on top of the tier, without cutting a release. */
   extraEntitlements: string[];
   issuedAt: string;
@@ -97,7 +107,13 @@ function assertShape(raw: unknown): LicencePayload {
   if (!LICENCE_TIERS.includes(p.tier as LicenceTier)) {
     throw new LicenceFormatError(`Licence has an unknown tier "${String(p.tier)}"`);
   }
-  if (p.studentCap !== null && (typeof p.studentCap !== 'number' || p.studentCap < 0)) {
+  // Accepted in any of its three shapes — number, null, absent — and acted on in none of them.
+  // A licence minted before caps were dropped must still install.
+  if (
+    p.studentCap !== null &&
+    p.studentCap !== undefined &&
+    (typeof p.studentCap !== 'number' || p.studentCap < 0)
+  ) {
     throw new LicenceFormatError('Licence studentCap must be a non-negative number or null');
   }
   if (

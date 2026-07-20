@@ -8,12 +8,10 @@ const licence = (
   over: Partial<{
     tier: 'BASIC' | 'MEDIUM' | 'ADVANCED';
     expiresAt: Date;
-    studentCap: number | null;
   }> = {},
 ) => ({
   tier: 'ADVANCED' as const,
   expiresAt: daysFromNow(200),
-  studentCap: null,
   ...over,
 });
 
@@ -106,23 +104,34 @@ describe('how a client is judged', () => {
     expect(r.health).toBe('ATTENTION');
   });
 
-  it('flags a roll over the cap that was sold', () => {
+  /**
+   * The row used to print "MEDIUM / running ADVANCED" in red and then call itself ACTIVE, because
+   * nothing compared the two. The mismatch is the whole reason that second line is rendered.
+   */
+  it('flags a school running a package other than the one on its licence', () => {
     const r = assessClient({
-      licence: licence({ studentCap: 150 }),
-      lastBeat: beat({ students: 412 }),
+      licence: licence({ tier: 'MEDIUM' }),
+      lastBeat: beat({ tierInForce: 'ADVANCED' }),
       now: NOW,
     });
     expect(r.health).toBe('ATTENTION');
-    expect(r.note).toMatch(/412 against a cap of 150/);
+    expect(r.note).toMatch(/Running ADVANCED on a MEDIUM licence/);
   });
 
-  it('does not flag a roll inside an uncapped licence', () => {
+  it('says nothing when the package in force is the one that was sold', () => {
     expect(
       assessClient({
-        licence: licence({ studentCap: null }),
-        lastBeat: beat({ students: 9000 }),
+        licence: licence({ tier: 'MEDIUM' }),
+        lastBeat: beat({ tierInForce: 'MEDIUM' }),
         now: NOW,
       }).health,
+    ).toBe('OK');
+  });
+
+  /** A roll of any size is fine now — enrolment is no longer a thing a package limits. */
+  it('leaves a large roll alone', () => {
+    expect(
+      assessClient({ licence: licence(), lastBeat: beat({ students: 9000 }), now: NOW }).health,
     ).toBe('OK');
   });
 

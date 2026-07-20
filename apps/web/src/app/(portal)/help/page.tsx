@@ -19,8 +19,8 @@ const FAQ = [
     a: 'Staff & Access → set them inactive. Their sign-in stops working immediately, including any session already open, and their past entries stay attributed to them in the audit log.',
   },
   {
-    q: 'We reached our student limit.',
-    a: 'Your package caps active enrolments. Existing records, exports and reports keep working — only new enrolment is blocked. Withdraw or graduate students who have left, or move up a package.',
+    q: 'How many students can we enrol?',
+    a: 'As many as you have. Your package decides which features are switched on, never how big your school may be, so a new intake never needs a licence change. Withdrawing or graduating a child keeps the register tidy, and their record stays readable and exportable either way.',
   },
 ];
 

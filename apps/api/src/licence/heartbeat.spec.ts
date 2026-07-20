@@ -19,7 +19,6 @@ const licence = (over: Partial<LicencePayload> = {}): LicencePayload => ({
 const status = (over: Partial<LicenceStatus> = {}): LicenceStatus => ({
   state: 'VALID',
   tier: 'ADVANCED',
-  studentCap: null,
   extraEntitlements: [],
   payload: licence(),
   ...over,
@@ -52,14 +51,13 @@ describe('what the heartbeat says', () => {
    */
   it('distinguishes what the licence bought from what is actually in force', () => {
     const p = heartbeatPayload({
-      status: status({ state: 'EXPIRED', tier: 'BASIC', studentCap: 150 }),
+      status: status({ state: 'EXPIRED', tier: 'BASIC' }),
       students: 412,
       verifiedWith: 'vendor',
       appVersion: '0.1.0',
     });
     expect(p.tierLicensed).toBe('ADVANCED');
     expect(p.tierInForce).toBe('BASIC');
-    expect(p.students).toBeGreaterThan(p.studentCap!);
   });
 
   /**
@@ -77,7 +75,7 @@ describe('what the heartbeat says', () => {
 
   it('copes with no licence installed at all', () => {
     const p = heartbeatPayload({
-      status: { state: 'MISSING', tier: 'BASIC', studentCap: 150, extraEntitlements: [] },
+      status: { state: 'MISSING', tier: 'BASIC', extraEntitlements: [] },
       students: 0,
       verifiedWith: 'none',
       appVersion: '0.1.0',
@@ -109,7 +107,6 @@ describe('what the heartbeat says', () => {
         'schoolSlug',
         'sentAt',
         'state',
-        'studentCap',
         'students',
         'tierInForce',
         'tierLicensed',

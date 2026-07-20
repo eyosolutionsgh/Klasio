@@ -29,7 +29,6 @@ import {
   verify as cryptoVerify,
 } from 'crypto';
 import type { Tier } from '@prisma/client';
-import { STUDENT_CAPS } from '../common/entitlements';
 
 export interface LicencePayload {
   /** Format version. Bump only for a breaking change to the fields below. */
@@ -46,8 +45,13 @@ export interface LicencePayload {
    */
   schoolSlug: string;
   tier: Tier;
-  /** Enrolment ceiling. `null` is unlimited, and overrides the tier's default cap. */
-  studentCap: number | null;
+  /**
+   * Legacy enrolment ceiling, accepted from older licences and no longer honoured.
+   *
+   * Packages differ by what they can do, not by how many children a school may enrol. Nothing
+   * reads this; it stays in the type so a licence minted before the change still parses.
+   */
+  studentCap?: number | null;
   /** Individual entitlement codes granted on top of the tier, without cutting a release. */
   extraEntitlements: string[];
   issuedAt: string;
@@ -72,14 +76,6 @@ export interface LicenceStatus {
   state: LicenceState;
   /** The tier actually in force, which is BASIC whenever the licence is not carrying one. */
   tier: Tier;
-  /**
-   * The cap actually in force. `null` means uncapped.
-   *
-   * Note this is the *effective* cap, not the payload's field. When no licence applies the school
-   * falls back to BASIC and gets BASIC's cap — emphatically not `null`, which would hand a lapsed
-   * school unlimited enrolment and make expiry an upgrade.
-   */
-  studentCap: number | null;
   extraEntitlements: string[];
   payload?: LicencePayload;
   /** Negative once expired. Present whenever a payload parsed. */
@@ -135,7 +131,13 @@ function assertShape(raw: unknown): LicencePayload {
   }
   if (!TIERS.includes(p.tier as Tier))
     throw new LicenceError(`Licence has an unknown tier "${String(p.tier)}"`);
-  if (p.studentCap !== null && (typeof p.studentCap !== 'number' || p.studentCap < 0)) {
+  // Accepted whether it is a number, null, or absent — and acted on in none of those cases. A
+  // licence minted before caps were dropped must still install.
+  if (
+    p.studentCap !== null &&
+    p.studentCap !== undefined &&
+    (typeof p.studentCap !== 'number' || p.studentCap < 0)
+  ) {
     throw new LicenceError('Licence studentCap must be a non-negative number or null');
   }
   if (
@@ -204,14 +206,9 @@ export function verifyLicence(licence: string, publicKeyPem: string): LicencePay
  * responsible for them, to collect a renewal, is exactly the data-hostage behaviour the same
  * paragraph rejects two lines later. Export is never blocked in any state.
  */
-/**
- * What the product falls back to when no licence applies: BASIC, with BASIC's own cap.
- *
- * Written once because the cap is the easy thing to get wrong — `studentCap: null` reads as a
- * sensible default and means "unlimited", so a lapsed licence would quietly become an upgrade.
- */
+/** What the product falls back to when no licence applies: BASIC, and BASIC's features. */
 function basicFallback(): LicenceStatus {
-  return { state: 'MISSING', tier: 'BASIC', studentCap: STUDENT_CAPS.BASIC, extraEntitlements: [] };
+  return { state: 'MISSING', tier: 'BASIC', extraEntitlements: [] };
 }
 
 export function evaluateLicence(
@@ -249,7 +246,6 @@ export function evaluateLicence(
     return {
       state: 'VALID',
       tier: payload.tier,
-      studentCap: payload.studentCap,
       extraEntitlements: payload.extraEntitlements,
       payload,
       daysRemaining,
@@ -260,7 +256,6 @@ export function evaluateLicence(
     return {
       state: 'GRACE',
       tier: payload.tier,
-      studentCap: payload.studentCap,
       extraEntitlements: payload.extraEntitlements,
       payload,
       daysRemaining,

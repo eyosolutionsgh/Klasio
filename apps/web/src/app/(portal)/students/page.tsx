@@ -47,13 +47,10 @@ export default async function StudentsPage({
   // The page's own filters, plus the paging/sorting keys `apiQuery` always forwards.
   const qs = apiQuery(params, ['classId', 'q', 'gender'], { status });
 
-  const [students, structure, me, enrolment] = await Promise.all([
+  const [students, structure, me] = await Promise.all([
     api<Page<StudentRow>>(`/students?${qs}`),
     api<Structure>('/school/structure'),
     getMe(),
-    api<{ active: number; cap: number | null; headroom: number; atCap: boolean }>(
-      '/students/enrolment',
-    ),
   ]);
 
   const canPromote = ['OWNER', 'HEAD'].includes(me.user.role);
@@ -66,19 +63,10 @@ export default async function StudentsPage({
           <p className="text-sm text-oat mt-1.5">
             {/* The total, not the page size. "25 shown" on a roll of 900 was the old lie. */}
             The register — {students.total} matching
-            {enrolment.cap !== null && (
-              <span className={enrolment.atCap ? 'text-clay font-medium' : ''}>
-                {' · '}
-                {enrolment.active} of {enrolment.cap} enrolled on {me.school.tier}
-                {enrolment.atCap
-                  ? ' — limit reached, upgrade to enrol more'
-                  : ` (${enrolment.headroom} places left)`}
-              </span>
-            )}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <AddStudent classes={structure.classes} atCap={enrolment.atCap} />
+          <AddStudent classes={structure.classes} />
           <Link
             href="/students/onboarding"
             className="tip rounded-lg border border-mist text-brand text-sm font-medium px-4 py-2 hover:bg-brand-mist transition"

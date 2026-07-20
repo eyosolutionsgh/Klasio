@@ -376,10 +376,11 @@ export class AdmissionsService {
   /**
    * Turn an accepted applicant into a student.
    *
-   * Deliberately delegates to StudentsService.create: that is where the package enrolment cap
-   * is enforced, and an admissions back door that wrote a Student row directly would let a
-   * school walk straight past it. Converting twice returns the student already created rather
-   * than making a second one — the applicant's studentId is the record of what happened.
+   * Deliberately delegates to StudentsService.create rather than writing a Student row here:
+   * admission numbering, the audit trail and every rule enrolment obeys live in one place, and a
+   * second door onto the roll is how they drift apart. Converting twice returns the student
+   * already created rather than making a second one — the applicant's studentId is the record of
+   * what happened.
    */
   async convert(auth: AuthUser, id: string, dto: ConvertDto) {
     const applicant = await this.own(auth, id);

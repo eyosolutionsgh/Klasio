@@ -68,7 +68,7 @@ claims the server.
 
 ### Licences
 
-A licence sets the package and the student cap. Install it at `/setup`, or later under
+A licence sets the package. Install it at `/setup`, or later under
 **Settings → Licence**, or mount it at `LICENCE_FILE`. Without one the school runs on the free
 package; if one lapses it keeps working through a grace period and then falls back to the free
 package — records are never locked away, and export always works.

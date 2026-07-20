@@ -79,7 +79,7 @@ Implemented in `apps/api/src/licence/`.
   `if (tier === 'ADVANCED')`. Tiers are bundles, so a bundle can be regraded without a code change.
 - Entitlements come from a **vendor-signed licence file** (Ed25519, `node:crypto`). It carries
   school identity (bound to the slug, since the vendor mints it before the box exists), tier,
-  student cap, expiry, grace period, and `extraEntitlements` — individual codes granted on top of
+  expiry, grace period, and `extraEntitlements` — individual codes granted on top of
   the bundle, so one Advanced feature can be sold to a Medium school without cutting a release.
 - Format is `<base64url(payload)>.<base64url(signature)>`, JWS-shaped and deliberately not JWS:
   one algorithm, no header, so there is no algorithm confusion to get wrong. Verification is over
@@ -97,8 +97,13 @@ Implemented in `apps/api/src/licence/`.
 supersedes the earlier "expired licence → read-only": Basic is a genuinely usable product — roll,
 attendance, terminal reports, manual fees, SMS — and a school whose licence lapsed over a holiday
 must still be able to mark this morning's register. A missing or tampered licence lands on Basic
-too; the box never refuses to boot. Cap overflow blocks _new_ enrolments only. **Export works in
-every state**, and is a right at every tier.
+too; the box never refuses to boot. **Export works in every state**, and is a right at every tier.
+
+**Packages limit features, never headcount.** There is no enrolment cap: a school may enrol as many
+children as it has. A cap's only enforceable effect on the school's own box was to refuse a child
+mid-term — a bad failure mode for a school product, and weak leverage besides, since the box is the
+school's. The licence payload still carries a `studentCap` field, always minted as `null`, purely so
+a server predating this change accepts a licence issued today; nothing reads it.
 
 ## 3.6 WhatsApp chatbot architecture (Advanced)
 

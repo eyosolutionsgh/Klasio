@@ -23,8 +23,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { checkTemplate, DEFAULT_TEMPLATE, formatAdmissionNo } from '../common/admission-no';
 import { studentIdCardSheet, type StudentIdCardData } from '../common/pdf';
 import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
-import { headroomFor } from '../common/entitlements';
-import { LicenceService } from '../licence/licence.module';
 import { demoteOthers, reconcileLink, successorPrimary } from '../common/guardianship';
 import { normalizeMsisdn } from '../common/phone';
 import { toCsv, toXlsx, Cell } from '../common/export';
@@ -150,10 +148,7 @@ class ReinstateDto {
 
 @Injectable()
 export class StudentsService {
-  constructor(
-    private db: PrismaService,
-    private licence: LicenceService,
-  ) {}
+  constructor(private db: PrismaService) {}
 
   /**
    * The register, paged.
@@ -364,22 +359,6 @@ export class StudentsService {
     };
   }
 
-  /** Active enrolment against the package cap. Only ever blocks NEW enrolments (docs/03 §3.5). */
-  async enrolmentStatus(auth: AuthUser) {
-    const active = await this.db.student.count({
-      where: { schoolId: auth.schoolId, status: 'ACTIVE' },
-    });
-    // The cap comes from the licence, not from the tier's default: a licence may raise or lower
-    // it for one school without inventing a new tier.
-    const cap = this.licence.studentCap();
-    return {
-      active,
-      cap,
-      headroom: headroomFor(cap, active),
-      atCap: cap !== null && active >= cap,
-    };
-  }
-
   /**
    * The next admission number, in the school's own format.
    *
@@ -439,13 +418,6 @@ export class StudentsService {
       where: { id: dto.classId, schoolId: auth.schoolId },
     });
     if (!cls) throw new NotFoundException('Class not found');
-
-    const { atCap, cap } = await this.enrolmentStatus(auth);
-    if (atCap) {
-      throw new BadRequestException(
-        `Your package allows ${cap} active students. Existing records stay fully available — upgrade to enrol more.`,
-      );
-    }
 
     const admissionNo = await this.nextAdmissionNo(auth.schoolId, cls.levelId);
     const student = await this.db.student.create({
@@ -791,16 +763,6 @@ export class StudentsService {
     });
     if (!cls) throw new NotFoundException('Class not found');
 
-    // The same rule enrolment obeys. Coming back onto the roll costs a place exactly as arriving
-    // for the first time does, and skipping the check here would make reinstatement a way around
-    // the cap rather than a correction.
-    const { atCap, cap } = await this.enrolmentStatus(auth);
-    if (atCap) {
-      throw new BadRequestException(
-        `Your package allows ${cap} active students, and you are at the limit. Upgrade, or withdraw another record first.`,
-      );
-    }
-
     const student = await this.db.student.update({
       where: { id },
       data: {
@@ -1096,12 +1058,6 @@ export class StudentsController {
   @RequirePermission('students.lifecycle')
   promote(@CurrentUser() user: AuthUser, @Body() dto: PromoteDto) {
     return this.svc.promote(user, dto);
-  }
-
-  @Get('enrolment')
-  @RequirePermission('students.view')
-  enrolment(@CurrentUser() user: AuthUser) {
-    return this.svc.enrolmentStatus(user);
   }
 
   @Get('export')

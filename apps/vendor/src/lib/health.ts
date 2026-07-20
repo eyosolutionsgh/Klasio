@@ -22,7 +22,6 @@ export interface ClientRow {
   daysRemaining: number | null;
   lastSeen: Date | null;
   students: number | null;
-  studentCap: number | null;
   verifiedWith: string | null;
   tierInForce: string | null;
   health: ClientHealth;
@@ -36,7 +35,7 @@ export const SILENT_AFTER_DAYS = 3;
 const WARN_WITHIN_DAYS = 30;
 
 export function assessClient(input: {
-  licence: { tier: LicenceTier; expiresAt: Date; studentCap: number | null } | null;
+  licence: { tier: LicenceTier; expiresAt: Date } | null;
   lastBeat: {
     receivedAt: Date;
     verifiedWith: string | null;
@@ -76,14 +75,21 @@ export function assessClient(input: {
     };
   }
 
-  if (lastBeat && lastBeat.students !== null && licence.studentCap !== null) {
-    if (lastBeat.students > licence.studentCap) {
-      return {
-        health: 'ATTENTION',
-        note: `Enrolling ${lastBeat.students} against a cap of ${licence.studentCap}`,
-        daysRemaining,
-      };
-    }
+  /*
+    Running a package other than the one on the licence.
+
+    Ranked directly below tampering, and above expiry, because the two have the same shape: what
+    the licence says has stopped describing what the box is doing. It is usually innocent — a
+    renewal issued this morning that the school has yet to install — but "usually innocent" is a
+    thing to confirm on a call, and the row said ACTIVE while showing the mismatch in red before
+    this existed, which is the dashboard disagreeing with itself.
+  */
+  if (lastBeat?.tierInForce && lastBeat.tierInForce !== licence.tier) {
+    return {
+      health: 'ATTENTION',
+      note: `Running ${lastBeat.tierInForce} on a ${licence.tier} licence — either the new licence is yet to be installed, or it was never issued`,
+      daysRemaining,
+    };
   }
 
   if (daysRemaining < 0) {

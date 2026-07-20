@@ -13,19 +13,10 @@ import { signLicence, type LicencePayload, type LicenceTier } from '@eyo/shared'
 import { db } from './db';
 import { vendorSigningKey } from './vendor-key';
 
-/** Defaults per package, matching the school application's own `STUDENT_CAPS`. */
-const DEFAULT_CAP: Record<LicenceTier, number | null> = {
-  BASIC: 150,
-  MEDIUM: 1000,
-  ADVANCED: null,
-};
-
 export interface IssueInput {
   clientId: string;
   tier: LicenceTier;
   months: number;
-  /** Undefined takes the tier default; null means explicitly uncapped. */
-  studentCap?: number | null;
   extraEntitlements?: string[];
   graceDays?: number;
   issuedById?: string;
@@ -59,7 +50,9 @@ export async function issueLicence(input: IssueInput) {
     schoolName: client.name,
     schoolSlug: client.slug,
     tier: input.tier,
-    studentCap: input.studentCap === undefined ? DEFAULT_CAP[input.tier] : input.studentCap,
+    // Always null — unlimited. Packages are sold on features, not headcount; this field survives
+    // only so a school server predating that change still accepts the licence it is sent.
+    studentCap: null,
     extraEntitlements: input.extraEntitlements ?? [],
     issuedAt: now.toISOString(),
     expiresAt: expiresAt.toISOString(),
@@ -75,7 +68,6 @@ export async function issueLicence(input: IssueInput) {
       clientId: client.id,
       licenceId: payload.licenceId,
       tier: payload.tier,
-      studentCap: payload.studentCap,
       extraEntitlements: payload.extraEntitlements,
       issuedAt: now,
       expiresAt,

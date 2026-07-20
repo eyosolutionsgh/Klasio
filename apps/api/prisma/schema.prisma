@@ -1464,7 +1464,6 @@ model Licence {
   licenceId     String
   schoolSlug    String
   tier          Tier
-  studentCap    Int?
   expiresAt     DateTime
   issuedAt      DateTime
   /// When this box last reported to its supplier, and whether that report landed.

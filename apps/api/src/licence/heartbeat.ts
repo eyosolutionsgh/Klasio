@@ -49,10 +49,13 @@ export interface HeartbeatPayload {
   tierInForce: Tier;
   /** What the licence says it bought. Null when there is no readable licence. */
   tierLicensed: Tier | null;
-  /** Active enrolment. One number, so a per-student licence can be reconciled against reality. */
+  /**
+   * Active enrolment. One number.
+   *
+   * Kept after enrolment caps were dropped: it is no longer a limit to police, but it is still
+   * how big a school is, which is what a renewal conversation is actually about.
+   */
   students: number;
-  /** The ceiling in force. Null means uncapped. */
-  studentCap: number | null;
   /**
    * The tamper signal.
    *
@@ -86,7 +89,6 @@ export function heartbeatPayload(input: {
     tierInForce: status.tier,
     tierLicensed: (status.payload?.tier as Tier | undefined) ?? null,
     students,
-    studentCap: status.studentCap,
     verifiedWith,
     appVersion,
     sentAt: (input.now ?? new Date()).toISOString(),

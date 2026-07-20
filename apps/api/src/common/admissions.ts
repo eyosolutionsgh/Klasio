@@ -28,7 +28,7 @@ export const STAGE_ORDER: ApplicantStage[] = [
  * able to put it right without a support call.
  *
  * ENROLLED is not reachable here at all. It means a Student row exists, which only conversion
- * can create — and conversion is what enforces the package enrolment cap.
+ * can create.
  */
 export function stageMoveError(from: ApplicantStage, to: ApplicantStage): string | null {
   if (from === to) return 'The applicant is already at that stage';

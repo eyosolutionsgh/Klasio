@@ -93,17 +93,12 @@ export async function issue(_prev: string | null, form: FormData): Promise<strin
   const clientId = String(form.get('clientId') ?? '');
   const tier = String(form.get('tier') ?? 'MEDIUM') as LicenceTier;
   const months = Number(form.get('months') ?? 12);
-  const capRaw = String(form.get('studentCap') ?? '').trim();
 
   try {
     await issueLicence({
       clientId,
       tier,
       months,
-      // Blank means "whatever the package says"; "unlimited" is the explicit no-ceiling case, and
-      // the two must stay distinguishable — null in a payload means unlimited, not unspecified.
-      studentCap:
-        capRaw === '' ? undefined : capRaw.toLowerCase() === 'unlimited' ? null : Number(capRaw),
       // getAll: the form posts one entry per ticked box now, rather than one comma-separated
       // string. Reading it with `get` would silently keep only the first feature sold.
       extraEntitlements: form.getAll('extras').map(String).filter(Boolean),

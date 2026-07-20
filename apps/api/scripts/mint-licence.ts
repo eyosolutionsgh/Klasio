@@ -23,7 +23,6 @@ import { signLicence, type LicencePayload } from '../src/licence/licence';
 
 const DEV_KEY_PATH = join(__dirname, '../../../ops/licence/dev-signing-key.pem');
 const TIERS: Tier[] = ['BASIC', 'MEDIUM', 'ADVANCED'];
-const DEFAULT_CAPS: Record<Tier, number | null> = { BASIC: 150, MEDIUM: 1000, ADVANCED: null };
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -56,7 +55,7 @@ function main() {
   if (!schoolName || !schoolSlug) {
     console.error(
       'Usage: licence:mint -- --school "Name" --slug the-slug [--tier MEDIUM] [--months 12]\n' +
-        '                       [--days 20] [--cap 500|unlimited] [--extra code,code] [--grace 30]\n' +
+        '                       [--days 20] [--extra code,code] [--grace 30]\n' +
         '                       [--key path] [--out file]',
     );
     process.exit(1);
@@ -76,19 +75,15 @@ function main() {
   if (days !== undefined) expiresAt.setDate(expiresAt.getDate() + Number(days));
   else expiresAt.setMonth(expiresAt.getMonth() + Number(arg('months') ?? 12));
 
-  // No --cap means "whatever the tier says"; --cap unlimited is the explicit no-ceiling case, and
-  // the two must stay distinguishable — null in a payload means unlimited, not "unspecified".
-  const capArg = arg('cap');
-  const studentCap =
-    capArg === undefined ? DEFAULT_CAPS[tier] : capArg === 'unlimited' ? null : Number(capArg);
-
   const payload: LicencePayload = {
     v: 1,
     licenceId: arg('id') || `lic_${now.getFullYear()}_${String(now.getTime()).slice(-6)}`,
     schoolName,
     schoolSlug,
     tier,
-    studentCap,
+    // Emitted as null — unlimited — purely so a server predating the removal of enrolment caps
+    // still accepts the licence. Nothing in a current build reads it.
+    studentCap: null,
     extraEntitlements: (arg('extra') ?? '')
       .split(',')
       .map((s) => s.trim())
@@ -120,7 +115,7 @@ function main() {
     console.log(licence);
   }
   console.error(
-    `\n${payload.schoolName} (${payload.schoolSlug}) — ${payload.tier}, cap ${payload.studentCap ?? 'unlimited'}, ` +
+    `\n${payload.schoolName} (${payload.schoolSlug}) — ${payload.tier}, ` +
       `expires ${payload.expiresAt.slice(0, 10)}, ${payload.graceDays}d grace`,
   );
 }
