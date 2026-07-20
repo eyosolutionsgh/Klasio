@@ -52,6 +52,9 @@ export const ENTITLEMENTS = {
     'safety.transport',
     'comms.whatsapp.chatbot',
     'comms.ussd',
+    // Video/audio in the resource library, and the lifted size cap that comes with it
+    // (docs/02 §2.7). Distinct from 'resources.documents' (Medium), which stays document-only.
+    'resources.media',
     'hr.payroll',
     'exams.cbt',
     'platform.api',
@@ -129,6 +132,7 @@ export const ENTITLEMENT_LABELS: Record<string, string> = {
   'safety.transport': 'School transport',
   'comms.whatsapp.chatbot': 'WhatsApp assistant',
   'comms.ussd': 'USSD access',
+  'resources.media': 'Video and audio resources',
   'hr.payroll': 'Staff payroll',
   'exams.cbt': 'Computer-based exams',
   'platform.api': 'API access',

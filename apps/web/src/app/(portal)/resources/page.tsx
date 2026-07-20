@@ -126,6 +126,7 @@ export default async function ResourcesPage({
             levels={structure.levels}
             classes={structure.classes}
             subjects={structure.subjects}
+            allowMedia={me.entitlements.includes('resources.media')}
           />
         )}
 

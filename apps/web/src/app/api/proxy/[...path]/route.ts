@@ -18,11 +18,15 @@ async function forward(req: NextRequest, params: Promise<{ path: string[] }>) {
   const res = await fetch(url, {
     method: req.method,
     headers,
-    body: isBodyless ? undefined : Buffer.from(await req.arrayBuffer()),
-  });
+    // The request body is piped through, never buffered: a media upload can be hundreds of
+    // megabytes, and this hop must not hold it in the web server's memory. `duplex` is what
+    // Node's fetch requires for a streaming body; the RequestInit type has not caught up.
+    body: isBodyless ? undefined : req.body,
+    ...(isBodyless ? {} : { duplex: 'half' as const }),
+  } as RequestInit);
 
   const resType = res.headers.get('content-type') ?? '';
-  // JSON is forwarded as text; binary (PDF/xlsx/csv) is streamed through with its headers intact.
+  // JSON is forwarded as text; binary (PDF/xlsx/media) is streamed through with headers intact.
   if (resType.includes('application/json') || resType === '') {
     const body = await res.text();
     return new NextResponse(body, {
@@ -30,11 +34,12 @@ async function forward(req: NextRequest, params: Promise<{ path: string[] }>) {
       headers: { 'Content-Type': resType || 'application/json' },
     });
   }
-  const buf = await res.arrayBuffer();
   const passthrough: Record<string, string> = { 'Content-Type': resType };
-  const disposition = res.headers.get('content-disposition');
-  if (disposition) passthrough['Content-Disposition'] = disposition;
-  return new NextResponse(buf, { status: res.status, headers: passthrough });
+  for (const header of ['content-disposition', 'content-length']) {
+    const value = res.headers.get(header);
+    if (value) passthrough[header] = value;
+  }
+  return new NextResponse(res.body, { status: res.status, headers: passthrough });
 }
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {

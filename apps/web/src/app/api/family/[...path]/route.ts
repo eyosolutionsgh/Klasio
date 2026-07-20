@@ -54,11 +54,13 @@ async function forward(req: NextRequest, params: Promise<{ path: string[] }>) {
       headers: { 'Content-Type': type || 'application/json' },
     });
   }
-  const buf = await res.arrayBuffer();
+  // Streamed through, never buffered — a shared lesson video is far too big to hold here.
   const headers: Record<string, string> = { 'Content-Type': type };
-  const disposition = res.headers.get('content-disposition');
-  if (disposition) headers['Content-Disposition'] = disposition;
-  return new NextResponse(buf, { status: res.status, headers });
+  for (const header of ['content-disposition', 'content-length']) {
+    const value = res.headers.get(header);
+    if (value) headers[header] = value;
+  }
+  return new NextResponse(res.body, { status: res.status, headers });
 }
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {

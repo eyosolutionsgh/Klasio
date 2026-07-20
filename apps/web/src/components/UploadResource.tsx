@@ -24,6 +24,9 @@ const ACCEPT = [
   '.xlsx',
 ].join(',');
 
+/** Offered only when the licence carries `resources.media` — the API refuses them otherwise. */
+const MEDIA_ACCEPT = [ACCEPT, 'video/*', 'audio/*'].join(',');
+
 /**
  * Share a file with a class. It lands as a draft — publishing is a separate, deliberate step,
  * so a wrong file can be replaced before any parent sees it.
@@ -32,10 +35,13 @@ export default function UploadResource({
   levels,
   classes,
   subjects,
+  allowMedia = false,
 }: {
   levels: { id: string; name: string }[];
   classes: { id: string; name: string; level: string }[];
   subjects: { id: string; name: string }[];
+  /** Whether this school's package includes video and audio (`resources.media`). */
+  allowMedia?: boolean;
 }) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
@@ -100,11 +106,15 @@ export default function UploadResource({
       </label>
       <FileField
         id="res-file"
-        accept={ACCEPT}
+        accept={allowMedia ? MEDIA_ACCEPT : ACCEPT}
         value={file}
         onChange={setFile}
         disabled={upload.state === 'pending'}
-        hint="PDF, Word, PowerPoint, Excel, text or an image, up to 8MB."
+        hint={
+          allowMedia
+            ? 'PDF, Word, PowerPoint, Excel, text or an image up to 8MB — or video and audio up to 512MB.'
+            : 'PDF, Word, PowerPoint, Excel, text or an image, up to 8MB.'
+        }
       />
 
       <div className="grid sm:grid-cols-2 gap-3 mt-4">
