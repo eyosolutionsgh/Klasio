@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # So a run can be started against any branch without pushing an empty commit — and because a
+  # push that creates several refs at once does not trigger one at all.
+  workflow_dispatch:
 
 # A second push to the same branch makes the first run's answer worthless.
 concurrency:
