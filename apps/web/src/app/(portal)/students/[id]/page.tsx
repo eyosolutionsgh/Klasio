@@ -4,7 +4,7 @@ import DownloadButton from '@/components/DownloadButton';
 import InstallmentPlan from '@/components/InstallmentPlan';
 import StudentLifecycle from '@/components/StudentLifecycle';
 import StudentFiles from '@/components/StudentFiles';
-import StudentGuardians from '@/components/StudentGuardians';
+import StudentGuardians, { type GuardianLink } from '@/components/StudentGuardians';
 import StudentExtras from '@/components/StudentExtras';
 import MedicalNotes from '@/components/MedicalNotes';
 import StudentCustomFields from '@/components/StudentCustomFields';
@@ -46,24 +46,29 @@ interface Detail {
   exitDate: string | null;
   exitReason: string | null;
   photoUrl?: string | null;
-  medicalNotes: string | null;
+  /** Absent without `students.medical` — the nurse holds that, the librarian does not. */
+  medicalNotes?: string | null;
   className: string | null;
-  guardians: {
-    id: string;
-    name: string;
-    phone: string;
-    relationship: string;
-    isPrimary: boolean;
-    canPickup: boolean;
-    custodyFlag: string;
-    whatsappOptIn: boolean;
-    alsoGuardianTo: number;
-  }[];
+  /**
+   * The one `GuardianLink` rather than a second copy of its shape. Declared inline, this drifted:
+   * `phone` and `whatsappOptIn` stayed required here after the component had already made them
+   * optional, so the page kept promising fields the API omits.
+   */
+  guardians: GuardianLink[];
   otherNames: string | null;
   classId: string | null;
-  feeBalance: number;
+  /**
+   * Money is gated on `fees.view`, so both of these are **absent** for a role that may read a
+   * child's record but not the school's finances — a Librarian, School Nurse, Subject Teacher or
+   * Exams Officer. Read as required, `s.ledger.map(...)` throws and takes the page down for all
+   * of them, which is the same failure the custody fields had one field over.
+   *
+   * They travel together: the API decides both on the one check, so the fee card, the payment
+   * plan and the ledger are shown or omitted as a set.
+   */
+  feeBalance?: number;
   hasPortalPin: boolean;
-  ledger: {
+  ledger?: {
     id: string;
     type: string;
     amount: number;
@@ -98,6 +103,15 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
   const canPrintCard =
     ['OWNER', 'HEAD', 'FRONT_DESK'].includes(me.user.role) &&
     me.entitlements.includes('sis.idcards');
+
+  /**
+   * Narrowed once, here, rather than at each use. The API sends both or neither, so binding them
+   * together keeps the fee card, the payment plan and the ledger from disagreeing about whether
+   * this reader may see money.
+   */
+  const balance = s.feeBalance;
+  const ledger = s.ledger;
+  const mayReadFees = balance !== undefined && ledger !== undefined;
 
   return (
     <div>
@@ -148,17 +162,20 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
           </div>
         </div>
         <div className="flex flex-col items-end gap-2">
-          <div
-            data-tip="Bills minus payments across all terms"
-            className={`tip card px-5 py-3 text-right ${s.feeBalance > 0 ? 'border-clay/40' : ''}`}
-          >
-            <p className="text-[11px] uppercase tracking-widest text-oat">Fee balance</p>
-            <p
-              className={`font-display text-2xl tabular mt-1 ${s.feeBalance > 0 ? 'text-clay' : 'text-leaf'}`}
+          {/* No card at all without `fees.view` — a balance of GHS 0.00 would be a lie. */}
+          {balance !== undefined && (
+            <div
+              data-tip="Bills minus payments across all terms"
+              className={`tip card px-5 py-3 text-right ${balance > 0 ? 'border-clay/40' : ''}`}
             >
-              {money(s.feeBalance)}
-            </p>
-          </div>
+              <p className="text-[11px] uppercase tracking-widest text-oat">Fee balance</p>
+              <p
+                className={`font-display text-2xl tabular mt-1 ${balance > 0 ? 'text-clay' : 'text-leaf'}`}
+              >
+                {money(balance)}
+              </p>
+            </div>
+          )}
           {canPrintCard && s.status === 'ACTIVE' && (
             <div className="no-print">
               <DownloadButton
@@ -202,17 +219,23 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
 
           <StudentExtras studentId={s.id} />
 
-          <StudentConcessions
-            studentId={s.id}
-            studentName={s.firstName}
-            balance={s.feeBalance}
-            canManage={canAwardConcessions}
-            currency={me.school.currency}
-          />
+          {/* Both take a balance, so both belong behind the same gate as the card above. */}
+          {balance !== undefined && (
+            <>
+              <StudentConcessions
+                studentId={s.id}
+                studentName={s.firstName}
+                balance={balance}
+                canManage={canAwardConcessions}
+                currency={me.school.currency}
+              />
 
-          <InstallmentPlan studentId={s.id} balance={s.feeBalance} canEdit={canPlan} />
+              <InstallmentPlan studentId={s.id} balance={balance} canEdit={canPlan} />
+            </>
+          )}
 
-          <MedicalNotes studentId={s.id} notes={s.medicalNotes} />
+          {/* `students.medical` is the nurse's, not everyone's — absent means omit the section. */}
+          {s.medicalNotes !== undefined && <MedicalNotes studentId={s.id} notes={s.medicalNotes} />}
 
           {canEditStudent && (
             <StudentPortalAccess
@@ -249,92 +272,94 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
           <CumulativeRecord studentId={s.id} />
 
           {/* Ledger */}
-          <section className="card p-6 rise rise-3">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="font-display text-xl">Fee ledger</h2>
-              <GrantConcession studentId={s.id} studentName={s.firstName} />
-            </div>
-            <p className="text-xs text-oat mt-1">
-              Every charge and payment, newest first. Corrections appear as reversals.
-            </p>
-            <table className="w-full text-sm mt-4 table-stack">
-              <thead>
-                <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist">
-                  <th className="py-2 font-medium">Date</th>
-                  <th className="py-2 font-medium">Entry</th>
-                  <th className="py-2 font-medium text-right">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {s.ledger.map((e) => (
-                  <tr key={e.id} className="border-b border-mist/50 last:border-0">
-                    <td
-                      data-label="Date"
-                      className="py-2.5 text-oat tabular whitespace-nowrap align-top"
-                    >
-                      {fmtDate(e.createdAt)}
-                    </td>
-                    <td data-label="Entry" className="py-2.5">
-                      <p
-                        className={`font-medium text-[13px] ${e.reversed ? 'line-through text-oat' : ''}`}
+          {mayReadFees && ledger !== undefined && (
+            <section className="card p-6 rise rise-3">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="font-display text-xl">Fee ledger</h2>
+                <GrantConcession studentId={s.id} studentName={s.firstName} />
+              </div>
+              <p className="text-xs text-oat mt-1">
+                Every charge and payment, newest first. Corrections appear as reversals.
+              </p>
+              <table className="w-full text-sm mt-4 table-stack">
+                <thead>
+                  <tr className="text-left text-[11px] uppercase tracking-widest text-oat border-b border-mist">
+                    <th className="py-2 font-medium">Date</th>
+                    <th className="py-2 font-medium">Entry</th>
+                    <th className="py-2 font-medium text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledger.map((e) => (
+                    <tr key={e.id} className="border-b border-mist/50 last:border-0">
+                      <td
+                        data-label="Date"
+                        className="py-2.5 text-oat tabular whitespace-nowrap align-top"
                       >
-                        {LEDGER_LABEL(e.type, e.method)}
-                      </p>
-                      <p className="text-[11px] text-oat tabular">
-                        {e.reference}
-                        {e.receiptNumber && ` · ${e.receiptNumber}`}
-                      </p>
-                      {/* The reason a correction was made matters more than the correction. */}
-                      {e.type === 'REVERSAL' && e.note && (
-                        <p className="text-[11px] text-oat italic">{e.note}</p>
-                      )}
-                      {e.reversed && (
-                        <p className="text-[11px] text-danger">Reversed — no longer counted</p>
-                      )}
-                      <span className="flex items-center gap-3">
-                        {e.type === 'PAYMENT' && e.receiptNumber && !e.reversed && (
-                          <a
-                            href={`/api/proxy/fees/receipts/${e.reference}/pdf`}
-                            className="no-print text-[11px] text-brand hover:underline underline-offset-2"
-                          >
-                            Download receipt ↓
-                          </a>
+                        {fmtDate(e.createdAt)}
+                      </td>
+                      <td data-label="Entry" className="py-2.5">
+                        <p
+                          className={`font-medium text-[13px] ${e.reversed ? 'line-through text-oat' : ''}`}
+                        >
+                          {LEDGER_LABEL(e.type, e.method)}
+                        </p>
+                        <p className="text-[11px] text-oat tabular">
+                          {e.reference}
+                          {e.receiptNumber && ` · ${e.receiptNumber}`}
+                        </p>
+                        {/* The reason a correction was made matters more than the correction. */}
+                        {e.type === 'REVERSAL' && e.note && (
+                          <p className="text-[11px] text-oat italic">{e.note}</p>
                         )}
-                        {/* Append-only: a mistake is cancelled by recording that it was. */}
-                        {canReverse && !e.reversed && e.type !== 'REVERSAL' && (
-                          <ReverseEntry
-                            entryId={e.id}
-                            label={LEDGER_LABEL(e.type, e.method)}
-                            amount={money(e.amount)}
-                          />
+                        {e.reversed && (
+                          <p className="text-[11px] text-danger">Reversed — no longer counted</p>
                         )}
-                      </span>
-                    </td>
-                    <td
-                      data-label="Amount"
-                      className={`py-2.5 text-right tabular font-medium align-top ${
-                        e.reversed
-                          ? 'line-through text-oat'
-                          : e.type === 'INVOICE'
-                            ? 'text-ink'
-                            : 'text-leaf'
-                      }`}
-                    >
-                      {e.type === 'INVOICE' ? '' : '−'}
-                      {money(e.amount)}
-                    </td>
-                  </tr>
-                ))}
-                {s.ledger.length === 0 && (
-                  <tr>
-                    <td colSpan={3} className="py-8 text-center text-oat">
-                      No ledger entries yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </section>
+                        <span className="flex items-center gap-3">
+                          {e.type === 'PAYMENT' && e.receiptNumber && !e.reversed && (
+                            <a
+                              href={`/api/proxy/fees/receipts/${e.reference}/pdf`}
+                              className="no-print text-[11px] text-brand hover:underline underline-offset-2"
+                            >
+                              Download receipt ↓
+                            </a>
+                          )}
+                          {/* Append-only: a mistake is cancelled by recording that it was. */}
+                          {canReverse && !e.reversed && e.type !== 'REVERSAL' && (
+                            <ReverseEntry
+                              entryId={e.id}
+                              label={LEDGER_LABEL(e.type, e.method)}
+                              amount={money(e.amount)}
+                            />
+                          )}
+                        </span>
+                      </td>
+                      <td
+                        data-label="Amount"
+                        className={`py-2.5 text-right tabular font-medium align-top ${
+                          e.reversed
+                            ? 'line-through text-oat'
+                            : e.type === 'INVOICE'
+                              ? 'text-ink'
+                              : 'text-leaf'
+                        }`}
+                      >
+                        {e.type === 'INVOICE' ? '' : '−'}
+                        {money(e.amount)}
+                      </td>
+                    </tr>
+                  ))}
+                  {ledger.length === 0 && (
+                    <tr>
+                      <td colSpan={3} className="py-8 text-center text-oat">
+                        No ledger entries yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </section>
+          )}
         </div>
       </div>
     </div>

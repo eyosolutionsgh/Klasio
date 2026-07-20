@@ -8,21 +8,26 @@ import { CloseIcon, EditIcon, PhoneIcon, PlusIcon, SaveIcon, TrashIcon, UserIcon
 export interface GuardianLink {
   id: string;
   name: string;
-  phone: string;
   relationship: string;
   isPrimary: boolean;
   /**
-   * Custody and collection are permission-gated, so these are **absent** — not false, not "NONE" —
-   * for a caller without `students.guardians` or `pickup.view`. A bursar gets a guardian's name
-   * and relationship and nothing about who may collect the child.
+   * Contact details, custody and collection are permission-gated, so these are **absent** — not
+   * false, not "NONE", not an empty string — for a caller without `students.guardians` or
+   * `pickup.view`. A bursar gets a guardian's name and relationship and nothing about how to
+   * reach them or who may collect the child.
    *
    * Optional in the type for that reason: read as required, `g.custodyFlag !== 'NONE'` is true for
    * `undefined` and the next line calls `.toLowerCase()` on it, which took the whole student page
    * down for every bursar.
+   *
+   * All four come off the one `mayReadGuardians` check in students.module.ts. They are listed
+   * together because that is how the API decides them — splitting them up is how `phone` and
+   * `whatsappOptIn` stayed required here after the other two were fixed.
    */
+  phone?: string;
   canPickup?: boolean;
   custodyFlag?: string;
-  whatsappOptIn: boolean;
+  whatsappOptIn?: boolean;
   /** Other students who share this guardian record. */
   alsoGuardianTo: number;
 }
@@ -257,10 +262,15 @@ export default function StudentGuardians({
                     <span className={iconWrap}>
                       <PhoneIcon />
                     </span>
+                    {/*
+                      `?? ''` keeps the input controlled-from-the-start rather than flipping
+                      when the value arrives. Editing needs `students.guardians`, which also
+                      grants the read, so in practice this is only ever the real number.
+                    */}
                     <input
                       name="phone"
                       required
-                      defaultValue={g.phone}
+                      defaultValue={g.phone ?? ''}
                       className={`${field} w-40 pl-10 tabular`}
                     />
                   </div>
@@ -332,8 +342,18 @@ export default function StudentGuardians({
                     </span>
                   )}
                 </p>
+                {/*
+                  The separator belongs to the phone number, not to the relationship — a role that
+                  may not read contact details would otherwise get a dangling "Mother · ".
+                */}
                 <p className="text-xs text-oat mt-0.5">
-                  {g.relationship} · <span className="tabular">{g.phone}</span>
+                  {g.relationship}
+                  {g.phone !== undefined && (
+                    <>
+                      {' · '}
+                      <span className="tabular">{g.phone}</span>
+                    </>
+                  )}
                   {g.whatsappOptIn && ' · WhatsApp ✓'}
                 </p>
                 <Button
