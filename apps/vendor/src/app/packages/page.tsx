@@ -1,7 +1,6 @@
-import { redirect } from 'next/navigation';
 import { ENTITLEMENT_CATALOGUE } from '@eyo/shared';
 import { db } from '@/lib/db';
-import { currentUser } from '@/lib/session-ui';
+import { requireUser } from '@/lib/session';
 import Header from '../Header';
 import ArchiveToggle from './ArchiveToggle';
 import PackageEditor from './PackageEditor';
@@ -16,8 +15,8 @@ export const dynamic = 'force-dynamic';
  * should be choosing from a menu, not composing one.
  */
 export default async function PackagesPage() {
-  const user = await currentUser();
-  if (!user) redirect('/login');
+  // Redirects to the sign-in step they are actually at, rather than always to the start.
+  await requireUser();
 
   const packages = await db.package.findMany({
     orderBy: [{ archived: 'asc' }, { name: 'asc' }],

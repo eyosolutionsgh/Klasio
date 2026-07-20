@@ -73,3 +73,24 @@ force, the client reads as unlicensed, and the next renewal is priced against re
 school sooner, issue a shorter licence they will install, or wait for expiry. The row is kept and
 marked rather than deleted, because what was sent to a school is the one thing support cannot
 reconstruct from anywhere else.
+
+## Signing in
+
+Two factors, required for everyone. This portal can mint a licence for any school, so a password on
+its own was the whole of its security.
+
+A correct password buys a **pending** session and nothing else — a separate cookie that no page or
+action will accept, so there is no shape of bug where a half-authenticated token is mistaken for a
+finished one. It is exchanged for a real session by one of:
+
+- **an authenticator app** (TOTP, RFC 6238) — always available, needs no network and no mail
+  provider, which is why it leads;
+- **an emailed code** — offered only when a mail provider is configured, so nobody clicks an option
+  that was never going to arrive;
+- **a recovery code** — ten, issued once at enrolment, each usable once.
+
+Five wrong codes locks the account for fifteen minutes, whichever kind of code was wrong.
+
+Recovery codes are shown exactly once and stored hashed: the portal cannot show them again because
+it cannot read them. Somebody who loses both their phone and their codes needs another member of
+staff to clear `totpConfirmedAt` on their row, which re-runs enrolment on their next sign-in.

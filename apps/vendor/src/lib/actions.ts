@@ -8,7 +8,16 @@ import { db } from './db';
 import { issueLicence } from './issue';
 import { archivePackage, createPackage, updatePackage } from './packages';
 import { DEFAULT_TERM } from './terms';
-import { currentUser, mintSession, SESSION_COOKIE } from './session';
+import {
+  currentUser,
+  mintPendingSession,
+  mintSession,
+  PENDING_SESSION_COOKIE,
+  pendingUser,
+  SESSION_COOKIE,
+} from './session';
+import { confirmEnrolment, sendEmailCode, verifySecondFactor, type MfaFactor } from './mfa';
+import { isEnrolled } from './mfa-policy';
 
 export async function signIn(_prev: string | null, form: FormData): Promise<string | null> {
   const email = String(form.get('email') ?? '')
@@ -22,20 +31,99 @@ export async function signIn(_prev: string | null, form: FormData): Promise<stri
     return 'Those details were not recognised.';
   }
 
-  await db.vendorUser.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
-  const session = mintSession(user.id);
-  (await cookies()).set(session.name, session.value, {
+  /*
+    A correct password buys a pending session and nothing else.
+
+    `lastLoginAt` is deliberately not stamped here either — it is stamped when a second factor
+    passes, so it means "somebody got in" rather than "somebody knew the password".
+  */
+  await setCookie(mintPendingSession(user.id));
+  redirect(isEnrolled(user) ? '/mfa' : '/mfa/setup');
+}
+
+async function setCookie(c: { name: string; value: string; maxAge: number }) {
+  (await cookies()).set(c.name, c.value, {
     httpOnly: true,
     sameSite: 'lax',
     path: '/',
-    maxAge: session.maxAge,
+    maxAge: c.maxAge,
     secure: process.env.NODE_ENV === 'production',
   });
+}
+
+/** Exchange a pending session for a real one, having proved a second factor. */
+async function completeSignIn(userId: string) {
+  await setCookie(mintSession(userId));
+  (await cookies()).set(PENDING_SESSION_COOKIE, '', { httpOnly: true, path: '/', maxAge: 0 });
+}
+
+export async function verifyMfa(_prev: string | null, form: FormData): Promise<string | null> {
+  const user = await pendingUser();
+  if (!user) redirect('/login');
+
+  const factor = String(form.get('factor') ?? 'totp') as MfaFactor;
+  const result = await verifySecondFactor(user.id, factor, String(form.get('code') ?? ''));
+  if (!result.ok) return result.error ?? 'That code did not match.';
+
+  await completeSignIn(user.id);
   redirect('/');
 }
 
+/** Ask for an emailed code. Never says whether it arrived — only whether it was sent. */
+export async function requestEmailCode(
+  _prev: string | null,
+  _form: FormData,
+): Promise<string | null> {
+  const user = await pendingUser();
+  if (!user) redirect('/login');
+
+  const result = await sendEmailCode(user.id);
+  return result.ok ? null : (result.error ?? 'Could not send a code.');
+}
+
+/**
+ * Finish enrolment, and stop.
+ *
+ * Deliberately does **not** sign in. Completing the session here clears the pending cookie, the
+ * page re-renders after the action, finds nobody part-way through signing in, and redirects to the
+ * login screen — carrying the recovery codes away with it. They exist in readable form exactly
+ * once, so the screen that shows them has to outlive the action that produced them.
+ */
+export async function completeEnrolment(
+  _prev: EnrolmentResult,
+  form: FormData,
+): Promise<EnrolmentResult> {
+  const user = await pendingUser();
+  if (!user) redirect('/login');
+
+  const result = await confirmEnrolment(user.id, String(form.get('code') ?? ''));
+  if (!result.ok) return { error: result.error ?? 'That code did not match.' };
+  return { recoveryCodes: result.recoveryCodes };
+}
+
+/**
+ * "I have saved them" — the step that actually signs in.
+ *
+ * A separate action so acknowledging the recovery codes is a deliberate act rather than something
+ * that happened while the page was busy.
+ */
+export async function finishEnrolment() {
+  const user = await pendingUser();
+  if (!user) redirect('/login');
+  await completeSignIn(user.id);
+  redirect('/');
+}
+
+export interface EnrolmentResult {
+  error?: string;
+  recoveryCodes?: string[];
+}
+
 export async function signOut() {
-  (await cookies()).set(SESSION_COOKIE, '', { httpOnly: true, path: '/', maxAge: 0 });
+  const jar = await cookies();
+  // Both, so signing out part-way through a challenge does not leave a usable pending session.
+  jar.set(SESSION_COOKIE, '', { httpOnly: true, path: '/', maxAge: 0 });
+  jar.set(PENDING_SESSION_COOKIE, '', { httpOnly: true, path: '/', maxAge: 0 });
   redirect('/login');
 }
 

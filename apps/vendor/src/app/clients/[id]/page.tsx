@@ -1,10 +1,10 @@
 import Link from 'next/link';
-import { notFound, redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import { ENTITLEMENT_CATALOGUE } from '@eyo/shared';
 import { db } from '@/lib/db';
 import { sellablePackages } from '@/lib/packages';
 import { assessClient } from '@/lib/issue';
-import { currentUser } from '@/lib/session-ui';
+import { requireUser } from '@/lib/session';
 import { termLabel } from '@/lib/terms';
 import { canIssue, usingDevSigningKey } from '@/lib/vendor-key';
 import Header from '../../Header';
@@ -30,8 +30,8 @@ const day = (d: Date | null) =>
     : '—';
 
 export default async function ClientPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await currentUser();
-  if (!user) redirect('/login');
+  // Redirects to the sign-in step they are actually at, rather than always to the start.
+  await requireUser();
   const { id } = await params;
 
   const client = await db.client.findUnique({

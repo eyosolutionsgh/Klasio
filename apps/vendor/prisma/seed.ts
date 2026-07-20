@@ -7,6 +7,8 @@
 import bcrypt from 'bcryptjs';
 import { ENTITLEMENT_CATALOGUE, includedIn, type LicenceTier } from '@eyo/shared';
 import { PrismaClient } from '../node_modules/.prisma/vendor-client';
+import { encryptSecret } from '../src/lib/crypto';
+import { generateTotpSecret, readableSecret } from '../src/lib/totp';
 
 const db = new PrismaClient();
 
@@ -15,13 +17,38 @@ async function main() {
   const password = process.env.VENDOR_ADMIN_PASSWORD ?? 'Password1!';
   const name = process.env.VENDOR_ADMIN_NAME ?? 'Klasio Licensing';
 
+  /*
+    The bootstrap account is enrolled here, not left to enrol itself.
+
+    Second factors are required, so a seeded account with none would land on the setup screen — fine
+    for a person, useless for the E2E suite, which has to be able to produce a valid code. Taking
+    the secret from the environment when given keeps that honest: a real operator sets
+    VENDOR_ADMIN_TOTP_SECRET to something only they hold, or scans the one printed below and then
+    re-enrols.
+  */
+  const totpSecret = process.env.VENDOR_ADMIN_TOTP_SECRET || generateTotpSecret();
   const passwordHash = await bcrypt.hash(password, 10);
   await db.vendorUser.upsert({
     where: { email },
-    create: { email, name, passwordHash },
-    update: { passwordHash, active: true },
+    create: {
+      email,
+      name,
+      passwordHash,
+      totpSecretEnc: encryptSecret(totpSecret),
+      totpConfirmedAt: new Date(),
+    },
+    update: {
+      passwordHash,
+      active: true,
+      totpSecretEnc: encryptSecret(totpSecret),
+      totpConfirmedAt: new Date(),
+      // A reseed is a reset: whatever was counting against this account stops counting.
+      mfaFailedAttempts: 0,
+      mfaLockedUntil: null,
+    },
   });
   console.log(`Vendor login: ${email} / ${password}`);
+  console.log(`Authenticator key: ${readableSecret(totpSecret)}`);
 
   /*
     The three built-in tiers, as packages to start from.

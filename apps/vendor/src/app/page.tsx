@@ -1,9 +1,8 @@
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
 import { db } from '@/lib/db';
 import { assessClient, type ClientHealth } from '@/lib/issue';
 import { countByHealth, hasRange, HEALTH_ORDER, paginate, withinRange } from '@/lib/list';
-import { currentUser } from '@/lib/session-ui';
+import { requireUser } from '@/lib/session';
 import { canIssue } from '@/lib/vendor-key';
 import AddSchoolDialog from './AddSchoolDialog';
 import DateFilters from './DateFilters';
@@ -40,8 +39,8 @@ export default async function Dashboard({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const user = await currentUser();
-  if (!user) redirect('/login');
+  // Redirects to the sign-in step they are actually at, rather than always to the start.
+  await requireUser();
 
   const sp = await searchParams;
   const one = (k: string) => (Array.isArray(sp[k]) ? sp[k][0] : sp[k]) || undefined;

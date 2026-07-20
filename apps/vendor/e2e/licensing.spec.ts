@@ -2,6 +2,7 @@ import { createPublicKey, verify as cryptoVerify } from 'crypto';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { expect, test, type Page } from '@playwright/test';
+import { totpAt } from '../src/lib/totp';
 
 /**
  * The licensing portal, end to end.
@@ -22,6 +23,16 @@ import { expect, test, type Page } from '@playwright/test';
  */
 
 const STAFF = { email: 'vendor@klasio.test', password: 'Password1!' };
+
+/**
+ * The seeded account's authenticator secret.
+ *
+ * Second factors are required, so the suite has to be able to produce a real code — there is no
+ * bypass, and adding one would mean shipping a way past MFA in the product itself. The seed enrols
+ * the bootstrap account from `VENDOR_ADMIN_TOTP_SECRET`, and this generates codes from the same
+ * secret with the same implementation the RFC vectors already pin in `totp.spec.ts`.
+ */
+const STAFF_TOTP = process.env.VENDOR_ADMIN_TOTP_SECRET ?? 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
 const FIXTURE_PREFIX = 'e2e-fixture-';
 
 /** What the fixture seed provisions. Mirrors `EXPECTED` in prisma/seed-e2e.ts. */
@@ -47,6 +58,12 @@ async function signIn(page: Page) {
   await page.getByLabel('Email').fill(STAFF.email);
   await page.getByLabel('Password').fill(STAFF.password);
   await page.getByRole('button', { name: 'Sign in' }).click();
+
+  // A password alone reaches the challenge, never the portal.
+  await expect(page.getByText(`Signing in as ${STAFF.email}`)).toBeVisible();
+  await page.getByLabel('Code from your authenticator app').fill(totpAt(STAFF_TOTP, new Date()));
+  await page.getByRole('button', { name: 'Sign in' }).click();
+
   await expect(page.getByRole('heading', { name: 'Client schools' })).toBeVisible();
 }
 
@@ -76,6 +93,41 @@ test.describe('the licensing portal', () => {
     await page.goto('/');
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Client schools' })).toBeHidden();
+  });
+
+  /**
+   * A correct password is not a session.
+   *
+   * The portal can mint a licence for any school, so this is the assertion that matters most in
+   * the file: knowing the password gets you a challenge screen and nothing else, however you
+   * navigate from there.
+   */
+  test('a password alone reaches the challenge and no further', async ({ page }) => {
+    await page.context().clearCookies();
+    await page.goto('/login');
+    await page.getByLabel('Email').fill(STAFF.email);
+    await page.getByLabel('Password').fill(STAFF.password);
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByText(`Signing in as ${STAFF.email}`)).toBeVisible();
+
+    // Every route, not just the one it redirected to.
+    for (const path of ['/', '/packages']) {
+      await page.goto(path);
+      await expect(page.getByRole('heading', { name: 'Client schools' })).toBeHidden();
+      await expect(page.getByRole('heading', { name: 'Packages' })).toBeHidden();
+    }
+
+    // A wrong code costs an attempt rather than being free to retry.
+    await page.goto('/mfa');
+    await page.getByLabel('Code from your authenticator app').fill('000000');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    // By text, not by role: Next's own route announcer is also a live region called "alert".
+    await expect(page.getByText(/attempts left/)).toBeVisible();
+
+    // And the real code finishes the job.
+    await page.getByLabel('Code from your authenticator app').fill(totpAt(STAFF_TOTP, new Date()));
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByRole('heading', { name: 'Client schools' })).toBeVisible();
   });
 
   /**

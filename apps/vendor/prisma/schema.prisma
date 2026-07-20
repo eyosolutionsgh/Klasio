@@ -39,6 +39,29 @@ model VendorUser {
   lastLoginAt  DateTime?
   createdAt    DateTime @default(now())
 
+  /// The authenticator secret, encrypted — see `lib/crypto.ts`.
+  ///
+  /// Encrypted rather than hashed because verifying a code means regenerating it, so it has to be
+  /// recoverable. Anyone holding it can produce this person's codes forever, which makes it worth
+  /// more than the password hash sitting beside it.
+  totpSecretEnc String?
+  /// Set when a code from that secret was first accepted. Until then enrolment is unfinished, and
+  /// a half-enrolled account must not be able to sign in on a secret nobody has proved they hold.
+  totpConfirmedAt DateTime?
+
+  /// Emailed sign-in codes. Hashed, because an emailed code is a password for the next ten minutes.
+  emailOtpHash      String?
+  emailOtpExpiresAt DateTime?
+  emailOtpSentAt    DateTime?
+
+  /// Wrong second factors in a row. Cleared on success; blocks the account when it runs away.
+  mfaFailedAttempts Int       @default(0)
+  mfaLockedUntil    DateTime?
+
+  /// One-use codes for a lost phone, hashed like passwords. Shown once at enrolment and never
+  /// again — the portal cannot show them later because it cannot read them.
+  recoveryCodeHashes String[] @default([])
+
   issued  Licence[] @relation("issuedBy")
   revoked Licence[] @relation("revokedBy")
 }
