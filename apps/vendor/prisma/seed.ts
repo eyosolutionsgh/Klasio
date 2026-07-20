@@ -1,10 +1,9 @@
 /**
  * A first member of vendor staff, so a fresh portal can be signed into.
  *
- * Idempotent: run it twice and it resets the password rather than failing, which is what you
- * actually want when someone has locked themselves out.
+ * Idempotent: run it twice and it re-enrols the authenticator rather than failing, which is what
+ * you actually want when someone has locked themselves out.
  */
-import bcrypt from 'bcryptjs';
 import { ENTITLEMENT_CATALOGUE, includedIn, type LicenceTier } from '@eyo/shared';
 import { PrismaClient } from '../node_modules/.prisma/vendor-client';
 import { encryptSecret } from '../src/lib/crypto';
@@ -14,7 +13,6 @@ const db = new PrismaClient();
 
 async function main() {
   const email = (process.env.VENDOR_ADMIN_EMAIL ?? 'vendor@klasio.test').toLowerCase();
-  const password = process.env.VENDOR_ADMIN_PASSWORD ?? 'Password1!';
   const name = process.env.VENDOR_ADMIN_NAME ?? 'Klasio Licensing';
 
   /*
@@ -27,18 +25,15 @@ async function main() {
     re-enrols.
   */
   const totpSecret = process.env.VENDOR_ADMIN_TOTP_SECRET || generateTotpSecret();
-  const passwordHash = await bcrypt.hash(password, 10);
   await db.vendorUser.upsert({
     where: { email },
     create: {
       email,
       name,
-      passwordHash,
       totpSecretEnc: encryptSecret(totpSecret),
       totpConfirmedAt: new Date(),
     },
     update: {
-      passwordHash,
       active: true,
       totpSecretEnc: encryptSecret(totpSecret),
       totpConfirmedAt: new Date(),
@@ -47,8 +42,9 @@ async function main() {
       mfaLockedUntil: null,
     },
   });
-  console.log(`Vendor login: ${email} / ${password}`);
+  console.log(`Vendor login: ${email}`);
   console.log(`Authenticator key: ${readableSecret(totpSecret)}`);
+  console.log('Sign in with a code from that key, or with one emailed to the address above.');
 
   /*
     The three built-in tiers, as packages to start from.

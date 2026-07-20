@@ -22,15 +22,18 @@ import { totpAt } from '../src/lib/totp';
  * one that fails, because it looks like coverage.
  */
 
-const STAFF = { email: 'vendor@klasio.test', password: 'Password1!' };
+const STAFF = { email: 'vendor@klasio.test' };
 
 /**
  * The seeded account's authenticator secret.
  *
- * Second factors are required, so the suite has to be able to produce a real code — there is no
- * bypass, and adding one would mean shipping a way past MFA in the product itself. The seed enrols
- * the bootstrap account from `VENDOR_ADMIN_TOTP_SECRET`, and this generates codes from the same
- * secret with the same implementation the RFC vectors already pin in `totp.spec.ts`.
+ * Sign-in is passwordless, so the suite has to produce a real code — there is no bypass, and
+ * adding one would mean shipping a way into the portal in the product itself. The seed enrols the
+ * bootstrap account from `VENDOR_ADMIN_TOTP_SECRET`, and this generates codes from the same secret
+ * with the same implementation the RFC vectors already pin in `totp.spec.ts`.
+ *
+ * The authenticator rather than an emailed code, because it needs no mail provider — the suite has
+ * to pass on a checkout with nothing configured.
  */
 const STAFF_TOTP = process.env.VENDOR_ADMIN_TOTP_SECRET ?? 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
 const FIXTURE_PREFIX = 'e2e-fixture-';
@@ -56,11 +59,11 @@ test.beforeEach(async ({ page }) => {
 async function signIn(page: Page) {
   await page.goto('/login');
   await page.getByLabel('Email').fill(STAFF.email);
-  await page.getByLabel('Password').fill(STAFF.password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
 
-  // A password alone reaches the challenge, never the portal.
+  // An address alone reaches the code screen, never the portal.
   await expect(page.getByText(`Signing in as ${STAFF.email}`)).toBeVisible();
+  await page.getByRole('button', { name: 'Use my authenticator app' }).click();
   await page.getByLabel('Code from your authenticator app').fill(totpAt(STAFF_TOTP, new Date()));
   await page.getByRole('button', { name: 'Sign in' }).click();
 
@@ -91,34 +94,36 @@ test.describe('the licensing portal', () => {
     // beforeEach already signed in; prove the guard by dropping the session.
     await page.context().clearCookies();
     await page.goto('/');
-    await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+    // The sign-in page asks for an address; "Sign in" is the button on the code screen after it.
+    await expect(page.getByRole('button', { name: 'Continue' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Client schools' })).toBeHidden();
   });
 
   /**
-   * A correct password is not a session.
+   * Typing an address is not a session.
    *
    * The portal can mint a licence for any school, so this is the assertion that matters most in
-   * the file: knowing the password gets you a challenge screen and nothing else, however you
-   * navigate from there.
+   * the file: naming yourself gets you a code screen and nothing else, however you navigate from
+   * there.
    */
-  test('a password alone reaches the challenge and no further', async ({ page }) => {
+  test('an address alone reaches the code screen and no further', async ({ page }) => {
     await page.context().clearCookies();
     await page.goto('/login');
     await page.getByLabel('Email').fill(STAFF.email);
-    await page.getByLabel('Password').fill(STAFF.password);
-    await page.getByRole('button', { name: 'Sign in' }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
     await expect(page.getByText(`Signing in as ${STAFF.email}`)).toBeVisible();
 
     // Every route, not just the one it redirected to.
-    for (const path of ['/', '/packages']) {
+    for (const path of ['/', '/packages', '/security']) {
       await page.goto(path);
       await expect(page.getByRole('heading', { name: 'Client schools' })).toBeHidden();
       await expect(page.getByRole('heading', { name: 'Packages' })).toBeHidden();
+      await expect(page.getByRole('heading', { name: 'Authenticator app' })).toBeHidden();
     }
 
     // A wrong code costs an attempt rather than being free to retry.
-    await page.goto('/mfa');
+    await page.goto('/verify');
+    await page.getByRole('button', { name: 'Use my authenticator app' }).click();
     await page.getByLabel('Code from your authenticator app').fill('000000');
     await page.getByRole('button', { name: 'Sign in' }).click();
     // By text, not by role: Next's own route announcer is also a live region called "alert".
@@ -128,6 +133,29 @@ test.describe('the licensing portal', () => {
     await page.getByLabel('Code from your authenticator app').fill(totpAt(STAFF_TOTP, new Date()));
     await page.getByRole('button', { name: 'Sign in' }).click();
     await expect(page.getByRole('heading', { name: 'Client schools' })).toBeVisible();
+  });
+
+  /**
+   * The sign-in page must not answer "who works here?".
+   *
+   * With no password, the first step is a claim anyone can make — so an address with no account
+   * has to reach the same screen, be offered the same options, and fail on the same sentence. Any
+   * difference at all turns the login page into a way of enumerating staff.
+   */
+  test('an unknown address is indistinguishable from a real one', async ({ page }) => {
+    await page.context().clearCookies();
+    await page.goto('/login');
+    await page.getByLabel('Email').fill('nobody-here@example.test');
+    await page.getByRole('button', { name: 'Continue' }).click();
+
+    await expect(page.getByText('Signing in as nobody-here@example.test')).toBeVisible();
+    // The same options, including the one a real account would use.
+    await expect(page.getByRole('button', { name: 'Use my authenticator app' })).toBeVisible();
+
+    await page.getByLabel(/Code/).fill('123456');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByText('That code did not match.')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Client schools' })).toBeHidden();
   });
 
   /**

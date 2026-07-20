@@ -38,8 +38,8 @@ export interface VerifyResult {
  * each render means refreshing the page — or a browser prefetch — silently invalidates the QR
  * somebody has already scanned, and their app then shows codes that will never be accepted.
  *
- * A *confirmed* secret is never reissued from here; re-enrolling has to go through a factor the
- * person already holds, or a password alone would be enough to replace the second factor.
+ * A *confirmed* secret is never reissued from here. Replacing an authenticator means being signed
+ * in already, which is why this page sits behind a real session rather than a pending one.
  */
 export async function beginEnrolment(userId: string, email: string) {
   const user = await db.vendorUser.findUnique({ where: { id: userId } });
@@ -127,7 +127,12 @@ export async function sendEmailCode(userId: string): Promise<VerifyResult> {
     user.email,
     'Your Klasio Licensing sign-in code',
     `Your sign-in code is ${code}. It works for the next 10 minutes.\n\n` +
-      'If you did not just try to sign in, somebody else knows your password — change it.',
+      /*
+        No longer "somebody knows your password" — there is no password. This code *is* the way in,
+        so an unexpected one means somebody is trying to sign in as you and needs only this mail.
+      */
+      'If you did not ask for this, somebody is trying to sign in as you. Do not share the code, ' +
+      'and tell whoever runs this portal.',
   );
   return sent.ok ? { ok: true } : { ok: false, error: sent.detail };
 }

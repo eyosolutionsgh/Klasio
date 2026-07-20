@@ -34,7 +34,10 @@ model VendorUser {
   id           String   @id @default(cuid())
   email        String   @unique
   name         String
-  passwordHash String
+  /// Retired. Sign-in is passwordless — an emailed code, or a code from an authenticator app —
+  /// and nothing reads this. Left nullable rather than dropped so an account created before the
+  /// change still loads; drop it once no deployment carries one.
+  passwordHash String?
   active       Boolean  @default(true)
   lastLoginAt  DateTime?
   createdAt    DateTime @default(now())

@@ -90,21 +90,25 @@ none of them, so CI does not hold production secrets.
 
 ## Signing in
 
-Two factors, required for everyone. This portal can mint a licence for any school, so a password on
-its own was the whole of its security.
+Passwordless. Type your address, then a code — **either** one emailed to you **or** one from an
+authenticator app. There is no password anywhere in this portal.
 
-A correct password buys a **pending** session and nothing else — a separate cookie that no page or
-action will accept, so there is no shape of bug where a half-authenticated token is mistaken for a
-finished one. It is exchanged for a real session by one of:
+> **This is one factor, deliberately.** Whoever controls that mailbox, or that phone, can issue a
+> licence for any school. It was chosen over two-factor sign-in for how it reads day to day; if that
+> trade stops being worth it, the second factor to add back is requiring _both_ codes rather than
+> either.
 
-- **an authenticator app** (TOTP, RFC 6238) — always available, needs no network and no mail
-  provider, which is why it leads;
-- **an emailed code** — offered only when a mail provider is configured, so nobody clicks an option
-  that was never going to arrive;
-- **a recovery code** — ten, issued once at enrolment, each usable once.
+- **Emailed code** — sent the moment an address is submitted, valid 10 minutes, one per minute.
+  Needs a mail provider configured.
+- **Authenticator app** (TOTP) — optional, added from **Signing in** once you are in. Works with no
+  mail provider and no inbox, so it is the one that always works.
+- **Recovery codes** — ten, issued once when an authenticator is enrolled, each usable once.
 
-Five wrong codes locks the account for fifteen minutes, whichever kind of code was wrong.
+Five wrong codes locks the account for fifteen minutes.
 
-Recovery codes are shown exactly once and stored hashed: the portal cannot show them again because
-it cannot read them. Somebody who loses both their phone and their codes needs another member of
-staff to clear `totpConfirmedAt` on their row, which re-runs enrolment on their next sign-in.
+**The sign-in page never says who has an account.** An unknown address reaches the same screen, is
+offered the same options, and fails on the same sentence as a wrong code — otherwise the first step
+would be a way of enumerating staff. Nothing in the flow reports whether a code was actually sent.
+
+**If no mail provider is configured**, only accounts with an authenticator can sign in — which is
+why `pnpm --filter @eyo/vendor seed` enrols the bootstrap account and prints its key.

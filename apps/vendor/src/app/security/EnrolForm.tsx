@@ -1,7 +1,7 @@
 'use client';
 
 import { useActionState } from 'react';
-import { completeEnrolment, finishEnrolment, type EnrolmentResult } from '@/lib/actions';
+import { completeEnrolment, type EnrolmentResult } from '@/lib/actions';
 
 const EMPTY: EnrolmentResult = {};
 
@@ -28,12 +28,9 @@ export default function EnrolForm() {
             <li key={code}>{code}</li>
           ))}
         </ul>
-        {/* A form, not a link: this is the step that exchanges the pending session for a real one. */}
-        <form action={finishEnrolment}>
-          <button type="submit" className="btn btn-primary w-full mt-6">
-            I have saved them — continue
-          </button>
-        </form>
+        <a href="/" className="btn btn-primary w-full mt-6">
+          I have saved them — done
+        </a>
       </div>
     );
   }

@@ -3,7 +3,6 @@
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
-import bcrypt from 'bcryptjs';
 import { db } from './db';
 import { issueLicence } from './issue';
 import { archivePackage, createPackage, updatePackage } from './packages';
@@ -13,32 +12,44 @@ import {
   mintPendingSession,
   mintSession,
   PENDING_SESSION_COOKIE,
+  pendingIdentity,
   pendingUser,
   SESSION_COOKIE,
 } from './session';
-import { confirmEnrolment, sendEmailCode, verifySecondFactor, type MfaFactor } from './mfa';
-import { isEnrolled } from './mfa-policy';
+import {
+  confirmEnrolment,
+  emailFactorAvailable,
+  sendEmailCode,
+  verifySecondFactor,
+  type MfaFactor,
+} from './mfa';
 
+/**
+ * Step one: an address, and nothing else.
+ *
+ * There is no password. What signs somebody in is a code — emailed, or from their authenticator —
+ * so this step is a *claim*, not a check, and it must behave identically for an address with no
+ * account behind it. Refusing here, or taking a visibly different path, would turn the sign-in
+ * page into a way of asking which addresses are staff.
+ *
+ * A code is sent immediately when the account exists and mail is configured, because the common
+ * case is somebody who wants one; the screen offers the authenticator instead for anyone who has
+ * it.
+ */
 export async function signIn(_prev: string | null, form: FormData): Promise<string | null> {
   const email = String(form.get('email') ?? '')
     .toLowerCase()
     .trim();
-  const password = String(form.get('password') ?? '');
+  if (!email) return 'Enter your email address.';
+
+  await setCookie(mintPendingSession(email));
+
+  // Best effort, and its outcome is never reported: whether a code was sent is exactly the fact
+  // that must not leak. A failure to send shows up on the next screen as a code that never comes.
   const user = await db.vendorUser.findUnique({ where: { email } });
+  if (user?.active) await sendEmailCode(user.id).catch(() => undefined);
 
-  // One message for both cases: which of the two was wrong is not the sign-in page's business.
-  if (!user || !user.active || !(await bcrypt.compare(password, user.passwordHash))) {
-    return 'Those details were not recognised.';
-  }
-
-  /*
-    A correct password buys a pending session and nothing else.
-
-    `lastLoginAt` is deliberately not stamped here either — it is stamped when a second factor
-    passes, so it means "somebody got in" rather than "somebody knew the password".
-  */
-  await setCookie(mintPendingSession(user.id));
-  redirect(isEnrolled(user) ? '/mfa' : '/mfa/setup');
+  redirect('/verify');
 }
 
 async function setCookie(c: { name: string; value: string; maxAge: number }) {
@@ -57,28 +68,52 @@ async function completeSignIn(userId: string) {
   (await cookies()).set(PENDING_SESSION_COOKIE, '', { httpOnly: true, path: '/', maxAge: 0 });
 }
 
+/**
+ * Step two: the code that actually signs somebody in.
+ *
+ * An address with no account fails here exactly as a wrong code does, and takes the same path to
+ * get there — the check runs against a real row or it does not run at all, and either way the
+ * answer is the same sentence.
+ */
 export async function verifyMfa(_prev: string | null, form: FormData): Promise<string | null> {
-  const user = await pendingUser();
-  if (!user) redirect('/login');
+  const email = await pendingIdentity();
+  if (!email) redirect('/login');
 
-  const factor = String(form.get('factor') ?? 'totp') as MfaFactor;
+  const user = await pendingUser();
+  if (!user) return GENERIC_CODE_FAILURE;
+
+  const factor = String(form.get('factor') ?? 'email') as MfaFactor;
   const result = await verifySecondFactor(user.id, factor, String(form.get('code') ?? ''));
-  if (!result.ok) return result.error ?? 'That code did not match.';
+  if (!result.ok) return result.error ?? GENERIC_CODE_FAILURE;
 
   await completeSignIn(user.id);
   redirect('/');
 }
 
-/** Ask for an emailed code. Never says whether it arrived — only whether it was sent. */
+/** One sentence for "no such account" and for "wrong code", so neither can be told from the other. */
+const GENERIC_CODE_FAILURE = 'That code did not match.';
+
+/**
+ * Send another code.
+ *
+ * Reports only what is true regardless of the account: a cooldown, or a server that cannot send
+ * mail at all. Whether *this* address received one is never said, because that is the fact worth
+ * protecting.
+ */
 export async function requestEmailCode(
   _prev: string | null,
   _form: FormData,
 ): Promise<string | null> {
-  const user = await pendingUser();
-  if (!user) redirect('/login');
+  const email = await pendingIdentity();
+  if (!email) redirect('/login');
+  if (!emailFactorAvailable()) return 'This server cannot send email.';
+
+  const user = await db.vendorUser.findUnique({ where: { email } });
+  if (!user?.active) return null;
 
   const result = await sendEmailCode(user.id);
-  return result.ok ? null : (result.error ?? 'Could not send a code.');
+  // A cooldown is worth saying — it is about the button, not about the account.
+  return result.ok ? null : (result.error ?? null);
 }
 
 /**
@@ -89,29 +124,23 @@ export async function requestEmailCode(
  * login screen — carrying the recovery codes away with it. They exist in readable form exactly
  * once, so the screen that shows them has to outlive the action that produced them.
  */
+/**
+ * Add an authenticator to an account that is already signed in.
+ *
+ * Enrolment moved behind a real session when the password went. Sign-in needs one code, not two,
+ * so an authenticator is something a member of staff chooses to add — and letting somebody set one
+ * up from a half-finished sign-in would mean an emailed code could quietly plant a new way in.
+ */
 export async function completeEnrolment(
   _prev: EnrolmentResult,
   form: FormData,
 ): Promise<EnrolmentResult> {
-  const user = await pendingUser();
+  const user = await currentUser();
   if (!user) redirect('/login');
 
   const result = await confirmEnrolment(user.id, String(form.get('code') ?? ''));
   if (!result.ok) return { error: result.error ?? 'That code did not match.' };
   return { recoveryCodes: result.recoveryCodes };
-}
-
-/**
- * "I have saved them" — the step that actually signs in.
- *
- * A separate action so acknowledging the recovery codes is a deliberate act rather than something
- * that happened while the page was busy.
- */
-export async function finishEnrolment() {
-  const user = await pendingUser();
-  if (!user) redirect('/login');
-  await completeSignIn(user.id);
-  redirect('/');
 }
 
 export interface EnrolmentResult {

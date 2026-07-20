@@ -27,6 +27,9 @@ export default function Header() {
             <Link href="/packages" className="text-slate hover:text-navy">
               Packages
             </Link>
+            <Link href="/security" className="text-slate hover:text-navy">
+              Signing in
+            </Link>
           </nav>
         </div>
         {signOutForm()}

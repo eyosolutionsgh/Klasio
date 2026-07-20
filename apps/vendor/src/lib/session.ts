@@ -14,16 +14,20 @@ const COOKIE = 'eyo_vendor';
 const MAX_AGE_S = 60 * 60 * 8;
 
 /**
- * The cookie a correct password buys, and nothing more.
+ * The cookie that says who is *claiming* to sign in, and nothing more.
  *
  * A separate cookie rather than a flag inside the session one, so there is no shape of bug where a
  * half-authenticated token is mistaken for a finished one. `currentUser` reads only the real
  * cookie and cannot be talked into accepting this; the pending name is never checked anywhere that
  * grants access.
+ *
+ * It carries the **email as typed**, not a user id, and that is deliberate. Sign-in is passwordless
+ * — the first step is only a claim — so minting this has to succeed for an address with no account
+ * behind it, or the login page would answer "who has an account here?" by how it behaves.
  */
 const PENDING_COOKIE = 'eyo_vendor_pending';
 
-/** Ten minutes to produce a second factor. Long enough to find a phone, short enough to matter. */
+/** Ten minutes to produce a code. Long enough to find a phone or an inbox, short enough to matter. */
 const PENDING_MAX_AGE_S = 10 * 60;
 
 function secret(): string {
@@ -50,9 +54,14 @@ export function mintSession(userId: string) {
   return mint(COOKIE, userId, MAX_AGE_S);
 }
 
-/** Issued once a password checks out, and exchanged for a real session by a second factor. */
-export function mintPendingSession(userId: string) {
-  return mint(PENDING_COOKIE, userId, PENDING_MAX_AGE_S);
+/**
+ * Issued the moment an address is typed, and exchanged for a real session by a code.
+ *
+ * Minted whether or not that address has an account. Refusing here — or minting only for real
+ * accounts — would make the next screen's existence the answer to "is this person staff?".
+ */
+export function mintPendingSession(email: string) {
+  return mint(PENDING_COOKIE, email, PENDING_MAX_AGE_S);
 }
 
 function verify(raw: string | undefined, maxAgeS: number): string | null {
@@ -66,10 +75,15 @@ function verify(raw: string | undefined, maxAgeS: number): string | null {
   if (mac.length !== expected.length) return null;
   if (!timingSafeEqual(Buffer.from(mac), Buffer.from(expected))) return null;
 
-  const [userId, issuedAt] = body.split('.');
-  if (!userId || !issuedAt) return null;
+  // `subject` is a user id in a session cookie and an email address in a pending one. Split from
+  // the right, because an email may contain no dots but the timestamp separator always exists.
+  const cut = body.lastIndexOf('.');
+  if (cut === -1) return null;
+  const subject = body.slice(0, cut);
+  const issuedAt = body.slice(cut + 1);
+  if (!subject || !issuedAt) return null;
   if (Date.now() - Number(issuedAt) > maxAgeS * 1000) return null;
-  return userId;
+  return subject;
 }
 
 /** The signed-in member of staff, or null. Reads the row every time, so deactivating one bites. */
@@ -82,17 +96,27 @@ export async function currentUser() {
 }
 
 /**
- * Whoever is part-way through signing in — password accepted, second factor outstanding.
+ * The address somebody typed on the sign-in page, if that claim is still live.
+ *
+ * A string rather than a row, because there may be no row — and the screen that renders from this
+ * has to look identical either way.
+ */
+export async function pendingIdentity(): Promise<string | null> {
+  const jar = await cookies();
+  return verify(jar.get(PENDING_COOKIE)?.value, PENDING_MAX_AGE_S);
+}
+
+/**
+ * The account behind that claim, or null if there is none.
  *
  * Deliberately a different function from `currentUser`, because the two answer different questions
  * and the only safe way to keep them apart is for no caller to be able to confuse them. Nothing
- * that renders a page or runs an action may use this one.
+ * that renders a page or runs an action may use this one to grant anything.
  */
 export async function pendingUser() {
-  const jar = await cookies();
-  const userId = verify(jar.get(PENDING_COOKIE)?.value, PENDING_MAX_AGE_S);
-  if (!userId) return null;
-  const user = await db.vendorUser.findUnique({ where: { id: userId } });
+  const email = await pendingIdentity();
+  if (!email) return null;
+  const user = await db.vendorUser.findUnique({ where: { email } });
   return user?.active ? user : null;
 }
 
@@ -101,13 +125,13 @@ export async function pendingUser() {
  *
  * Enforcement does not depend on this — `currentUser` reads only the real cookie and a pending one
  * can never satisfy it, whatever any page forgets to call. This exists so that refreshing during a
- * challenge does not throw away a correct password and make somebody type it again.
+ * code screen does not send somebody back to retype their address.
  */
 export async function requireUser() {
   const user = await currentUser();
   if (user) return user;
-  const pending = await pendingUser();
-  redirect(pending ? (pending.totpConfirmedAt ? '/mfa' : '/mfa/setup') : '/login');
+  // Part-way through signing in goes back to the code screen rather than to the start.
+  redirect((await pendingIdentity()) ? '/verify' : '/login');
 }
 
 export const SESSION_COOKIE = COOKIE;

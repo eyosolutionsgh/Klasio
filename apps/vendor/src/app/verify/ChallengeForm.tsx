@@ -6,17 +6,17 @@ import { requestEmailCode, verifyMfa } from '@/lib/actions';
 type Factor = 'totp' | 'email' | 'recovery';
 
 /**
- * Three ways to finish signing in, one at a time.
+ * Three ways to sign in, one at a time.
  *
- * The authenticator app leads because it is the one that always works — it needs no network, no
- * mail provider and no inbox, which on a portal sold partly on working from anywhere is the point.
- * Email is offered only when this server can actually send, so nobody clicks an option that was
- * never going to arrive.
+ * The emailed code leads because a code was already sent when the address was submitted, so for
+ * most people it is waiting for them. The authenticator is offered to everyone rather than only to
+ * those enrolled — the page has no account to ask, and offering it conditionally would answer
+ * "does this address have an authenticator?" to anybody who typed it.
  */
 export default function ChallengeForm({ canEmail }: { canEmail: boolean }) {
   const [error, action, pending] = useActionState(verifyMfa, null);
   const [emailState, sendEmail, sending] = useActionState(requestEmailCode, null);
-  const [factor, setFactor] = useState<Factor>('totp');
+  const [factor, setFactor] = useState<Factor>(canEmail ? 'email' : 'totp');
   const [sent, setSent] = useState(false);
 
   const label =
@@ -26,6 +26,13 @@ export default function ChallengeForm({ canEmail }: { canEmail: boolean }) {
         ? 'Code we emailed you'
         : 'One of your recovery codes';
 
+  const hint =
+    factor === 'email'
+      ? 'Sent when you entered your address. It works for 10 minutes.'
+      : factor === 'totp'
+        ? 'Six digits, from the app you set up.'
+        : 'Each one works once.';
+
   return (
     <>
       <form action={action}>
@@ -33,6 +40,7 @@ export default function ChallengeForm({ canEmail }: { canEmail: boolean }) {
         <label htmlFor="code" className="label">
           {label}
         </label>
+        <p className="text-xs text-oat mb-1.5 -mt-1">{hint}</p>
         <input
           id="code"
           name="code"
@@ -81,7 +89,7 @@ export default function ChallengeForm({ canEmail }: { canEmail: boolean }) {
           */
           <form action={sendEmail} onSubmit={() => setSent(true)}>
             <button type="submit" disabled={sending} className="text-navy underline">
-              {sending ? 'Sending…' : sent ? 'Send another code' : 'Send me a code'}
+              {sending ? 'Sending…' : 'Send another code'}
             </button>
             {emailState ? (
               <span role="alert" className="block text-danger mt-1">

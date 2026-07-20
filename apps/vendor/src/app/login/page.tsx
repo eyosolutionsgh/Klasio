@@ -15,6 +15,10 @@ export default function LoginPage() {
           <p className="mt-4 text-sm text-slate">Licensing &amp; monitoring</p>
         </div>
 
+        {/*
+          One field, because there is no password. What signs somebody in is a code — emailed, or
+          from their authenticator — and this step only says who is asking.
+        */}
         <form action={action} className="card p-7 mt-6">
           <div>
             <label htmlFor="email" className="label">
@@ -30,20 +34,6 @@ export default function LoginPage() {
             />
           </div>
 
-          <div className="mt-4">
-            <label htmlFor="password" className="label">
-              Password
-            </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              required
-              autoComplete="current-password"
-              className="field"
-            />
-          </div>
-
           {error && (
             <p role="alert" className="mt-4 text-sm text-danger">
               {error}
@@ -51,12 +41,12 @@ export default function LoginPage() {
           )}
 
           <button type="submit" disabled={pending} className="btn btn-primary w-full mt-6">
-            {pending ? 'Signing in…' : 'Sign in'}
+            {pending ? 'Continuing…' : 'Continue'}
           </button>
         </form>
 
         <p className="mt-4 text-center text-xs text-oat">
-          For Klasio staff. Schools sign in on their own server.
+          We will send you a sign-in code. For Klasio staff — schools sign in on their own server.
         </p>
       </div>
     </main>
