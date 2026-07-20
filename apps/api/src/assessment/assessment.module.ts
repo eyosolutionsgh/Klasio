@@ -39,6 +39,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { isStaleReplay, parseRecordedAt } from '../common/replay';
 import { hasEntitlement } from '../common/entitlements';
 import { AuthUser, CurrentUser, RequireAnyPermission, RequirePermission } from '../common/auth';
+import { renderMessage } from '../common/templates';
 import { reportCardPdf, ReportCardData, broadsheetPdf, BroadsheetData } from '../common/pdf';
 import { toCsv, toXlsx } from '../common/export';
 import { PageQuery, dateWindow, orderBy, pageArgs, toPage } from '../common/list-query';
@@ -885,7 +886,10 @@ export class AssessmentService {
       this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } }),
       this.db.term.findUnique({ where: { id: dto.termId } }),
     ]);
-    const body = `${school.name}: ${term?.name ?? 'This term'} terminal reports are now available. Sign in at the guardian portal with your phone number to view your child's results.`;
+    const body = await renderMessage(this.db, auth.schoolId, 'RESULTS_READY', {
+      school: school.name,
+      term: term?.name ?? 'This term',
+    });
 
     /**
      * One batch id per student, not one for the class.

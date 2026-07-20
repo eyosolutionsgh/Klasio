@@ -56,6 +56,7 @@ import { receiptPdf } from '../common/pdf';
 import { toCsv, toXlsx, Cell } from '../common/export';
 import { balanceOf } from '../common/ledger';
 import { nextInSequence, refNumber } from '../common/sequences';
+import { MESSAGE_TEMPLATES, listTemplates, renderMessage } from '../common/templates';
 import { PageQuery, dateWindow, orderBy, pageArgs, toPage } from '../common/list-query';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -553,39 +554,18 @@ export class FeesService {
     return { ok: true };
   }
 
-  /** Fallback wording when a school has not written its own. */
-  private static readonly DEFAULT_TEMPLATES: Record<string, string> = {
-    FEE_REMINDER_GENTLE:
-      "{school}: a balance of {amount} remains on {student}'s account. Kindly settle at your convenience. Thank you.",
-    FEE_REMINDER_FIRM:
-      '{school}: {student} has an outstanding balance of {amount}. Kindly settle before the end of term to avoid disruption{nextTerm}. Contact the bursar to arrange payment.',
-  };
-
-  /** Substitute {placeholders}; anything unknown is left alone rather than blanked. */
-  private fill(body: string, vars: Record<string, string>) {
-    return body.replace(/\{(\w+)\}/g, (m, k) => vars[k] ?? m);
-  }
-
-  private async template(schoolId: string, kind: string) {
-    const row = await this.db.messageTemplate.findUnique({
-      where: { schoolId_kind: { schoolId, kind } },
-    });
-    return row?.body ?? FeesService.DEFAULT_TEMPLATES[kind] ?? '';
-  }
-
+  /**
+   * The wording of every automatic message, editable in one place. The catalogue and rendering
+   * live in common/templates.ts; these endpoints stay here because the reminder settings page
+   * has always talked to /fees, and the other kinds now ride along.
+   */
   async listTemplates(auth: AuthUser) {
-    const rows = await this.db.messageTemplate.findMany({ where: { schoolId: auth.schoolId } });
-    const byKind = new Map(rows.map((r) => [r.kind, r.body]));
-    return Object.keys(FeesService.DEFAULT_TEMPLATES).map((kind) => ({
-      kind,
-      body: byKind.get(kind) ?? FeesService.DEFAULT_TEMPLATES[kind],
-      customised: byKind.has(kind),
-      placeholders: ['school', 'student', 'amount', 'nextTerm'],
-    }));
+    return listTemplates(this.db, auth.schoolId);
   }
 
   async saveTemplate(auth: AuthUser, kind: string, body: string) {
-    if (!(kind in FeesService.DEFAULT_TEMPLATES)) throw new BadRequestException('Unknown template');
+    if (!(kind in MESSAGE_TEMPLATES)) throw new BadRequestException('Unknown template');
+    if (!body.trim()) throw new BadRequestException('The message cannot be empty');
     await this.db.messageTemplate.upsert({
       where: { schoolId_kind: { schoolId: auth.schoolId, kind } },
       create: { schoolId: auth.schoolId, kind, body },
@@ -660,7 +640,7 @@ export class FeesService {
         skipped++;
         continue;
       }
-      const body = this.fill(await this.template(auth.schoolId, kindOf(heavy)), {
+      const body = await renderMessage(this.db, auth.schoolId, kindOf(heavy), {
         school: school.name,
         student: d.name,
         amount: money(d.balance),

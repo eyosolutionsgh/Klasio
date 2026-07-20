@@ -6,8 +6,9 @@ import Combobox from './Combobox';
 import { Button, useAsyncAction } from './Button';
 import { SaveIcon } from './icons';
 
-interface Template {
+export interface Template {
   kind: string;
+  label?: string;
   body: string;
   customised: boolean;
   placeholders: string[];
@@ -44,6 +45,18 @@ const TITLES: Record<string, { title: string; blurb: string }> = {
     title: 'Firm reminder',
     blurb: 'Sent to families owing GHS 500 or more.',
   },
+  ABSENCE_ALERT: {
+    title: 'Absence alert',
+    blurb: 'Texted the same morning to the family of a child marked absent.',
+  },
+  RESULTS_READY: {
+    title: 'Results notification',
+    blurb: 'Texted to every family when terminal reports are published.',
+  },
+  PICKUP_RELEASED: {
+    title: 'Pickup confirmation',
+    blurb: 'Texted the moment a child is released at the gate.',
+  },
 };
 
 const field =
@@ -56,7 +69,7 @@ const field =
  * belongs to the row that owns it, and `useAsyncAction` is a hook, so it cannot be called inside
  * the map.
  */
-function TemplateEditor({
+export function TemplateEditor({
   template,
   draft,
   onDraftChange,
@@ -87,7 +100,9 @@ function TemplateEditor({
   return (
     <div>
       <div className="flex items-baseline justify-between gap-3">
-        <h3 className="text-sm font-medium">{TITLES[template.kind]?.title ?? template.kind}</h3>
+        <h3 className="text-sm font-medium">
+          {TITLES[template.kind]?.title ?? template.label ?? template.kind}
+        </h3>
         {!template.customised && (
           <span className="text-[10px] uppercase tracking-wider bg-parchment text-oat rounded-full px-2 py-0.5">
             Default wording
@@ -142,7 +157,10 @@ export default function ReminderSettings() {
       fetch('/api/proxy/fees/reminders/templates').then((r) => (r.ok ? r.json() : [])),
       fetch('/api/proxy/fees/reminders/schedule').then((r) => (r.ok ? r.json() : null)),
     ]);
-    const list: Template[] = Array.isArray(t) ? t : [];
+    // Only fee wording here; the other automatic messages are edited on the Messaging page.
+    const list: Template[] = (Array.isArray(t) ? t : []).filter((x: Template) =>
+      x.kind.startsWith('FEE_'),
+    );
     setTemplates(list);
     setDrafts(Object.fromEntries(list.map((x) => [x.kind, x.body])));
     setSchedule(s);

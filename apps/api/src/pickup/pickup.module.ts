@@ -22,6 +22,7 @@ import * as bcrypt from 'bcryptjs';
 import { randomBytes, randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
+import { renderMessage } from '../common/templates';
 import { SmsModule, SmsService } from '../sms/sms.module';
 import {
   assessCollector,
@@ -557,7 +558,12 @@ export class PickupService {
       schoolId: auth.schoolId,
       createdById: auth.sub,
       phones: [phone],
-      body: `${school.name}: ${student.firstName} ${student.lastName} was collected by ${collectedBy} at ${at}.`,
+      body: await renderMessage(this.db, auth.schoolId, 'PICKUP_RELEASED', {
+        school: school.name,
+        student: `${student.firstName} ${student.lastName}`,
+        collector: collectedBy,
+        time: at,
+      }),
       batchId: `PICKUP-${logId}`,
     });
     return res.sent;
