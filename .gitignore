@@ -25,3 +25,11 @@ _to_delete/
 
 # The vendor licensing portal keeps its own env and database.
 apps/vendor/.env
+
+# Next generates next-env.d.ts on every build, and its import line names the build directory —
+# which varies here on purpose: the e2e build uses NEXT_DIST_DIR=.next-e2e so it never shares a
+# directory with a running dev server. Tracking it means whichever build ran last decides what a
+# fresh checkout references, and `.next-e2e` was committed once already. Next rewrites it
+# unprompted, so nothing is lost by leaving it out.
+apps/web/next-env.d.ts
+apps/vendor/next-env.d.ts
