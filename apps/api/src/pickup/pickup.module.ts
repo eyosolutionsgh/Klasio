@@ -710,6 +710,87 @@ export class PickupService {
     }));
   }
 
+  // ── Car line ───────────────────────────────────────────────────────
+
+  /**
+   * The staff queue display: who is outside, in arrival order, with the children they may take.
+   * WAITING and CALLED only — DONE and CANCELLED rows exist for the analytics, not the screen.
+   */
+  async carLineQueue(auth: AuthUser) {
+    const from = startOfDay();
+    const entries = await this.db.carLineEntry.findMany({
+      where: {
+        schoolId: auth.schoolId,
+        announcedAt: { gte: from },
+        status: { in: ['WAITING', 'CALLED'] },
+      },
+      orderBy: { announcedAt: 'asc' },
+      include: {
+        guardian: {
+          select: {
+            firstName: true,
+            lastName: true,
+            phone: true,
+            photoUrl: true,
+            students: {
+              where: { canPickup: true, custodyFlag: { not: 'BLOCKED' } },
+              select: {
+                student: {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    status: true,
+                    classRoom: { select: { name: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    return entries.map((e, i) => ({
+      id: e.id,
+      position: i + 1,
+      status: e.status,
+      announcedAt: e.announcedAt,
+      calledAt: e.calledAt,
+      guardian: {
+        name: `${e.guardian.firstName} ${e.guardian.lastName}`,
+        phone: e.guardian.phone,
+        hasPhoto: !!e.guardian.photoUrl,
+      },
+      children: e.guardian.students
+        .filter((s) => s.student.status === 'ACTIVE')
+        .map((s) => ({
+          id: s.student.id,
+          name: `${s.student.firstName} ${s.student.lastName}`,
+          className: s.student.classRoom?.name ?? null,
+        })),
+    }));
+  }
+
+  /** Move an arrival through the queue: call the family forward, or finish/cancel the entry. */
+  async setCarLineStatus(auth: AuthUser, id: string, status: 'CALLED' | 'DONE' | 'CANCELLED') {
+    const entry = await this.db.carLineEntry.findFirst({
+      where: { id, schoolId: auth.schoolId },
+    });
+    if (!entry) throw new NotFoundException('Not in the queue');
+    if (entry.status === 'DONE' || entry.status === 'CANCELLED') {
+      throw new BadRequestException('That arrival is already finished');
+    }
+    await this.db.carLineEntry.update({
+      where: { id },
+      data: {
+        status,
+        calledAt: status === 'CALLED' ? new Date() : entry.calledAt,
+        doneAt: status === 'DONE' || status === 'CANCELLED' ? new Date() : null,
+      },
+    });
+    return { ok: true, status };
+  }
+
   // ── Dismissal-change requests ──────────────────────────────────────
 
   async listDismissalRequests(auth: AuthUser, status?: string) {
@@ -984,6 +1065,27 @@ export class PickupController {
   @RequirePermission('pickup.view')
   log(@CurrentUser() user: AuthUser, @Query('date') date?: string) {
     return this.svc.log(user, date);
+  }
+
+  @Get('carline')
+  @RequirePermission('pickup.view')
+  @RequireEntitlement('safety.carline')
+  carLine(@CurrentUser() user: AuthUser) {
+    return this.svc.carLineQueue(user);
+  }
+
+  @Patch('carline/:id')
+  @RequirePermission('pickup.release')
+  @RequireEntitlement('safety.carline')
+  setCarLine(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body('status') status: 'CALLED' | 'DONE' | 'CANCELLED',
+  ) {
+    if (!['CALLED', 'DONE', 'CANCELLED'].includes(status)) {
+      throw new BadRequestException('status must be CALLED, DONE or CANCELLED');
+    }
+    return this.svc.setCarLineStatus(user, id, status);
   }
 
   @Get('dismissal-requests')

@@ -473,6 +473,7 @@ model Guardian {
   otps     GuardianOtp[]
   pickupCredential PickupCredential?
   dismissalRequests DismissalRequest[]
+  carLineEntries    CarLineEntry[]
 
   @@index([schoolId, phone])
 
@@ -976,6 +977,30 @@ model ReleaseLog {
   @@unique([schoolId, clientRef])
   @@index([schoolId, releasedAt])
   @@index([studentId])
+}
+
+enum CarLineStatus {
+  WAITING
+  CALLED
+  DONE
+  CANCELLED
+}
+
+/// A guardian announcing from the car that they have arrived for pickup. The staff queue display
+/// reads WAITING/CALLED rows in arrival order; dismissal wait-time analytics derive from
+/// announcedAt → doneAt. Rows are never deleted — a cancelled arrival is still an arrival.
+model CarLineEntry {
+  id          String        @id @default(cuid())
+  schoolId    String
+  guardianId  String
+  guardian    Guardian      @relation(fields: [guardianId], references: [id])
+  announcedAt DateTime      @default(now())
+  status      CarLineStatus @default(WAITING)
+  calledAt    DateTime?
+  doneAt      DateTime?
+
+  @@index([schoolId, announcedAt])
+  @@index([guardianId])
 }
 
 /// Immutable record of a child arriving in the morning — the other half of the gate's day.

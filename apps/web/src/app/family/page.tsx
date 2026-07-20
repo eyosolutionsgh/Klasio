@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import GuardianPay from '@/components/GuardianPay';
 import { useRouter } from 'next/navigation';
 import PortalBrandHeader from '@/components/PortalBrandHeader';
+import FamilyCarLine from '@/components/FamilyCarLine';
 import { Button, useAsyncAction } from '@/components/Button';
 import { CalendarIcon, SendIcon } from '@/components/icons';
 import { fileKind, fileSize } from '@/lib/files';
@@ -361,6 +362,8 @@ export default function FamilyPage() {
             </section>
           </>
         )}
+
+        <FamilyCarLine />
 
         {overview && (
           <section className="card p-6">

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Combobox from '@/components/Combobox';
 import DismissalInbox from '@/components/DismissalInbox';
 import EmergencyAlert from '@/components/EmergencyAlert';
+import CarLineQueue from '@/components/CarLineQueue';
 import QrScanner from '@/components/QrScanner';
 import { submitOrQueue } from '@/lib/offline';
 import OfflineBar from '@/components/OfflineBar';
@@ -624,6 +625,7 @@ export default function PickupPage() {
               </ul>
             </section>
           )}
+          {mode === 'DISMISSAL' && <CarLineQueue />}
           {mode === 'DISMISSAL' && <DismissalInbox />}
 
           <section className="card p-6 rise rise-3">
