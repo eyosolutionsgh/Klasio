@@ -362,20 +362,24 @@ export class PaymentsService {
       include: { student: { include: { classRoom: { select: { name: true } } } } },
     });
     if (!intent) throw new NotFoundException('This payment link is not valid');
-    const school = await this.db.school.findUniqueOrThrow({ where: { id: intent.schoolId } });
-    return {
-      reference: intent.reference,
-      amount: Number(intent.amount),
-      currency: intent.currency,
-      status: intent.status,
-      channel: intent.channel,
-      checkoutUrl: intent.checkoutUrl,
-      school: { name: school.name, logoUrl: school.logoUrl },
-      student: {
-        name: `${intent.student.firstName} ${intent.student.lastName}`,
-        className: intent.student.classRoom?.name ?? null,
-      },
-    };
+    // The intent came from the owner client, but the school lookup below is tenant-scoped —
+    // outside `withTenant` the policy hides the row and this 500s on `findUniqueOrThrow`.
+    return withTenant(intent.schoolId, async () => {
+      const school = await this.db.school.findUniqueOrThrow({ where: { id: intent.schoolId } });
+      return {
+        reference: intent.reference,
+        amount: Number(intent.amount),
+        currency: intent.currency,
+        status: intent.status,
+        channel: intent.channel,
+        checkoutUrl: intent.checkoutUrl,
+        school: { name: school.name, logoUrl: school.logoUrl },
+        student: {
+          name: `${intent.student.firstName} ${intent.student.lastName}`,
+          className: intent.student.classRoom?.name ?? null,
+        },
+      };
+    });
   }
 
   /** Public: start checkout for a pay link (guardian has no login). */
@@ -387,18 +391,30 @@ export class PaymentsService {
     if (!intent) throw new NotFoundException('This payment link is not valid');
     if (intent.status === 'SUCCESS')
       throw new BadRequestException('This payment is already settled');
-    const school = await this.db.school.findUniqueOrThrow({ where: { id: intent.schoolId } });
-    const provider = await this.providerFor(intent.schoolId, intent.provider);
-    if (phone) {
-      await this.db.paymentIntent.update({ where: { id: intent.id }, data: { payerPhone: phone } });
-    }
-    const result = await this.initiate(
-      { ...intent, payerPhone: phone ?? intent.payerPhone },
-      provider,
-      `${intent.student.firstName} ${intent.student.lastName}`,
-      school.name,
-    );
-    return { reference: intent.reference, checkoutUrl: result.checkoutUrl, status: result.status };
+    // Everything from here reads or writes tenant-owned rows — the school, the school's gateway
+    // credentials, and the intent itself. Outside `withTenant` the reads find nothing and the
+    // update is refused outright, which is how this route came to be broken in the first place.
+    return withTenant(intent.schoolId, async () => {
+      const school = await this.db.school.findUniqueOrThrow({ where: { id: intent.schoolId } });
+      const provider = await this.providerFor(intent.schoolId, intent.provider);
+      if (phone) {
+        await this.db.paymentIntent.update({
+          where: { id: intent.id },
+          data: { payerPhone: phone },
+        });
+      }
+      const result = await this.initiate(
+        { ...intent, payerPhone: phone ?? intent.payerPhone },
+        provider,
+        `${intent.student.firstName} ${intent.student.lastName}`,
+        school.name,
+      );
+      return {
+        reference: intent.reference,
+        checkoutUrl: result.checkoutUrl,
+        status: result.status,
+      };
+    });
   }
 
   // ── Settlement (the only path that writes money) ───────────────────

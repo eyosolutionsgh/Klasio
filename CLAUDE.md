@@ -16,7 +16,8 @@ pnpm dev                 # api :4000 + web :3000 in parallel
 pnpm build               # -r build across workspaces
 pnpm lint                # eslint (all workspaces)
 pnpm typecheck           # tsc --noEmit (all workspaces)
-pnpm test                # unit tests (vitest, --passWithNoTests)
+pnpm test                # unit tests (vitest, --passWithNoTests) — no database
+pnpm test:integration    # API against a live Postgres as the eyo_app role (see below)
 pnpm test:e2e            # Playwright — needs both apps running + seeded db
 
 # database (from repo root)
@@ -30,6 +31,9 @@ pnpm --filter @eyo/api db:drift-check   # assert migrations == schema.prisma
 # run a single unit test
 pnpm --filter @eyo/api exec vitest run src/common/entitlements.spec.ts
 pnpm --filter @eyo/api exec vitest run -t "entitlement"   # by test name
+
+# run one integration spec (needs DATABASE_URL exported)
+pnpm --filter @eyo/api exec vitest run --config vitest.integration.config.ts test/guardians.int-spec.ts
 
 # run one E2E spec
 pnpm --filter @eyo/web exec playwright test e2e/portal.spec.ts
@@ -73,6 +77,12 @@ Reach for `get_errors` before reading files when a page is broken, and `get_rout
 4. **Every tenant-owned table carries `schoolId`,** and every query must filter by `auth.schoolId`. There is no automatic tenant scoping — it is manual in each query. Row-level security stays switched on even though there is one school per box: it turns a forgotten `where` from "returns everything" into "returns nothing". That depends on `APP_DATABASE_URL` pointing at the non-owner `eyo_app` role. A new tenant table needs **both** a `tenant_isolation` policy and a `GRANT` to `eyo_app` — the missing policy fails open and silently, the missing grant fails closed and loudly.
 
 5. **No AI attribution in commits.** The husky `commit-msg` hook (commitlint + custom policy) rejects `Co-Authored-By` / "Generated with" trails. Commits follow Conventional Commits.
+
+6. **Write paths are proved against a live database, not just typechecked.** `pnpm test:integration` (`apps/api/test/*.int-spec.ts`) boots the real API against PostgreSQL as the **non-owner `eyo_app` role**, so row-level security actually applies. It provisions its own database and role from `DATABASE_URL` — no extra configuration. Two RLS bugs shipped past lint, typecheck and the unit suite because none of them can see a policy: gateway webhooks that could never settle a payment, and six write paths refused outright by a nested `$transaction`. Add a spec here when you touch a tenant-scoped **write** or add a `@Public()` route that reads tenant data.
+
+   The suite's negative half (`test/tenancy.int-spec.ts`) is not optional decoration: every other spec asserts a write _succeeds_, and would pass just as well with RLS switched off. Keep it.
+
+   Its setup also installs a dev-signed ADVANCED licence, because entitlements are read from the licence and a box with none runs on BASIC — without it every `@RequireEntitlement` route answers 403 and the tenancy assertions underneath never run at all. The same setup deletes the previous run's second school before re-seeding: the seed recreates the demo school with a fresh `createdAt`, and a leftover second school would otherwise become "the oldest school" that the licence check identifies the box by.
 
 ## Domain specifics
 
