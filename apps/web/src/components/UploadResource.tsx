@@ -22,6 +22,15 @@ const ACCEPT = [
   '.pptx',
   '.xls',
   '.xlsx',
+  'video/mp4',
+  'video/webm',
+  'video/3gpp',
+  'audio/mpeg',
+  'audio/mp4',
+  'audio/ogg',
+  'audio/wav',
+  'audio/aac',
+  'audio/amr',
 ].join(',');
 
 /**
@@ -104,7 +113,7 @@ export default function UploadResource({
         value={file}
         onChange={setFile}
         disabled={upload.state === 'pending'}
-        hint="PDF, Word, PowerPoint, Excel, text or an image, up to 8MB."
+        hint="PDF, Word, PowerPoint, Excel, text or an image up to 8MB — or video and audio up to 200MB."
       />
 
       <div className="grid sm:grid-cols-2 gap-3 mt-4">
