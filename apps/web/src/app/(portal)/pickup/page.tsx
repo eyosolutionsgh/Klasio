@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Combobox from '@/components/Combobox';
 import DismissalInbox from '@/components/DismissalInbox';
+import EmergencyAlert from '@/components/EmergencyAlert';
 import QrScanner from '@/components/QrScanner';
 import { submitOrQueue } from '@/lib/offline';
 import OfflineBar from '@/components/OfflineBar';
@@ -595,6 +596,7 @@ export default function PickupPage() {
         </section>
 
         <div className="space-y-6">
+          <EmergencyAlert />
           {mode === 'ARRIVAL' && (
             <section className="card p-6 rise rise-3">
               <h2 className="font-display text-xl">Arrived today</h2>

@@ -90,6 +90,23 @@ class CreateBroadcastDto {
   @IsOptional() @IsArray() @IsString({ each: true }) mediaIds?: string[];
 }
 
+const EMERGENCY_KINDS = ['LOCKDOWN', 'EVACUATION', 'ALL_CLEAR', 'GENERAL'] as const;
+
+/** The SMS prefix that makes a text unmistakable at a glance, before a word is read. */
+const EMERGENCY_PREFIX: Record<(typeof EMERGENCY_KINDS)[number], string> = {
+  LOCKDOWN: 'LOCKDOWN',
+  EVACUATION: 'EVACUATION',
+  ALL_CLEAR: 'ALL CLEAR',
+  GENERAL: 'URGENT',
+};
+
+class EmergencyDto {
+  @IsIn(EMERGENCY_KINDS) kind: (typeof EMERGENCY_KINDS)[number];
+  @IsString() @MinLength(10) @MaxLength(300) message: string;
+  /** Same contract as a broadcast's idempotency key — a double-tap is one alert. */
+  @IsString() @MinLength(8) @MaxLength(64) idempotencyKey: string;
+}
+
 /** Minimal shape of a Multer upload — avoids depending on @types/multer. */
 interface UploadedFileLike {
   buffer: Buffer;
@@ -294,6 +311,100 @@ export class BroadcastsService {
   }
 
   /**
+   * An emergency alert: every family and every member of staff, at once, by SMS and portal.
+   *
+   * Deliberately a broadcast underneath — the record, the send log and the notice board all come
+   * for free — but with the audience fixed to everyone and staff phones added, which an ordinary
+   * broadcast never texts. Nothing here waits for quiet hours or asks about audience: by the time
+   * someone with this permission is typing, the decision has been made.
+   */
+  async emergency(auth: AuthUser, dto: EmergencyDto) {
+    const existing = await this.db.broadcast.findFirst({
+      where: { schoolId: auth.schoolId, idempotencyKey: dto.idempotencyKey },
+    });
+    if (existing) return this.detail(auth, existing.id);
+
+    const title = `${EMERGENCY_PREFIX[dto.kind]} — please read now`;
+    const asBroadcast: CreateBroadcastDto = {
+      title,
+      body: dto.message.trim(),
+      audienceScope: 'ALL',
+      audienceRoles: ['GUARDIANS', 'STUDENTS', 'STAFF'],
+      channels: ['PORTAL', 'SMS'],
+      idempotencyKey: dto.idempotencyKey,
+    };
+
+    const broadcast = await this.db.broadcast.create({
+      data: {
+        schoolId: auth.schoolId,
+        title,
+        body: asBroadcast.body,
+        audienceScope: 'ALL',
+        recipients: [],
+        audienceRoles: asBroadcast.audienceRoles,
+        channels: asBroadcast.channels,
+        idempotencyKey: dto.idempotencyKey,
+        status: 'SENDING',
+        createdById: auth.sub,
+      },
+    });
+
+    const results = await this.deliver(auth, broadcast.id, asBroadcast);
+
+    // Staff are not guardians, so the ordinary resolver never texts them — but a lockdown is
+    // for the people in the building first.
+    try {
+      const staff = await this.db.user.findMany({
+        // GUARDIAN-role principals are families, and their alert already went out above.
+        where: {
+          schoolId: auth.schoolId,
+          active: true,
+          phone: { not: null },
+          role: { not: 'GUARDIAN' },
+        },
+        select: { phone: true },
+      });
+      const phones = [
+        ...new Set(
+          staff
+            .map((s) => (s.phone ? normalizeMsisdn(s.phone) : null))
+            .filter((x): x is string => !!x),
+        ),
+      ];
+      if (phones.length > 0) {
+        const r = await this.sms.sendToPhones({
+          schoolId: auth.schoolId,
+          phones,
+          body: `${title}\n\n${asBroadcast.body}`,
+          createdById: auth.sub,
+          batchId: `BC-${broadcast.id}-STAFF`,
+          broadcastId: broadcast.id,
+        });
+        results.push({
+          channel: 'SMS',
+          ok: r.sent > 0,
+          detail: `Staff: ${r.sent} sent, ${r.failed} failed, ${r.skipped} skipped for credit`,
+        });
+      }
+    } catch (e) {
+      results.push({ channel: 'SMS', ok: false, detail: `Staff: ${String(e)}` });
+    }
+
+    const failed = results.filter((r) => !r.ok);
+    const status =
+      failed.length === 0 ? 'SENT' : failed.length === results.length ? 'FAILED' : 'PARTIAL';
+    await this.db.broadcast.update({
+      where: { id: broadcast.id },
+      data: { status, sentAt: new Date() },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'safety.emergency', 'Broadcast', broadcast.id, {
+      kind: dto.kind,
+      status,
+    });
+    return { ...(await this.detail(auth, broadcast.id)), results };
+  }
+
+  /**
    * Fan out, one channel at a time, and never let one channel's failure take the others down.
    *
    * A school that has run out of SMS credit still wants the notice on the portal and in the
@@ -481,6 +592,13 @@ export class BroadcastsController {
   @RequireEntitlement('comms.announcements')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateBroadcastDto) {
     return this.svc.create(user, dto);
+  }
+
+  @Post('emergency')
+  @RequirePermission('safety.emergency')
+  @RequireEntitlement('safety.emergency')
+  emergency(@CurrentUser() user: AuthUser, @Body() dto: EmergencyDto) {
+    return this.svc.emergency(user, dto);
   }
 
   @Post('media')

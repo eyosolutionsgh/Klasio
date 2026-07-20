@@ -53,6 +53,7 @@ export const ENTITLEMENT_CATALOGUE: EntitlementSpec[] = [
   { code: 'ai.default-risk', label: 'Fee default prediction', tier: 'ADVANCED' },
   { code: 'ai.insights', label: 'AI insights', tier: 'ADVANCED' },
   { code: 'safety.carline', label: 'Car line', tier: 'ADVANCED' },
+  { code: 'safety.emergency', label: 'Emergency & lockdown alerts', tier: 'ADVANCED' },
   { code: 'safety.transport', label: 'School transport', tier: 'ADVANCED' },
   { code: 'comms.whatsapp.chatbot', label: 'WhatsApp assistant', tier: 'ADVANCED' },
   { code: 'comms.ussd', label: 'USSD access', tier: 'ADVANCED' },

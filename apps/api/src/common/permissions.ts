@@ -159,6 +159,12 @@ export const PERMISSIONS = [
     caution: 'The gate decision itself.',
   },
   { code: 'pickup.manage', label: 'Manage collectors and gate passes', group: 'Safety' },
+  {
+    code: 'safety.emergency',
+    label: 'Send emergency and lockdown alerts',
+    group: 'Safety',
+    caution: 'Texts every family and every member of staff at once. Not undoable.',
+  },
 
   // ── Communication ─────────────────────────────────────────────────
   { code: 'comms.announce', label: 'Post announcements', group: 'Communication' },
@@ -285,6 +291,7 @@ export const ROLE_PRESETS: RolePreset[] = [
       'fees.view',
       'pickup.view',
       'pickup.manage',
+      'safety.emergency',
       'comms.announce',
       'comms.social',
       'comms.sms',
@@ -312,6 +319,7 @@ export const ROLE_PRESETS: RolePreset[] = [
       'timetable.manage',
       'resources.manage',
       'pickup.view',
+      'safety.emergency',
       'comms.announce',
       'comms.social',
       'calendar.manage',
