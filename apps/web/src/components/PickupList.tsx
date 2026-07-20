@@ -124,7 +124,7 @@ export default function PickupList({ studentId }: { studentId: string }) {
   }
 
   /**
-   * Attach a face photo to a guardian.
+   * Attach a face photo to a guardian or delegate.
    *
    * The release screen has always *shown* this photo to whoever is handing a child over, and
    * nothing in the product could ever put one there — so gate staff saw a broken image at exactly
@@ -135,7 +135,8 @@ export default function PickupList({ studentId }: { studentId: string }) {
     setError(null);
     const form = new FormData();
     form.append('file', file);
-    const res = await fetch(`/api/proxy/pickup/guardians/${p.id}/photo`, {
+    const path = p.kind === 'GUARDIAN' ? 'guardians' : 'delegates';
+    const res = await fetch(`/api/proxy/pickup/${path}/${p.id}/photo`, {
       method: 'POST',
       body: form,
     });
@@ -168,7 +169,8 @@ export default function PickupList({ studentId }: { studentId: string }) {
       {adding && (
         <form onSubmit={addDelegate.run} className="mt-4 rounded-lg bg-parchment/60 p-4 space-y-3">
           <p className="text-xs text-oat">
-            A driver, relative or neighbour. Give an end date if the arrangement is temporary.
+            A driver, relative or neighbour. Left without an end date, the arrangement expires with
+            the current term — &ldquo;just this term&rdquo; is usually what is meant.
           </p>
           <div className="flex flex-wrap gap-2">
             <div className="relative">
@@ -265,7 +267,7 @@ export default function PickupList({ studentId }: { studentId: string }) {
                   {p.hasCard ? 'Reissue pass' : 'Issue pass'}
                 </button>
               )}
-              {p.kind === 'GUARDIAN' && (
+              {p.verdict.allowed && (
                 <label className="text-[12px] text-brand hover:underline underline-offset-2 cursor-pointer">
                   {p.hasPhoto ? 'Replace photo' : 'Add photo'}
                   <input

@@ -389,6 +389,7 @@ model Student {
   feeItems       StudentFeeItem[]
   pickupDelegates PickupDelegate[]
   releases        ReleaseLog[]
+  checkIns        CheckInLog[]
   dismissalRequests DismissalRequest[]
 
   @@unique([schoolId, admissionNo])
@@ -904,7 +905,12 @@ model PickupDelegate {
   name         String
   phone        String
   relationship String
+  /// Always set on creation: a delegate added without a date expires with the current term,
+  /// because "just this term" is how these arrangements really work.
   expiresAt    DateTime?
+  /// Shown to gate staff before release, same as a guardian's photo. A card can be lent;
+  /// a face cannot.
+  photoUrl     String?
   active       Boolean   @default(true)
   createdById  String
   createdAt    DateTime  @default(now())
@@ -969,6 +975,29 @@ model ReleaseLog {
 
   @@unique([schoolId, clientRef])
   @@index([schoolId, releasedAt])
+  @@index([studentId])
+}
+
+/// Immutable record of a child arriving in the morning — the other half of the gate's day.
+/// Mirrors ReleaseLog: name captured at the time, idempotent via clientRef so the gate can
+/// work offline without recording the same arrival twice.
+model CheckInLog {
+  id            String        @id @default(cuid())
+  schoolId      String
+  studentId     String
+  student       Student       @relation(fields: [studentId], references: [id])
+  /// Who brought the child, captured by name at the time; null when they arrived unaccompanied.
+  broughtBy     String?
+  collectorKind String?
+  collectorId   String?
+  method        ReleaseMethod @default(MANUAL)
+  recordedById  String
+  checkedInAt   DateTime      @default(now())
+  /// Idempotency key minted by the gate device before it tries to send (see ReleaseLog.clientRef).
+  clientRef     String?
+
+  @@unique([schoolId, clientRef])
+  @@index([schoolId, checkedInAt])
   @@index([studentId])
 }
 
