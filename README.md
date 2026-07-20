@@ -42,9 +42,25 @@ Demo logins (password `Password1!`): `owner@demo.school` · `head@demo.school` �
 
 ```bash
 pnpm test          # unit tests
-pnpm test:e2e      # Playwright E2E (needs both apps running + seeded db)
+pnpm test:e2e      # Playwright, both suites — see prerequisites below
 pnpm lint && pnpm typecheck
 pnpm --filter @eyo/api db:drift-check   # migration chain == schema, always
+```
+
+There are two E2E suites, one per application, each with its own fixtures.
+
+```bash
+# The school portal (:3000 + the API on :4000)
+pnpm db:seed && pnpm --filter @eyo/api db:seed:second
+NEXT_DIST_DIR=.next-e2e pnpm --filter @eyo/web build      # a production build, in its own
+NEXT_DIST_DIR=.next-e2e pnpm --filter @eyo/web start      # dist dir — the dev server drops
+pnpm --filter @eyo/web test:e2e                           # connections partway through a run
+
+# The licensing portal (:3200)
+pnpm --filter @eyo/vendor db:seed          # a member of staff to sign in as
+pnpm --filter @eyo/vendor db:seed:e2e      # 26 client schools, replaced on every run
+pnpm --filter @eyo/vendor dev
+pnpm --filter @eyo/vendor test:e2e
 ```
 
 ## Deploying a school

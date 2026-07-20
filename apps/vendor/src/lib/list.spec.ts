@@ -30,6 +30,17 @@ describe('paging the client list', () => {
     expect(p.rows).toHaveLength(10);
   });
 
+  /**
+   * Clamped to the *last* page, not back to the first — it keeps you nearest where you were
+   * looking. Worth pinning separately: the single-page case above passes either way, so it was
+   * asserting a coincidence, and the E2E spec was written against the wrong guess because of it.
+   */
+  it('clamps to the last page that exists, not to the first', () => {
+    const p = paginate(rows(60), 99, 25);
+    expect(p.page).toBe(3);
+    expect([p.from, p.to]).toEqual([51, 60]);
+  });
+
   it('clamps a page below the start', () => {
     expect(paginate(rows(10), 0, 25).page).toBe(1);
     expect(paginate(rows(10), -3, 25).page).toBe(1);
