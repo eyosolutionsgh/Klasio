@@ -56,6 +56,22 @@ test.beforeEach(async ({ page }) => {
   await signIn(page);
 });
 
+/**
+ * Put the code screen on the authenticator, wherever it started.
+ *
+ * Which factor leads depends on the deployment: with a mail provider configured the emailed code
+ * is offered first and the authenticator is a link away, and with nothing configured the portal
+ * shows the authenticator immediately rather than dangling an email option that would fail on
+ * click. Both are correct, and the toggle only exists in the first — so clicking it unconditionally
+ * made this suite pass only on a machine with mail set up, which is the opposite of what the note
+ * on STAFF_TOTP promises.
+ */
+async function useAuthenticator(page: Page) {
+  const toggle = page.getByRole('button', { name: 'Use my authenticator app' });
+  if (await toggle.isVisible()) await toggle.click();
+  await expect(page.getByLabel('Code from your authenticator app')).toBeVisible();
+}
+
 async function signIn(page: Page) {
   await page.goto('/login');
   await page.getByLabel('Email').fill(STAFF.email);
@@ -63,7 +79,7 @@ async function signIn(page: Page) {
 
   // An address alone reaches the code screen, never the portal.
   await expect(page.getByText(`Signing in as ${STAFF.email}`)).toBeVisible();
-  await page.getByRole('button', { name: 'Use my authenticator app' }).click();
+  await useAuthenticator(page);
   await page.getByLabel('Code from your authenticator app').fill(totpAt(STAFF_TOTP, new Date()));
   await page.getByRole('button', { name: 'Sign in' }).click();
 
@@ -123,7 +139,7 @@ test.describe('the licensing portal', () => {
 
     // A wrong code costs an attempt rather than being free to retry.
     await page.goto('/verify');
-    await page.getByRole('button', { name: 'Use my authenticator app' }).click();
+    await useAuthenticator(page);
     await page.getByLabel('Code from your authenticator app').fill('000000');
     await page.getByRole('button', { name: 'Sign in' }).click();
     // By text, not by role: Next's own route announcer is also a live region called "alert".
@@ -149,8 +165,11 @@ test.describe('the licensing portal', () => {
     await page.getByRole('button', { name: 'Continue' }).click();
 
     await expect(page.getByText('Signing in as nobody-here@example.test')).toBeVisible();
-    // The same options, including the one a real account would use.
-    await expect(page.getByRole('button', { name: 'Use my authenticator app' })).toBeVisible();
+    // The same options, including the one a real account would use. Asserted by reaching the
+    // authenticator rather than by naming the toggle, because which factor leads is a property of
+    // the deployment's mail configuration — and asserting the wrong one here would only ever fail
+    // on the configuration, never on an account actually leaking that it exists.
+    await useAuthenticator(page);
 
     await page.getByLabel(/Code/).fill('123456');
     await page.getByRole('button', { name: 'Sign in' }).click();

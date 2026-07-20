@@ -5,6 +5,7 @@
   "description": "EYO School Management System \u2014 AI-powered SMS for African private schools",
   "scripts": {
     "dev": "pnpm --parallel --filter @eyo/api --filter @eyo/web dev",
+    "generate": "pnpm -r generate",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",

@@ -5,8 +5,25 @@ on:
     branches: [main]
   pull_request:
 
+# A second push to the same branch makes the first run's answer worthless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Owner connection: migrations, seeds, and the drift shadow database.
+  DATABASE_URL: postgresql://eyo:eyo_dev@localhost:5432/eyo_sms_ci
+  # Runtime connection for the API. A non-owner role, so row-level security actually applies —
+  # see ops/db-init/01-app-role.sh for why the distinction is load-bearing.
+  APP_DATABASE_URL: postgresql://eyo_app:eyo_app_ci@localhost:5432/eyo_sms_ci
+  # The vendor portal's own database. Emphatically not the school's.
+  VENDOR_DATABASE_URL: postgresql://eyo:eyo_dev@localhost:5432/eyo_vendor_ci
+  JWT_SECRET: ci-secret
+  NEXT_PUBLIC_API_URL: http://localhost:4000
+
 jobs:
-  build-test:
+  # Everything that needs no running server. Fast, and the gate that catches most regressions.
+  checks:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -18,9 +35,6 @@ jobs:
         ports: ['5432:5432']
         options: >-
           --health-cmd "pg_isready -U eyo" --health-interval 5s --health-timeout 5s --health-retries 10
-    env:
-      DATABASE_URL: postgresql://eyo:eyo_dev@localhost:5432/eyo_sms_ci
-      JWT_SECRET: ci-secret
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -29,19 +43,164 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Migration gate — clean deploy on empty database
+
+      # Both Prisma clients are generated into node_modules and are not committed. Nothing in
+      # `pnpm install` creates them — `migrate deploy` does not generate — so without this step
+      # typecheck and build fail on a fresh checkout with "Property 'user' does not exist".
+      - name: Generate Prisma clients
+        run: pnpm generate
+
+      # The role must exist BEFORE `migrate deploy`: 20260718140000_row_level_security skips its
+      # GRANTs when eyo_app is absent, so creating the role later would leave the grants unapplied
+      # and every tenant query failing closed.
+      - name: Provision roles and the vendor database
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'eyo_app') THEN
+              CREATE ROLE eyo_app LOGIN PASSWORD 'eyo_app_ci';
+            END IF;
+          END $$;
+          -- Asserted, not set: ALTER ROLE needs superuser, and CREATE ROLE already defaults to
+          -- neither attribute. Either one would switch every policy off silently, which is the
+          -- exact failure this role exists to prevent — so fail the build rather than assume.
+          DO $$ BEGIN
+            IF EXISTS (
+              SELECT 1 FROM pg_roles
+              WHERE rolname = 'eyo_app' AND (rolbypassrls OR rolsuper)
+            ) THEN
+              RAISE EXCEPTION 'eyo_app has BYPASSRLS or SUPERUSER — row-level security would be inert';
+            END IF;
+          END $$;
+          GRANT CONNECT ON DATABASE eyo_sms_ci TO eyo_app;
+          GRANT USAGE ON SCHEMA public TO eyo_app;
+          SQL
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE eyo_vendor_ci OWNER eyo"
+
+      - name: Migration gate — clean deploy on an empty database
         run: pnpm db:deploy
+
       - name: Schema drift check
         run: pnpm --filter @eyo/api db:drift-check
+
+      - name: Vendor migration gate
+        run: pnpm --filter @eyo/vendor db:deploy
+
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
-      - name: Seed + E2E visual tests
+
+  # Both browser suites. Split out because it needs three servers and two seeded databases, and a
+  # failure here should read as "the app is broken" rather than tangle up with the checks above.
+  e2e:
+    runs-on: ubuntu-latest
+    needs: checks
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: eyo
+          POSTGRES_PASSWORD: eyo_dev
+          POSTGRES_DB: eyo_sms_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U eyo" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # Sign-in is passwordless and there is no bypass, so the suite generates real codes from the
+      # secret the seed enrols. A fixed throwaway value — never one that opens a real portal.
+      VENDOR_ADMIN_TOTP_SECRET: JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP
+      VENDOR_SESSION_SECRET: ci-vendor-session-secret
+      VENDOR_ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+      # `next start` runs as production, where the implicit development-key fallback is refused —
+      # so the portal would render no issue form and the licence tests would wait forever on a
+      # select that is correctly absent. Pointing at the committed development key explicitly is
+      # what the suite verifies against (ops/licence/dev-public.pem), and an explicitly configured
+      # key is honoured in production by design.
+      VENDOR_SIGNING_KEY_PATH: ${{ github.workspace }}/ops/licence/dev-signing-key.pem
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm generate
+
+      - name: Provision databases
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'eyo_app') THEN
+              CREATE ROLE eyo_app LOGIN PASSWORD 'eyo_app_ci';
+            END IF;
+          END $$;
+          -- Asserted, not set: ALTER ROLE needs superuser, and CREATE ROLE already defaults to
+          -- neither attribute. Either one would switch every policy off silently, which is the
+          -- exact failure this role exists to prevent — so fail the build rather than assume.
+          DO $$ BEGIN
+            IF EXISTS (
+              SELECT 1 FROM pg_roles
+              WHERE rolname = 'eyo_app' AND (rolbypassrls OR rolsuper)
+            ) THEN
+              RAISE EXCEPTION 'eyo_app has BYPASSRLS or SUPERUSER — row-level security would be inert';
+            END IF;
+          END $$;
+          GRANT CONNECT ON DATABASE eyo_sms_ci TO eyo_app;
+          GRANT USAGE ON SCHEMA public TO eyo_app;
+          SQL
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE eyo_vendor_ci OWNER eyo"
+          pnpm db:deploy
+          pnpm --filter @eyo/vendor db:deploy
+
+      # rls.spec.ts reads one school's data with another school's session, so it needs both seeds.
+      - name: Seed the school database
         run: |
           pnpm db:seed
-          npx playwright install --with-deps chromium
-          pnpm --filter @eyo/api exec sh -c 'node dist/main.js &'
-          pnpm --filter @eyo/web exec sh -c 'pnpm start &'
-          sleep 8
-          pnpm test:e2e
+          pnpm --filter @eyo/api db:seed:second
+
+      - name: Seed the vendor portal
+        run: |
+          pnpm --filter @eyo/vendor seed
+          pnpm --filter @eyo/vendor db:seed:e2e
+
+      - run: pnpm build
+
+      - name: Install Chromium
+        run: pnpm --filter @eyo/web exec playwright install --with-deps chromium
+
+      # Backgrounded with nohup and waited on by port. `sh -c 'node dist/main.js &'` exits
+      # immediately and takes the child with it; a bare `sleep 8` is a race that passes on a fast
+      # runner and fails on a slow one.
+      - name: Start the servers
+        run: |
+          nohup node apps/api/dist/main.js > /tmp/api.log 2>&1 &
+          nohup pnpm --filter @eyo/web start > /tmp/web.log 2>&1 &
+          nohup pnpm --filter @eyo/vendor start > /tmp/vendor.log 2>&1 &
+          for port in 4000 3000 3200; do
+            for i in $(seq 1 60); do
+              if nc -z localhost "$port"; then echo "port $port is up"; break; fi
+              if [ "$i" = 60 ]; then echo "port $port never came up"; exit 1; fi
+              sleep 2
+            done
+          done
+
+      - name: School portal E2E
+        run: pnpm --filter @eyo/web test:e2e
+
+      - name: Licensing portal E2E
+        run: pnpm --filter @eyo/vendor test:e2e
+
+      - name: Server logs on failure
+        if: failure()
+        run: tail -n 100 /tmp/api.log /tmp/web.log /tmp/vendor.log
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-failure-artifacts
+          path: |
+            apps/web/test-results/
+            apps/vendor/test-results/
+          if-no-files-found: ignore
