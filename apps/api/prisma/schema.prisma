@@ -418,6 +418,24 @@ model StudentDocument {
   @@index([schoolId, studentId])
 }
 
+/// Papers attached to an applicant — a birth certificate, a previous report. On enrolment they
+/// become StudentDocument rows (same storage keys), so nothing is re-uploaded.
+model ApplicantDocument {
+  id           String    @id @default(cuid())
+  schoolId     String
+  applicantId  String
+  applicant    Applicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  kind         String    @default("OTHER")
+  filename     String
+  contentType  String
+  size         Int
+  key          String
+  uploadedById String
+  createdAt    DateTime  @default(now())
+
+  @@index([schoolId, applicantId])
+}
+
 enum DepositStatus {
   PENDING
   CONFIRMED
@@ -1195,6 +1213,8 @@ model Applicant {
   decidedAt    DateTime?
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
+
+  documents ApplicantDocument[]
 
   @@unique([schoolId, reference])
   @@index([schoolId, stage])

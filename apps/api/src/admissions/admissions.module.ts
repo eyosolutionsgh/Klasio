@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Injectable,
   Module,
@@ -10,7 +11,10 @@ import {
   Post,
   Query,
   StreamableFile,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { IsDateString, IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { ApplicantStage, Gender, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -24,7 +28,7 @@ import {
 import { allowedStages, stageMoveError } from '../common/admissions';
 import { hasEntitlement } from '../common/entitlements';
 import { normalizeMsisdn } from '../common/phone';
-import { storage } from '../common/storage';
+import { DOCUMENT_TYPES, MAX_UPLOAD_BYTES, objectKey, storage } from '../common/storage';
 import { admissionLetterPdf } from '../common/pdf';
 import { StudentsModule, StudentsService } from '../students/students.module';
 import { PageQuery, dateWindow, orderBy, pageArgs, toPage } from '../common/list-query';
@@ -86,6 +90,14 @@ class DecisionDto {
   /** Only the two outcomes a decision can have; everything else is a plain stage move. */
   @IsEnum(ApplicantStage) outcome: ApplicantStage;
   @IsOptional() @IsString() @MaxLength(500) note?: string;
+}
+
+/** Minimal shape of a Multer upload — avoids depending on @types/multer, as elsewhere. */
+interface UploadedFileLike {
+  buffer: Buffer;
+  originalname: string;
+  mimetype: string;
+  size: number;
 }
 
 class ConvertDto {
@@ -414,11 +426,116 @@ export class AdmissionsService {
       where: { id },
       data: { stage: 'ENROLLED', studentId: student.id },
     });
+
+    // Papers handed in at application follow the child onto their student record — same storage
+    // keys, so nothing is re-uploaded and nothing is asked for twice. Moved rather than shared:
+    // two rows over one key would make either side's delete break the other.
+    const papers = await this.db.applicantDocument.findMany({
+      where: { schoolId: auth.schoolId, applicantId: id },
+    });
+    for (const p of papers) {
+      await this.db.studentDocument.create({
+        data: {
+          schoolId: auth.schoolId,
+          studentId: student.id,
+          kind: p.kind,
+          filename: p.filename,
+          contentType: p.contentType,
+          size: p.size,
+          key: p.key,
+          uploadedById: p.uploadedById,
+        },
+      });
+    }
+    if (papers.length > 0) {
+      await this.db.applicantDocument.deleteMany({
+        where: { schoolId: auth.schoolId, applicantId: id },
+      });
+    }
     await this.db.audit(auth.schoolId, auth.sub, 'applicant.convert', 'Applicant', id, {
       studentId: student.id,
       reference: applicant.reference,
     });
     return { studentId: student.id, stage: 'ENROLLED' as const, alreadyConverted: false };
+  }
+
+  // ── Documents ──────────────────────────────────────────────────────
+
+  async listDocuments(auth: AuthUser, applicantId: string) {
+    await this.own(auth, applicantId);
+    const docs = await this.db.applicantDocument.findMany({
+      where: { schoolId: auth.schoolId, applicantId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return docs.map((d) => ({
+      id: d.id,
+      kind: d.kind,
+      filename: d.filename,
+      contentType: d.contentType,
+      size: d.size,
+      createdAt: d.createdAt,
+    }));
+  }
+
+  async uploadDocument(auth: AuthUser, applicantId: string, kind: string, file: UploadedFileLike) {
+    if (!file) throw new BadRequestException('Choose a file');
+    if (!DOCUMENT_TYPES.includes(file.mimetype)) {
+      throw new BadRequestException('That file type is not accepted');
+    }
+    if (file.size > MAX_UPLOAD_BYTES) throw new BadRequestException('That file is too large');
+    await this.own(auth, applicantId);
+
+    const key = objectKey(auth.schoolId, 'applicant-documents', applicantId, file.originalname);
+    await storage().put(key, file.buffer, file.mimetype);
+    const doc = await this.db.applicantDocument.create({
+      data: {
+        schoolId: auth.schoolId,
+        applicantId,
+        kind: kind || 'OTHER',
+        filename: file.originalname,
+        contentType: file.mimetype,
+        size: file.size,
+        key,
+        uploadedById: auth.sub,
+      },
+    });
+    await this.db.audit(
+      auth.schoolId,
+      auth.sub,
+      'applicant.document.upload',
+      'Applicant',
+      applicantId,
+      { filename: file.originalname },
+    );
+    return { id: doc.id, filename: doc.filename };
+  }
+
+  async readDocument(auth: AuthUser, docId: string) {
+    const doc = await this.db.applicantDocument.findFirst({
+      where: { id: docId, schoolId: auth.schoolId },
+    });
+    if (!doc) throw new NotFoundException('Document not found');
+    return { buffer: await storage().get(doc.key), doc };
+  }
+
+  async deleteDocument(auth: AuthUser, docId: string) {
+    const doc = await this.db.applicantDocument.findFirst({
+      where: { id: docId, schoolId: auth.schoolId },
+    });
+    if (!doc) throw new NotFoundException('Document not found');
+    await storage()
+      .delete(doc.key)
+      .catch(() => undefined);
+    await this.db.applicantDocument.delete({ where: { id: docId } });
+    await this.db.audit(
+      auth.schoolId,
+      auth.sub,
+      'applicant.document.delete',
+      'Applicant',
+      doc.applicantId,
+      { filename: doc.filename },
+    );
+    return { deleted: true };
   }
 
   /** The letter itself. Only offered, accepted and enrolled applicants have one to give. */
@@ -537,6 +654,40 @@ export class AdmissionsController {
 
   // Both, because converting enrols a child: moving the applicant and creating the student are
   // two distinct authorities and this route exercises them together.
+  @Get(':id/documents')
+  @RequirePermission('admissions.view')
+  documents(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.listDocuments(user, id);
+  }
+
+  @Post(':id/documents')
+  @RequirePermission('admissions.manage')
+  @UseInterceptors(FileInterceptor('file'))
+  uploadDocument(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body('kind') kind: string,
+    @UploadedFile() file: UploadedFileLike,
+  ) {
+    return this.svc.uploadDocument(user, id, kind, file);
+  }
+
+  @Get('documents/:docId')
+  @RequirePermission('admissions.view')
+  async readDocument(@CurrentUser() user: AuthUser, @Param('docId') docId: string) {
+    const { buffer, doc } = await this.svc.readDocument(user, docId);
+    return new StreamableFile(buffer, {
+      type: doc.contentType,
+      disposition: `attachment; filename="${doc.filename.replace(/"/g, '')}"`,
+    });
+  }
+
+  @Delete('documents/:docId')
+  @RequirePermission('admissions.manage')
+  deleteDocument(@CurrentUser() user: AuthUser, @Param('docId') docId: string) {
+    return this.svc.deleteDocument(user, docId);
+  }
+
   @Post(':id/convert')
   @RequirePermission('admissions.manage', 'students.create')
   convert(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ConvertDto) {
