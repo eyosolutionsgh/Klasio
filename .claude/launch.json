@@ -12,6 +12,12 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@eyo/api", "dev"],
       "port": 4000
+    },
+    {
+      "name": "vendor",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@eyo/vendor", "dev"],
+      "port": 3200
     }
   ]
 }

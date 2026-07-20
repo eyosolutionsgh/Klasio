@@ -126,6 +126,32 @@ body {
     background: var(--color-hush);
   }
 
+  /*
+    Filter chips are a bigger, quieter relative of .pill — a control rather than a label, so it
+    gets a tap target and sentence case instead of the pill's shouty tracking.
+  */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    height: 2rem;
+    padding: 0 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  /*
+    Centring a <dialog>.
+
+    The UA stylesheet centres a modal dialog with `margin: auto`, which Tailwind's preflight resets
+    to 0 along with everything else — so without this the dialog opens flush to the top left.
+  */
+  .modal[open] {
+    margin: auto;
+  }
+
   .pill {
     display: inline-flex;
     align-items: center;
