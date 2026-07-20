@@ -264,6 +264,12 @@ export default function PickupPage() {
               : 'Record each child arriving. Who brought them is optional — many walk in alone.'}
           </p>
         </div>
+        <a
+          href="/pickup/analytics"
+          className="text-[13px] text-oat hover:text-brand transition underline underline-offset-2"
+        >
+          Analytics
+        </a>
         <div className="inline-flex rounded-lg border border-mist overflow-hidden" role="tablist">
           {(['ARRIVAL', 'DISMISSAL'] as const).map((m) => (
             <button

@@ -32,6 +32,7 @@ import {
   type CollectorKind,
 } from '../common/pickup';
 import { pickupCardPdf } from '../common/pdf';
+import { collectorHistory, waitStats } from '../common/dismissal-analytics';
 import { objectKey, storage } from '../common/storage';
 
 const BCRYPT_ROUNDS = 10;
@@ -791,6 +792,50 @@ export class PickupService {
     return { ok: true, status };
   }
 
+  // ── Analytics ──────────────────────────────────────────────────────
+
+  /**
+   * How dismissal actually runs: car line wait times (announced → done) and each collector's
+   * history, over a window. The arithmetic lives in common/dismissal-analytics so it is proved
+   * without a database.
+   */
+  async analytics(auth: AuthUser, days = 30) {
+    const window = Math.min(Math.max(days, 1), 365);
+    const from = startOfDay();
+    from.setDate(from.getDate() - window);
+
+    const [entries, releases] = await Promise.all([
+      this.db.carLineEntry.findMany({
+        where: {
+          schoolId: auth.schoolId,
+          announcedAt: { gte: from },
+          status: { in: ['CALLED', 'DONE'] },
+        },
+        select: { announcedAt: true, doneAt: true },
+      }),
+      this.db.releaseLog.findMany({
+        where: { schoolId: auth.schoolId, releasedAt: { gte: from } },
+        select: {
+          collectedBy: true,
+          collectorKind: true,
+          collectorId: true,
+          overrideReason: true,
+          releasedAt: true,
+        },
+      }),
+    ]);
+
+    return {
+      windowDays: window,
+      waits: waitStats(entries),
+      releases: {
+        total: releases.length,
+        overrides: releases.filter((r) => r.overrideReason).length,
+      },
+      collectors: collectorHistory(releases).slice(0, 50),
+    };
+  }
+
   // ── Dismissal-change requests ──────────────────────────────────────
 
   async listDismissalRequests(auth: AuthUser, status?: string) {
@@ -1086,6 +1131,13 @@ export class PickupController {
       throw new BadRequestException('status must be CALLED, DONE or CANCELLED');
     }
     return this.svc.setCarLineStatus(user, id, status);
+  }
+
+  @Get('analytics')
+  @RequirePermission('pickup.view')
+  @RequireEntitlement('safety.carline')
+  analytics(@CurrentUser() user: AuthUser, @Query('days') days?: string) {
+    return this.svc.analytics(user, days ? parseInt(days, 10) || 30 : 30);
   }
 
   @Get('dismissal-requests')
