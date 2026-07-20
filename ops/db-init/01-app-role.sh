@@ -28,15 +28,39 @@ psql_do() {
 # The existence check lives in shell rather than a DO block on purpose: psql does not substitute
 # :'variables' inside dollar-quoted strings, so a DO block would try to set the password to the
 # literal text ":'app_password'". Outside one, substitution works and quotes correctly.
+#
+# Fed on STDIN rather than with -c, and that is not a style choice. psql performs NO variable
+# interpolation for -c: it sends the text straight to the server, which answers
+# `syntax error at or near ":"` and leaves the role uncreated. Interpolation only happens for input
+# read from a file or stdin. This bit the first real deployment — see the assertion at the bottom.
 if [ -z "$(psql_do -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'eyo_app'")" ]; then
-  psql_do -v app_password="$APP_DB_PASSWORD" \
-          -c "CREATE ROLE eyo_app LOGIN PASSWORD :'app_password'"
+  psql_do -v app_password="$APP_DB_PASSWORD" <<'SQL'
+CREATE ROLE eyo_app LOGIN PASSWORD :'app_password';
+SQL
 fi
 
 # No BYPASSRLS, no SUPERUSER, not the table owner. Any one of those would silently switch every
 # policy off, which is the exact failure this role exists to prevent.
 psql_do -c "ALTER ROLE eyo_app NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE"
-psql_do -v db="$POSTGRES_DB" -c 'GRANT CONNECT ON DATABASE :"db" TO eyo_app'
+# Stdin again, and for the same reason — this one interpolates :"db".
+psql_do -v db="$POSTGRES_DB" <<'SQL'
+GRANT CONNECT ON DATABASE :"db" TO eyo_app;
+SQL
 psql_do -c "GRANT USAGE ON SCHEMA public TO eyo_app"
+
+# Assert what the script is for, rather than trusting that it worked.
+#
+# Postgres runs this directory once, and only when the data directory is empty. When the script
+# failed, the entrypoint aborted, the container restarted, found a populated directory, logged
+# "Skipping initialization" and came up healthy — with no eyo_app role and, because the
+# row-level-security migration skips its GRANTs when the role is absent, no grants either. A
+# database that looks fine and refuses every tenant query is exactly the outcome worth failing
+# loudly for.
+if [ -z "$(psql_do -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'eyo_app' AND rolcanlogin")" ]; then
+  echo "[db-init] FATAL: eyo_app does not exist after creation. Refusing to start." >&2
+  echo "[db-init] Delete the database volume and retry — a restart will SKIP this script and" >&2
+  echo "[db-init] leave a database whose every tenant query fails closed." >&2
+  exit 1
+fi
 
 echo "[db-init] eyo_app created. The API must connect as this role, not as $POSTGRES_USER."

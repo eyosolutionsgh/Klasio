@@ -1,4 +1,10 @@
 FROM node:22-slim AS base
+# Prisma's engines link against libssl, which node:22-slim does not ship — see apps/api/Dockerfile
+# for the failure it causes. This image runs `prisma migrate deploy` at start too, so it needs the
+# same fix rather than living on the query engine's warning-and-fall-back.
+RUN apt-get update -y \
+    && apt-get install -y --no-install-recommends openssl \
+    && rm -rf /var/lib/apt/lists/*
 RUN corepack enable
 WORKDIR /repo
 

@@ -1,4 +1,11 @@
 FROM node:22-slim AS base
+# Prisma's engines link against libssl, which node:22-slim does not ship. The query engine only
+# warns and falls back; the SCHEMA engine fails outright, so `prisma migrate deploy` dies with a
+# bare "Schema engine error:" and the container restart-loops before the app ever starts. Installed
+# in `base` so both the build and the runtime stage get it.
+RUN apt-get update -y \
+    && apt-get install -y --no-install-recommends openssl \
+    && rm -rf /var/lib/apt/lists/*
 RUN corepack enable
 WORKDIR /repo
 
