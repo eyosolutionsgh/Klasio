@@ -133,6 +133,19 @@ export default async function FeesPage({
         ))}
       </div>
 
+      <div className="mt-3 flex justify-end items-center gap-1 text-[12px]">
+        <span className="text-oat">Ledger for the accountant:</span>
+        {(['csv', 'xlsx'] as const).map((f) => (
+          <a
+            key={f}
+            href={`/api/proxy/fees/ledger/export?format=${f}`}
+            className="rounded-md border border-mist px-2 py-0.5 text-brand hover:bg-brand-mist transition uppercase"
+          >
+            {f}
+          </a>
+        ))}
+      </div>
+
       <DepositQueue currency={cur} />
 
       <div className="grid lg:grid-cols-[1.3fr_1fr] gap-6 mt-8">

@@ -1,9 +1,12 @@
-import { Controller, Get, Injectable, Module, Query } from '@nestjs/common';
+import { Controller, Get, Injectable, Module, Query, StreamableFile } from '@nestjs/common';
 import { IsOptional, IsString } from 'class-validator';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthUser, CurrentUser, RequirePermission } from '../common/auth';
+import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
+import { Cell, toCsv, toXlsx } from '../common/export';
 import { PageQuery, dateWindow, orderBy, pageArgs, toPage } from '../common/list-query';
+
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 /**
  * Which columns the trail may be sorted by.
@@ -81,6 +84,47 @@ export class AuditService {
     return toPage(rows, total, { page, perPage });
   }
 
+  /**
+   * The change log as a file (FEATURES.md §19: "export anything — … and the change log"). The
+   * whole filtered trail, not a page of it, ordered oldest-first the way an auditor reads.
+   */
+  async export(auth: AuthUser, q: ListAuditDto, format: string) {
+    const recorded = dateWindow(q);
+    const where: Prisma.AuditLogWhereInput = { schoolId: auth.schoolId };
+    if (q.action) where.action = { contains: q.action, mode: 'insensitive' };
+    if (q.entity) where.entity = q.entity;
+    if (recorded) where.createdAt = recorded;
+
+    const logs = await this.db.auditLog.findMany({
+      where,
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+    const userIds = [...new Set(logs.map((l) => l.userId).filter((x): x is string => !!x))];
+    const users = await this.db.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, name: true },
+    });
+    const nameById = new Map(users.map((u) => [u.id, u.name]));
+
+    const headers = ['When', 'Who', 'Action', 'Entity', 'Entity Id', 'Detail'];
+    const rows: Cell[][] = logs.map((l) => [
+      l.createdAt.toISOString(),
+      l.userId ? (nameById.get(l.userId) ?? 'Unknown user') : 'System',
+      l.action,
+      l.entity,
+      l.entityId ?? '',
+      l.detail ? JSON.stringify(l.detail) : '',
+    ]);
+    if (format === 'csv') {
+      return { buffer: toCsv(headers, rows), type: 'text/csv', filename: 'change-log.csv' };
+    }
+    return {
+      buffer: await toXlsx('Change log', headers, rows),
+      type: XLSX_MIME,
+      filename: 'change-log.xlsx',
+    };
+  }
+
   /** Distinct actions present, for the filter dropdown. */
   async actions(auth: AuthUser) {
     const rows = await this.db.auditLog.findMany({
@@ -118,6 +162,21 @@ export class AuditController {
   @RequirePermission('audit.view')
   list(@CurrentUser() user: AuthUser, @Query() query: ListAuditDto) {
     return this.svc.list(user, query);
+  }
+
+  @Get('export')
+  @RequirePermission('audit.view')
+  @RequireEntitlement('platform.export')
+  async export(
+    @CurrentUser() user: AuthUser,
+    @Query() query: ListAuditDto,
+    @Query('format') format = 'xlsx',
+  ) {
+    const { buffer, type, filename } = await this.svc.export(user, query, format);
+    return new StreamableFile(buffer, {
+      type,
+      disposition: `attachment; filename="${filename}"`,
+    });
   }
 
   @Get('actions')

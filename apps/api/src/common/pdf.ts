@@ -500,6 +500,112 @@ export function receiptPdf(r: ReceiptData): Promise<Buffer> {
   return toBuffer(doc);
 }
 
+export interface StatementRow {
+  date: string | Date;
+  label: string;
+  reference: string;
+  /** Amounts in major units; exactly one side is set per row. */
+  debit: number | null;
+  credit: number | null;
+  balance: number;
+}
+
+export interface StatementData {
+  school: DocSchool;
+  student: { name: string; admissionNo: string; className: string | null };
+  currency: string;
+  rows: StatementRow[];
+  totals: { billed: number; credited: number; balance: number };
+  generatedAt: string | Date;
+}
+
+/**
+ * The full statement of account for one child (FEATURES.md §7): every charge, payment,
+ * discount and correction in order, with a running balance — the document a bursar puts in
+ * front of a parent disputing a figure.
+ */
+export function statementPdf(s: StatementData): Promise<Buffer> {
+  const doc = new PDFDocument({ size: 'A4', margin: 48 });
+  const left = doc.page.margins.left;
+  const width = doc.page.width - left - doc.page.margins.right;
+  const money = (n: number) =>
+    `${s.currency} ${n.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const BRAND = brandOf(s.school);
+
+  if (drawCrest(doc, s.school, left + width / 2 - 18, doc.y, 36)) doc.y += 42;
+  doc
+    .fillColor(BRAND)
+    .font('Helvetica-Bold')
+    .fontSize(17)
+    .text(s.school.name, left, doc.y, { width, align: 'center' });
+  const contact = [s.school.address, s.school.phone].filter(Boolean).join(' · ');
+  if (contact) {
+    doc.fillColor(OAT).font('Helvetica').fontSize(9).text(contact, { width, align: 'center' });
+  }
+  doc.moveDown(0.6);
+  doc
+    .fillColor(INK)
+    .font('Helvetica-Bold')
+    .fontSize(12)
+    .text('STATEMENT OF ACCOUNT', { width, align: 'center' });
+  doc.moveDown(0.8);
+
+  doc.font('Helvetica').fontSize(10).fillColor(INK);
+  doc.text(`${s.student.name} · ${s.student.admissionNo}`, left);
+  doc
+    .fillColor(OAT)
+    .fontSize(9)
+    .text(`${s.student.className ?? 'No class'} · issued ${fmtDate(s.generatedAt)}`, left);
+  doc.moveDown(0.8);
+
+  drawTable(
+    doc,
+    left,
+    [
+      { header: 'Date', width: 66 },
+      { header: 'Item', width: 165 },
+      { header: 'Reference', width: 88 },
+      { header: 'Charged', width: 60, align: 'right' },
+      { header: 'Paid / credited', width: 60, align: 'right' },
+      { header: 'Balance', width: 60, align: 'right' },
+    ],
+    s.rows.map((r) => [
+      fmtDate(r.date),
+      r.label,
+      r.reference,
+      r.debit === null ? '' : money(r.debit),
+      r.credit === null ? '' : money(r.credit),
+      money(r.balance),
+    ]),
+    { zebra: true },
+  );
+
+  doc.moveDown(0.8);
+  doc.font('Helvetica-Bold').fontSize(10).fillColor(INK);
+  doc.text(`Total charged: ${money(s.totals.billed)}`, left);
+  doc.text(`Total paid and credited: ${money(s.totals.credited)}`, left);
+  doc
+    .fillColor(s.totals.balance > 0 ? '#8a3a1f' : '#2f6b3a')
+    .text(
+      s.totals.balance > 0
+        ? `Balance owing: ${money(s.totals.balance)}`
+        : 'Nothing is owing on this account.',
+      left,
+    );
+  doc
+    .moveDown(1)
+    .font('Helvetica')
+    .fontSize(8)
+    .fillColor(OAT)
+    .text(
+      'Corrections are shown as their own entries and never replace the original — both remain on the record.',
+      left,
+      undefined,
+      { width },
+    );
+  return toBuffer(doc);
+}
+
 export interface BroadsheetData {
   schoolName: string;
   className: string;

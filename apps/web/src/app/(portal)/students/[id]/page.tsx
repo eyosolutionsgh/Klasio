@@ -176,6 +176,17 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
               </p>
             </div>
           )}
+          {balance !== undefined && (
+            <div className="no-print">
+              <DownloadButton
+                path={`/fees/students/${s.id}/statement.pdf`}
+                filename={`statement-${s.admissionNo}.pdf`}
+                label="Statement"
+                variant="ghost"
+                tip="Full statement of account — every charge, payment and correction, with a running balance"
+              />
+            </div>
+          )}
           {canPrintCard && s.status === 'ACTIVE' && (
             <div className="no-print">
               <DownloadButton

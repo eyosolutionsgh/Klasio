@@ -31,11 +31,25 @@ export default async function AuditPage({
 
   return (
     <div>
-      <div className="rise rise-1">
-        <h1 className="font-display text-3xl">Audit log</h1>
-        <p className="text-sm text-oat mt-1.5">
-          Every recorded change — who did what, and when. {entries.total} matching.
-        </p>
+      <div className="rise rise-1 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="font-display text-3xl">Audit log</h1>
+          <p className="text-sm text-oat mt-1.5">
+            Every recorded change — who did what, and when. {entries.total} matching.
+          </p>
+        </div>
+        <span className="flex items-center gap-1 text-[12px]">
+          <span className="text-oat">Export the filtered log:</span>
+          {(['csv', 'xlsx'] as const).map((f) => (
+            <a
+              key={f}
+              href={`/api/proxy/audit/export?${qs}&format=${f}`}
+              className="rounded-md border border-mist px-2 py-0.5 text-brand hover:bg-brand-mist transition uppercase"
+            >
+              {f}
+            </a>
+          ))}
+        </span>
       </div>
 
       <div className="mt-6 rise rise-2">
