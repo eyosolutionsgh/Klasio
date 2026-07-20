@@ -74,6 +74,20 @@ school sooner, issue a shorter licence they will install, or wait for expiry. Th
 marked rather than deleted, because what was sent to a school is the one thing support cannot
 reconstruct from anywhere else.
 
+## Starting up
+
+The server refuses to start in production without the secrets it needs, and says all of them at
+once — `VENDOR_ENCRYPTION_KEY` (32 bytes), `VENDOR_SESSION_SECRET`, `VENDOR_DATABASE_URL`. The check
+runs in `src/instrumentation.ts`, before the first request is answered, and **exits non-zero**
+rather than throwing: a thrown error leaves Next listening and answering 500 to everything, which
+reads to an orchestrator as a server that started.
+
+A signing key is deliberately not required — tracking licences without issuing them is a supported
+way to run.
+
+Development requires nothing: every one of these has a documented fallback, and `next build` needs
+none of them, so CI does not hold production secrets.
+
 ## Signing in
 
 Two factors, required for everyone. This portal can mint a licence for any school, so a password on

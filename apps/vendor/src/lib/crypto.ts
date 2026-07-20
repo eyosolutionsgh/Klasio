@@ -21,15 +21,27 @@ export class MissingEncryptionKeyError extends Error {
   }
 }
 
-function key(): Buffer {
-  const raw = process.env.VENDOR_ENCRYPTION_KEY || undefined;
-  if (!raw) {
-    if (process.env.NODE_ENV === 'production') throw new MissingEncryptionKeyError();
-    return DEV_KEY;
-  }
+/**
+ * A configured key, or null if it is absent or the wrong size.
+ *
+ * Exported so the boot check and the encryption path agree about what "valid" means. Two opinions
+ * about that is how a server starts cleanly and then fails the first time somebody enrols.
+ */
+export function parseEncryptionKey(raw: string | undefined): Buffer | null {
+  if (!raw) return null;
   const buf = /^[0-9a-f]{64}$/i.test(raw) ? Buffer.from(raw, 'hex') : Buffer.from(raw, 'base64');
-  if (buf.length !== 32) throw new MissingEncryptionKeyError();
-  return buf;
+  return buf.length === 32 ? buf : null;
+}
+
+function key(): Buffer {
+  const parsed = parseEncryptionKey(process.env.VENDOR_ENCRYPTION_KEY || undefined);
+  if (parsed) return parsed;
+  // Unset in development is the documented fallback; unset in production never reaches here,
+  // because `instrumentation.ts` refuses to start the server.
+  if (process.env.VENDOR_ENCRYPTION_KEY || process.env.NODE_ENV === 'production') {
+    throw new MissingEncryptionKeyError();
+  }
+  return DEV_KEY;
 }
 
 /** True when a real key is configured — what the settings screen reports rather than guesses. */
