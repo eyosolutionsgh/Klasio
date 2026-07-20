@@ -20,13 +20,10 @@ RUN pnpm install --filter @eyo/vendor... --frozen-lockfile
 COPY packages/shared packages/shared
 COPY apps/vendor apps/vendor
 
-# src/lib/db.ts builds its PrismaClient at module load from VENDOR_DATABASE_URL, and `next build`
-# evaluates every route module to collect its config — so an unset variable throws
-# "Invalid value undefined for datasource db" and fails the build. Every page is force-dynamic and
-# nothing is queried at build time, so this only has to parse; it is never connected to. The real
-# URL is supplied by compose at runtime, and this ENV lives in the build stage only, so it does
-# not reach the runtime image. CI gets past this the same way, via a top-level workflow env.
-ENV VENDOR_DATABASE_URL=postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder
+# No VENDOR_DATABASE_URL here on purpose: src/lib/db.ts builds its client on first query rather
+# than at import, so compiling needs no database at all. If this build ever fails again on
+# "Invalid value undefined for datasource db", something has started constructing a client at
+# module load — fix that rather than feeding the build a placeholder URL.
 RUN cd apps/vendor && npx prisma generate && pnpm build
 
 # The same invariant apps/api/Dockerfile asserts over dist, asserted here over .next. Catches key
