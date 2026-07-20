@@ -7,6 +7,7 @@ import bcrypt from 'bcryptjs';
 import type { LicenceTier } from '@eyo/shared';
 import { db } from './db';
 import { issueLicence } from './issue';
+import { DEFAULT_TERM } from './terms';
 import { currentUser, mintSession, SESSION_COOKIE } from './session';
 
 export async function signIn(_prev: string | null, form: FormData): Promise<string | null> {
@@ -92,13 +93,13 @@ export async function issue(_prev: string | null, form: FormData): Promise<strin
 
   const clientId = String(form.get('clientId') ?? '');
   const tier = String(form.get('tier') ?? 'MEDIUM') as LicenceTier;
-  const months = Number(form.get('months') ?? 12);
+  const term = String(form.get('term') ?? DEFAULT_TERM);
 
   try {
     await issueLicence({
       clientId,
       tier,
-      months,
+      term,
       // getAll: the form posts one entry per ticked box now, rather than one comma-separated
       // string. Reading it with `get` would silently keep only the first feature sold.
       extraEntitlements: form.getAll('extras').map(String).filter(Boolean),
@@ -109,6 +110,47 @@ export async function issue(_prev: string | null, form: FormData): Promise<strin
     return e instanceof Error ? e.message : 'Could not issue that licence.';
   }
   revalidatePath(`/clients/${clientId}`);
+  revalidatePath('/');
+  return null;
+}
+
+/**
+ * Withdraw a licence.
+ *
+ * **This does not reach the school.** Their server holds the signed file and checks it locally, on
+ * purpose — that is what lets a school in a place with no reliable internet keep working. Nothing
+ * here can take it back. What this does is make the vendor's own record true: the licence stops
+ * counting as the one in force, so the client reads as unlicensed and the next renewal is priced
+ * against reality rather than against a refunded sale.
+ *
+ * To actually stop a school, issue a shorter licence they will install, or wait for expiry. Saying
+ * so on screen matters more than saying it here — a supplier who believes they have cut somebody
+ * off, and has not, finds out from the customer.
+ *
+ * The row survives, marked. Deleting it would erase what was sent to a school, which is the one
+ * thing support cannot reconstruct from anywhere else.
+ */
+export async function revoke(_prev: string | null, form: FormData): Promise<string | null> {
+  const user = await currentUser();
+  if (!user) redirect('/login');
+
+  const id = String(form.get('licenceId') ?? '');
+  const reason = String(form.get('reason') ?? '').trim();
+
+  // A reason is required because it is the whole value of the record. "Withdrawn" with no cause,
+  // read a year later by someone else, is indistinguishable from a mistake.
+  if (reason.length < 4) return 'Say why this licence is being withdrawn.';
+
+  const licence = await db.licence.findUnique({ where: { id } });
+  if (!licence) return 'That licence no longer exists.';
+  if (licence.revokedAt) return 'That licence was already withdrawn.';
+
+  await db.licence.update({
+    where: { id },
+    data: { revokedAt: new Date(), revokedReason: reason, revokedById: user.id },
+  });
+
+  revalidatePath(`/clients/${licence.clientId}`);
   revalidatePath('/');
   return null;
 }

@@ -11,12 +11,14 @@
  */
 import { signLicence, type LicencePayload, type LicenceTier } from '@eyo/shared';
 import { db } from './db';
+import { monthsForTerm } from './terms';
 import { vendorSigningKey } from './vendor-key';
 
 export interface IssueInput {
   clientId: string;
   tier: LicenceTier;
-  months: number;
+  /** MONTHLY | QUARTERLY | ANNUAL | BIENNIAL — see `terms.ts`. */
+  term: string;
   extraEntitlements?: string[];
   graceDays?: number;
   issuedById?: string;
@@ -41,8 +43,13 @@ export async function issueLicence(input: IssueInput) {
   if (!client) throw new Error('No such client');
 
   const now = new Date();
+  const months = monthsForTerm(input.term);
   const expiresAt = new Date(now);
-  expiresAt.setMonth(expiresAt.getMonth() + input.months);
+  /*
+    `setMonth` clamps rather than overflowing, which is what a school would expect: a monthly
+    licence bought on 31 January expires on 28 February, not on 3 March.
+  */
+  expiresAt.setMonth(expiresAt.getMonth() + months);
 
   const payload: LicencePayload = {
     v: 1,
@@ -68,6 +75,7 @@ export async function issueLicence(input: IssueInput) {
       clientId: client.id,
       licenceId: payload.licenceId,
       tier: payload.tier,
+      termMonths: months,
       extraEntitlements: payload.extraEntitlements,
       issuedAt: now,
       expiresAt,

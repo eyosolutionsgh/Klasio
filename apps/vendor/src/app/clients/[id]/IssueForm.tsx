@@ -3,6 +3,7 @@
 import { useActionState, useState } from 'react';
 import { ENTITLEMENT_CATALOGUE, includedIn, type LicenceTier } from '@eyo/shared';
 import { issue } from '@/lib/actions';
+import { DEFAULT_TERM, LICENCE_TERMS } from '@/lib/terms';
 
 const TIERS: LicenceTier[] = ['BASIC', 'MEDIUM', 'ADVANCED'];
 
@@ -82,19 +83,18 @@ export default function IssueForm({
           </div>
 
           <div>
-            <label htmlFor="months" className="label">
-              Months
+            <label htmlFor="term" className="label">
+              Term
             </label>
-            <input
-              id="months"
-              name="months"
-              type="number"
-              min={1}
-              max={60}
-              defaultValue={12}
-              className="field"
-            />
-            <span className="hint" />
+            <select id="term" name="term" defaultValue={DEFAULT_TERM} className="field">
+              {LICENCE_TERMS.map((t) => (
+                <option key={t.code} value={t.code}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+            {/* The four things with a price. A trial or a bridge comes from `licence:mint --days`. */}
+            <span className="hint">Runs from today.</span>
           </div>
 
           <div>

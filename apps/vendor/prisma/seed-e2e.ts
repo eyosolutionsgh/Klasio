@@ -152,6 +152,9 @@ async function main() {
         clientId: client.id,
         licenceId: `${E2E_PREFIX}lic_${i}`,
         tier,
+        // A spread of terms, so the history and the term column have something to show. The
+        // fourth is left null on purpose: licences predating terms exist, and read as custom.
+        termMonths: [1, 3, 12, 24, null][i % 5],
         extraEntitlements: [],
         issuedAt: new Date(now - 60 * DAY),
         expiresAt,

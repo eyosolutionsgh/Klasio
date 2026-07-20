@@ -131,10 +131,12 @@ test.describe('the licensing portal', () => {
     // 4. Sell it a package, plus one feature from a higher one.
     await expect(page.getByRole('heading', { name: 'Issue a licence' })).toBeVisible();
     await page.getByLabel('Package').selectOption('MEDIUM');
+    await page.getByLabel('Term').selectOption('QUARTERLY');
     await page.getByRole('checkbox', { name: 'AI report remarks' }).check();
     await page.getByRole('button', { name: 'Issue licence' }).click();
 
-    const issued = page.getByText(/MEDIUM · /).first();
+    // The term sold is recorded and read back, rather than inferred from the two dates.
+    const issued = page.getByText(/MEDIUM · Quarterly · /).first();
     await expect(issued).toBeVisible();
     await expect(page.getByText('Plus AI report remarks')).toBeVisible();
     await expect(page.getByText('current', { exact: true })).toBeVisible();
@@ -160,11 +162,83 @@ test.describe('the licensing portal', () => {
       not a description of the latest thing. So an upgrade leaves the old row in place, marked.
     */
     await page.getByLabel('Package').selectOption('ADVANCED');
+    await page.getByLabel('Term').selectOption('BIENNIAL');
     await page.getByRole('button', { name: 'Issue licence' }).click();
 
-    await expect(page.getByText(/ADVANCED · /).first()).toBeVisible();
+    await expect(page.getByText(/ADVANCED · Bi-annually · /).first()).toBeVisible();
     await expect(page.getByText(/replaced /)).toBeVisible();
     await expect(page.getByText('current', { exact: true })).toHaveCount(1);
+  });
+
+  /**
+   * Withdrawing a licence.
+   *
+   * The assertion that matters most is the last one: the licence it replaced must not come back.
+   * "Newest licence that is not withdrawn" quietly promotes a superseded row, so a school whose
+   * licence was withdrawn this morning would read as licensed on last year's expiry.
+   */
+  test('a withdrawn licence leaves nothing standing behind it', async ({ page }) => {
+    const slug = `e2e-run-${RUN}-revoke`;
+    const name = `Revoke ${RUN} School`;
+
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Add school' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('School name').fill(name);
+    await dialog.getByLabel('Slug').fill(slug);
+    await dialog.getByRole('button', { name: 'Add school' }).click();
+    await expect(dialog).toBeHidden();
+
+    await page.getByRole('link', { name }).click();
+
+    // Two licences, so there is a superseded one available to be wrongly promoted.
+    await page.getByLabel('Term').selectOption('MONTHLY');
+    await page.getByRole('button', { name: 'Issue licence' }).click();
+    await expect(page.getByText(/Monthly · /)).toBeVisible();
+
+    await page.getByLabel('Term').selectOption('ANNUAL');
+    await page.getByRole('button', { name: 'Issue licence' }).click();
+    await expect(page.getByText(/Annually · /)).toBeVisible();
+    await expect(page.getByText(/replaced /)).toBeVisible();
+
+    // Offered on the licence in force and on nothing else.
+    await expect(page.getByRole('button', { name: 'Withdraw' })).toHaveCount(1);
+    await page.getByRole('button', { name: 'Withdraw' }).click();
+
+    const confirm = page.getByRole('dialog');
+    await expect(confirm).toContainText('keeps running on this licence until the licence expires');
+
+    /*
+      A reason is required — it is the whole value of the record a year later.
+
+      Two layers, and this asserts the outer one: `minLength` stops the browser submitting at all,
+      so the dialog simply stays open and nothing is withdrawn. The action checks again on the
+      server, which is what catches a submission that never went through a keyboard.
+    */
+    await confirm.getByLabel('Why it is being withdrawn').fill('no');
+    await confirm.getByRole('button', { name: 'Withdraw licence' }).click();
+    await expect(confirm).toBeVisible();
+    await expect(page.getByText(/Withdrawn: /)).toBeHidden();
+
+    await confirm.getByLabel('Why it is being withdrawn').fill('Refunded before the term started');
+    await confirm.getByRole('button', { name: 'Withdraw licence' }).click();
+    await expect(confirm).toBeHidden();
+
+    await expect(page.getByText('Withdrawn: Refunded before the term started')).toBeVisible();
+
+    /*
+      Nothing standing. The superseded monthly licence is still on the page as history, and is not
+      in force — the client reads as having no licence rather than as licensed on the old one.
+    */
+    await expect(
+      page.getByText(/Every licence issued to this client has been withdrawn/),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Withdraw' })).toHaveCount(0);
+
+    await page.goto(`/?q=${slug}`);
+    await expect(page.getByRole('row').filter({ hasText: slug })).toContainText(
+      /awaiting licence/i,
+    );
   });
 });
 
@@ -268,6 +342,39 @@ test.describe('finding a school in a long list', () => {
       page.getByText(new RegExp(`Showing 26–${FIXTURE_TOTAL} of ${FIXTURE_TOTAL}`)),
     ).toBeVisible();
     await expect(page.locator('tbody tr')).toHaveCount(1);
+  });
+
+  /**
+   * The renewals question, and the reporting one, are different filters on purpose.
+   *
+   * Dates narrow the set *before* the chips count it, so "Expiring 3" beside an August range means
+   * three of August's expiries need a call. A count that ignored the dates would be describing a
+   * set nobody is looking at.
+   */
+  test('filters by expiry and by issue date, and the chips follow', async ({ page }) => {
+    // The fixtures expiring soon sit 12 days out; the rest are 300 days out or already gone.
+    const soon = new Date(Date.now() + 12 * 86_400_000).toISOString().slice(0, 10);
+    const window = new Date(Date.now() + 20 * 86_400_000).toISOString().slice(0, 10);
+    const today = new Date().toISOString().slice(0, 10);
+
+    await page.goto(`/?q=${FIXTURE_PREFIX}&expFrom=${soon}&expTo=${window}`);
+    await expect(
+      page.getByText(new RegExp(`Showing 1–${FIXTURES.EXPIRING} of ${FIXTURES.EXPIRING}`)),
+    ).toBeVisible();
+    // Every other chip is emptied by the range, which is what "counted after the dates" means.
+    await expect(page.getByRole('link', { name: `Expiring ${FIXTURES.EXPIRING}` })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Expired 0' })).toBeVisible();
+
+    // Issue date is a separate axis: the fixtures were all issued 60 days ago, so today excludes
+    // every one of them — proving the two ranges are not the same control wearing two labels.
+    await page.goto(`/?q=${FIXTURE_PREFIX}&issFrom=${today}`);
+    await expect(
+      page.getByText('No school matches those dates. Widen the range, or clear it.'),
+    ).toBeVisible();
+
+    // A range that names no real day filters nothing, rather than emptying the list.
+    await page.goto(`/?q=${FIXTURE_PREFIX}&expFrom=2026-06-31`);
+    await expect(page.getByText(new RegExp(`of ${FIXTURE_TOTAL}`))).toBeVisible();
   });
 
   /** Two schools in the same state for different reasons; both are worth a phone call. */

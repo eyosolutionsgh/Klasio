@@ -108,6 +108,14 @@ describe('how a client is judged', () => {
    * The row used to print "MEDIUM / running ADVANCED" in red and then call itself ACTIVE, because
    * nothing compared the two. The mismatch is the whole reason that second line is rendered.
    */
+  /** The same state, two different truths — and only one of them is worth ringing about. */
+  it('distinguishes never licensed from every licence withdrawn', () => {
+    expect(assessClient({ licence: null, lastBeat: null, now: NOW }).note).toMatch(/No licence/);
+    expect(
+      assessClient({ licence: null, everIssued: true, lastBeat: null, now: NOW }).note,
+    ).toMatch(/withdrawn/);
+  });
+
   it('flags a school running a package other than the one on its licence', () => {
     const r = assessClient({
       licence: licence({ tier: 'MEDIUM' }),

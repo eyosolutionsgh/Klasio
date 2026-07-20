@@ -2,10 +2,11 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { db } from '@/lib/db';
 import { assessClient, type ClientHealth } from '@/lib/issue';
-import { countByHealth, HEALTH_ORDER, paginate } from '@/lib/list';
+import { countByHealth, hasRange, HEALTH_ORDER, paginate, withinRange } from '@/lib/list';
 import { currentUser } from '@/lib/session-ui';
 import { canIssue } from '@/lib/vendor-key';
 import AddSchoolDialog from './AddSchoolDialog';
+import DateFilters from './DateFilters';
 import Header from './Header';
 import Pagination from './Pagination';
 import SearchBox from './SearchBox';
@@ -49,7 +50,21 @@ export default async function Dashboard({
   const status = HEALTH_ORDER.includes(statusParam as ClientHealth)
     ? (statusParam as ClientHealth)
     : undefined;
-  const params = { q, status };
+  /*
+    Two ranges, because they answer different questions. Expiry is the renewals list — who needs
+    ringing before the end of the month. Issue date is what was sold in a period, which is a
+    reconciliation question someone asks at a quarter end.
+  */
+  const expiry = { from: one('expFrom'), to: one('expTo') };
+  const issued = { from: one('issFrom'), to: one('issTo') };
+  const params = {
+    q,
+    status,
+    expFrom: expiry.from,
+    expTo: expiry.to,
+    issFrom: issued.from,
+    issTo: issued.to,
+  };
 
   const clients = await db.client.findMany({
     // The search runs in SQL, which is what keeps the set health is computed over small.
@@ -62,10 +77,21 @@ export default async function Dashboard({
         }
       : undefined,
     include: {
-      // The licence in force is the newest still standing — superseded ones are history, and a
-      // withdrawn one was meant to count for nothing.
-      licences: { where: { revokedAt: null }, orderBy: { createdAt: 'desc' }, take: 1 },
+      /*
+        The licence in force is the one that is neither replaced nor withdrawn.
+
+        Both conditions matter. Filtering on `revokedAt` alone means withdrawing the current
+        licence promotes the one it replaced — so a school whose licence was just withdrawn reads
+        as licensed again, on an older expiry. Withdrawing should leave no licence standing.
+      */
+      licences: {
+        where: { revokedAt: null, supersededAt: null },
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+      },
       heartbeats: { orderBy: { receivedAt: 'desc' }, take: 1 },
+      // Counted rather than fetched: it only decides one sentence of wording.
+      _count: { select: { licences: true } },
     },
     orderBy: { name: 'asc' },
   });
@@ -75,6 +101,7 @@ export default async function Dashboard({
       const lic = c.licences[0] ?? null;
       const beat = c.heartbeats[0] ?? null;
       const { health, note, daysRemaining } = assessClient({
+        everIssued: c._count.licences > 0,
         licence: lic ? { tier: lic.tier, expiresAt: lic.expiresAt } : null,
         lastBeat: beat
           ? {
@@ -89,10 +116,25 @@ export default async function Dashboard({
     })
     .sort((a, b) => RANK[a.health] - RANK[b.health] || a.c.name.localeCompare(b.c.name));
 
+  /*
+    Dates narrow the set before the chips count it, unlike the status filter which the chips are.
+
+    So "Expiring 4" beside an October range means four of October's expiries need a call — which is
+    the question that pairs the two controls. A count that ignored the dates would describe a set
+    the person is not looking at.
+
+    Filtered in memory against the licence in force, the same one health is judged from. A SQL
+    `some` over the client's licences would match any unrevoked one, including a superseded one
+    with a different expiry — quietly answering a different question.
+  */
+  const dated = assessed.filter(
+    (r) => withinRange(r.lic?.expiresAt, expiry) && withinRange(r.lic?.issuedAt, issued),
+  );
+
   // Counted before the status filter, so a chip says how many schools are in that state rather
   // than how many the current view happens to show.
-  const counts = countByHealth(assessed);
-  const matched = status ? assessed.filter((r) => r.health === status) : assessed;
+  const counts = countByHealth(dated);
+  const matched = status ? dated.filter((r) => r.health === status) : dated;
   const page = paginate(matched, Number(one('page') ?? 1));
 
   // The whole estate, independent of any filter — a headline that moved when you searched would
@@ -166,9 +208,10 @@ export default async function Dashboard({
         */}
         <div className="mt-6 flex flex-wrap items-center gap-3">
           <SearchBox initial={q ?? ''} />
+          <DateFilters expiry={expiry} issued={issued} />
         </div>
         <div className="mt-3">
-          <StatusFilter counts={counts} active={status} params={params} total={assessed.length} />
+          <StatusFilter counts={counts} active={status} params={params} total={dated.length} />
         </div>
 
         <div className="card mt-4 overflow-hidden">
@@ -233,7 +276,9 @@ export default async function Dashboard({
                       {totalClients === 0
                         ? 'Add the first school to start issuing licences.'
                         : q || status
-                          ? 'Widen the search or pick another status to see more schools.'
+                          ? hasRange(expiry) || hasRange(issued)
+                            ? 'No school matches those dates. Widen the range, or clear it.'
+                            : 'Widen the search or pick another status to see more schools.'
                           : 'Every school has been filtered out of this view.'}
                     </td>
                   </tr>

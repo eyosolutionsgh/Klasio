@@ -39,7 +39,8 @@ model VendorUser {
   lastLoginAt  DateTime?
   createdAt    DateTime @default(now())
 
-  issued Licence[]
+  issued  Licence[] @relation("issuedBy")
+  revoked Licence[] @relation("revokedBy")
 }
 
 /// A school the vendor sells to.
@@ -83,17 +84,29 @@ model Licence {
   expiresAt DateTime
   graceDays Int      @default(30)
 
+  /// The term that was sold, in months — 1, 3, 12 or 24.
+  ///
+  /// Recorded rather than derived from the two dates. Calendar months are uneven, so a licence
+  /// issued on the 31st and expiring on the 30th would read back as something odd, and a bespoke
+  /// duration issued from the CLI has no term to infer at all. Null on licences predating this.
+  termMonths Int?
+
   /// The signed licence exactly as the school received it.
   signed    String
 
   /// Set when a later licence replaced this one, so history reads in order without deleting.
   supersededAt DateTime?
   /// Withdrawn deliberately — a refund, or a licence issued in error.
+  ///
+  /// A record, not an enforcement: the school already holds the signed file and its server checks
+  /// it locally, so withdrawing one here does not reach the school. See `revokeLicence`.
   revokedAt    DateTime?
   revokedReason String?
+  revokedById   String?
+  revokedBy     VendorUser? @relation("revokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
 
   issuedById String?
-  issuedBy   VendorUser? @relation(fields: [issuedById], references: [id], onDelete: SetNull)
+  issuedBy   VendorUser? @relation("issuedBy", fields: [issuedById], references: [id], onDelete: SetNull)
   createdAt  DateTime    @default(now())
 
   @@index([clientId, createdAt])

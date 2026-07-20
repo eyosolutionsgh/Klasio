@@ -4,10 +4,12 @@ import { ENTITLEMENT_CATALOGUE } from '@eyo/shared';
 import { db } from '@/lib/db';
 import { assessClient } from '@/lib/issue';
 import { currentUser } from '@/lib/session-ui';
+import { termLabel } from '@/lib/terms';
 import { canIssue, usingDevSigningKey } from '@/lib/vendor-key';
 import Header from '../../Header';
 import IssueForm from './IssueForm';
 import LicenceText from './LicenceText';
+import RevokeLicence from './RevokeLicence';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,15 +36,18 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
   const client = await db.client.findUnique({
     where: { id },
     include: {
-      licences: { orderBy: { createdAt: 'desc' }, include: { issuedBy: true } },
+      licences: { orderBy: { createdAt: 'desc' }, include: { issuedBy: true, revokedBy: true } },
       heartbeats: { orderBy: { receivedAt: 'desc' }, take: 20 },
     },
   });
   if (!client) notFound();
 
-  const live = client.licences.find((l) => !l.revokedAt) ?? null;
+  // Neither replaced nor withdrawn — see the note on the dashboard query. Withdrawing the current
+  // licence must not promote the one it replaced.
+  const live = client.licences.find((l) => !l.revokedAt && !l.supersededAt) ?? null;
   const beat = client.heartbeats[0] ?? null;
   const { health, note } = assessClient({
+    everIssued: client.licences.length > 0,
     licence: live ? { tier: live.tier, expiresAt: live.expiresAt } : null,
     lastBeat: beat
       ? {
@@ -138,19 +143,25 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
           ) : (
             <ul className="mt-4 space-y-3">
               {client.licences.map((l) => (
-                <li key={l.id} className="border border-mist rounded p-4">
+                <li
+                  key={l.id}
+                  /* A withdrawn licence is history rather than a mistake, so it recedes instead of
+                     shouting — the red belongs on the reason, which is the part worth reading. */
+                  className={`border rounded p-4 ${l.revokedAt ? 'border-mist/60 bg-hush/40' : 'border-mist'}`}
+                >
                   <div className="flex items-baseline justify-between gap-3 flex-wrap">
                     <p className="font-mono text-sm">{l.licenceId}</p>
                     <p className="text-xs text-oat">
                       {l.revokedAt
-                        ? 'withdrawn'
+                        ? `withdrawn ${day(l.revokedAt)}`
                         : l.supersededAt
                           ? `replaced ${day(l.supersededAt)}`
                           : 'current'}
                     </p>
                   </div>
                   <p className="text-sm mt-1">
-                    {l.tier} · {day(l.issuedAt)} – {day(l.expiresAt)} · {l.graceDays}d grace
+                    {l.tier} · {termLabel(l.termMonths)} · {day(l.issuedAt)} – {day(l.expiresAt)} ·{' '}
+                    {l.graceDays}d grace
                   </p>
                   {/*
                   The features sold on top of the package. Shown as labels rather than codes: the
@@ -168,12 +179,39 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                   {l.issuedBy && (
                     <p className="text-xs text-oat mt-1">Issued by {l.issuedBy.name}</p>
                   )}
+
+                  {/*
+                    Why it was withdrawn, not merely that it was. A year later this is the only
+                    thing that distinguishes a refund from a mistake.
+                  */}
+                  {l.revokedAt && (
+                    <p className="text-sm text-danger mt-1.5">
+                      Withdrawn: {l.revokedReason}
+                      {l.revokedBy && <span className="text-oat"> · by {l.revokedBy.name}</span>}
+                    </p>
+                  )}
                   {/*
                   The signed text, on demand. Kept so it can be re-sent when a school loses the
                   email — it is not a secret, the school already has it, and anyone with the public
                   key can verify it.
                 */}
-                  <LicenceText signed={l.signed} licenceId={l.licenceId} />
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <LicenceText signed={l.signed} licenceId={l.licenceId} />
+                    {/*
+                      Offered only on the licence in force. A replaced one is already out of force
+                      and reads "replaced" — giving it a second, competing status would invite
+                      withdrawing the wrong row while adding nothing.
+                    */}
+                    {l.id === live?.id && (
+                      <div className="mt-3 text-xs">
+                        <RevokeLicence
+                          licenceId={l.id}
+                          licenceRef={l.licenceId}
+                          current={l.id === live?.id}
+                        />
+                      </div>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>

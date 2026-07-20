@@ -54,3 +54,22 @@ pins it.
 `pnpm --filter @eyo/api licence:mint` is unchanged and is still right on a laptop that has the key
 and no network. What the portal adds is a record: who was sold what, when, by whom, and the signed
 text kept so it can be re-sent when a school loses the email.
+
+## Licences
+
+Sold by term — monthly, quarterly, annually, or bi-annually. **Bi-annually here means every two
+years**, and every option on the form spells its duration out, because the word means the opposite
+to about half the people who read it. Bespoke durations (a trial, a bridge between terms) come from
+`pnpm --filter @eyo/api licence:mint --days 20`, which is the right amount of friction for an
+exception.
+
+The term is stored on the licence rather than inferred from its dates: calendar months are uneven,
+and a licence cut from the CLI has a duration but no product.
+
+**Withdrawing a licence does not reach the school.** Their server holds the signed file and checks
+it locally — that is what lets a school with no reliable internet keep working — so nothing here
+can take it back. Withdrawing makes this database true: the licence stops counting as the one in
+force, the client reads as unlicensed, and the next renewal is priced against reality. To move a
+school sooner, issue a shorter licence they will install, or wait for expiry. The row is kept and
+marked rather than deleted, because what was sent to a school is the one thing support cannot
+reconstruct from anywhere else.

@@ -36,6 +36,14 @@ const WARN_WITHIN_DAYS = 30;
 
 export function assessClient(input: {
   licence: { tier: LicenceTier; expiresAt: Date } | null;
+  /**
+   * Whether this client has ever had a licence, withdrawn ones included.
+   *
+   * Only changes the wording, and the wording is the point: "no licence has been issued" is a
+   * false thing to say about a school whose licence was withdrawn this morning, and it is the one
+   * sentence someone reads before ringing them.
+   */
+  everIssued?: boolean;
   lastBeat: {
     receivedAt: Date;
     verifiedWith: string | null;
@@ -50,7 +58,9 @@ export function assessClient(input: {
   if (!licence) {
     return {
       health: 'UNLICENSED',
-      note: 'No licence has been issued to this client',
+      note: input.everIssued
+        ? 'Every licence issued to this client has been withdrawn'
+        : 'No licence has been issued to this client',
       daysRemaining: null,
     };
   }
