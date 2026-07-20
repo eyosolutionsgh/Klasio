@@ -49,6 +49,29 @@ There is a verified off-box backup at `~/klasio-prelive-backup/` (signing key,
 public key, `.env`, owner credentials, vendor enrolment). Keep it current, and
 keep the signing key in a password manager as well.
 
+## Rehearsed 20 Jul 2026
+
+A full destroy → restore cycle was run against the live box and verified:
+
+|                       | Before                        | After           |
+| --------------------- | ----------------------------- | --------------- |
+| school / tier         | Klasio Demo School / ADVANCED | identical       |
+| students              | 15                            | identical       |
+| ledger entries / owed | 47 / GHS 17,840.00            | identical       |
+| attendance records    | 225                           | identical       |
+| licences              | 1                             | identical       |
+| signing key           | present                       | present         |
+| app / api / licensing | 200 / 200 / 200               | 200 / 200 / 200 |
+
+Restore took **62 seconds** and came back on the same IP, so DNS never moved.
+
+**The runner takes about a minute longer than the box.** GitHub holds the previous
+session open, so the service logs `A session for this runner already exists` and
+`Conflict. Retrying until reconnected` for ~60s before `Runner reconnected`. It is
+enabled and starts on boot — nothing to do but wait, and `--sync` already waits up
+to 150s for it. Do not re-register the runner because it looks offline right after
+a restore.
+
 ## Cost
 
 Idle cost after a destroy is the snapshot (a few cents per GB per month) plus the
