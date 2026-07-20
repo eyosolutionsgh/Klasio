@@ -1,0 +1,36 @@
+# Klasio pre-live — reverse proxy with automatic HTTPS (Let's Encrypt).
+#
+# Domains come from /opt/klasio/.env rather than being hard-coded, so this file is the same on
+# every box. Point all three A records at the server before the first deploy: Caddy solves an
+# HTTP-01 challenge on :80, and a name that does not yet resolve fails issuance and then backs
+# off, which reads as "TLS is broken" for far longer than the DNS actually took to propagate.
+{
+	email {$ACME_EMAIL}
+}
+
+# The school portal (Next.js). Public.
+{$WEB_DOMAIN} {
+	reverse_proxy web:3000
+}
+
+# The school API (NestJS). Public because guardians hit pay links and gateways post webhooks
+# to it — see PUBLIC_BASE_URL.
+{$API_DOMAIN} {
+	reverse_proxy api:4000
+}
+
+# The vendor licensing portal.
+#
+# This is the box's crown jewel: it holds the licence signing key, and anyone who reaches it can
+# mint a licence every Klasio server on earth would accept. Sign-in is passwordless single-factor
+# by design (see the vendor MFA note), which is a deliberate trade made for a portal that was
+# never meant to be broadly reachable — so do not treat the login page as the only lock.
+#
+# Restrict it at the edge. Uncomment and set VENDOR_ALLOWED_IPS in .env to the office/VPN egress
+# addresses; with the block commented out the portal is open to the whole internet.
+{$VENDOR_DOMAIN} {
+	# @blocked not remote_ip {$VENDOR_ALLOWED_IPS}
+	# respond @blocked 404
+
+	reverse_proxy vendor:3200
+}
