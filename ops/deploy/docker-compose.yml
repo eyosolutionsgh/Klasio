@@ -115,6 +115,18 @@ services:
       MAILERSEND_API_TOKEN: ${MAILERSEND_API_TOKEN:-}
       MAILERSEND_FROM_EMAIL: ${MAILERSEND_FROM_EMAIL:-}
       MAILERSEND_FROM_NAME: ${MAILERSEND_FROM_NAME:-Klasio}
+      # WhatsApp is REPLY-ONLY (see common/whatsapp-window.ts). Absent here originally, which meant
+      # a box could not use WhatsApp even with credentials in .env — and WhatsAppService refuses to
+      # start in production without either these or ALLOW_MOCK_SMS, so the API restart-looped.
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      WHATSAPP_TOKEN: ${WHATSAPP_TOKEN:-}
+      # Verifies Meta's inbound callbacks. Without it the webhook fails closed, because a forged
+      # inbound message would force open the 24-hour reply window.
+      WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:-}
+      WHATSAPP_VERIFY_TOKEN: ${WHATSAPP_VERIFY_TOKEN:-}
+      # One switch covers SMS and WhatsApp both. It does NOT downgrade SMS while Nalo is
+      # configured — a configured provider always wins — so on this box it means WhatsApp replies
+      # are recorded as sent and delivered to nobody, and SMS and email stay real.
       ALLOW_MOCK_SMS: ${ALLOW_MOCK_SMS:-false}
       ALLOW_MOCK_EMAIL: ${ALLOW_MOCK_EMAIL:-false}
       ALLOW_MOCK_PAYMENTS: ${ALLOW_MOCK_PAYMENTS:-false}
