@@ -58,7 +58,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
 
   return (
     <>
-      <Header userName={user.name} />
+      <Header />
       <main className="max-w-5xl mx-auto px-6 py-8">
         <Link href="/" className="text-sm text-oat hover:text-navy">
           ← All schools

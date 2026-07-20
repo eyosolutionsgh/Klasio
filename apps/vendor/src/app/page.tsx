@@ -90,7 +90,7 @@ export default async function Dashboard() {
 
   return (
     <>
-      <Header userName={user.name} />
+      <Header />
       <main className="max-w-6xl mx-auto px-6 py-8">
         <div className="flex items-end justify-between gap-4 flex-wrap">
           <div>
