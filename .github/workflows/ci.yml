@@ -114,7 +114,9 @@ jobs:
       # secret the seed enrols. A fixed throwaway value — never one that opens a real portal.
       VENDOR_ADMIN_TOTP_SECRET: JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP
       VENDOR_SESSION_SECRET: ci-vendor-session-secret
-      VENDOR_ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+      # Quoted: unquoted, YAML reads 64 zeroes as the integer 0 and the seed fails with
+      # "must be set (32 bytes, hex or base64)" while the log shows the variable present.
+      VENDOR_ENCRYPTION_KEY: '5ca1ab1e5ca1ab1e5ca1ab1e5ca1ab1e5ca1ab1e5ca1ab1e5ca1ab1e5ca1ab1e'
       # `next start` runs as production, where the implicit development-key fallback is refused —
       # so the portal would render no issue form and the licence tests would wait forever on a
       # select that is correctly absent. Pointing at the committed development key explicitly is
@@ -195,9 +197,11 @@ jobs:
       - name: Licensing portal E2E
         run: pnpm --filter @eyo/vendor test:e2e
 
+      # `|| true`: a failure before the servers start leaves no log files, and tail's own error
+      # would then replace the real one as the last thing in the output.
       - name: Server logs on failure
         if: failure()
-        run: tail -n 100 /tmp/api.log /tmp/web.log /tmp/vendor.log
+        run: tail -n 100 /tmp/api.log /tmp/web.log /tmp/vendor.log || true
 
       - uses: actions/upload-artifact@v4
         if: failure()
