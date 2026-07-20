@@ -4,7 +4,7 @@ import { ENTITLEMENT_CATALOGUE } from '@eyo/shared';
 import { db } from '@/lib/db';
 import { assessClient } from '@/lib/issue';
 import { currentUser } from '@/lib/session-ui';
-import { canIssue } from '@/lib/vendor-key';
+import { canIssue, usingDevSigningKey } from '@/lib/vendor-key';
 import Header from '../../Header';
 import IssueForm from './IssueForm';
 import LicenceText from './LicenceText';
@@ -181,13 +181,37 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
         </section>
 
         {canIssue() ? (
-          <IssueForm clientId={client.id} currentTier={live?.tier ?? 'MEDIUM'} />
+          <IssueForm
+            clientId={client.id}
+            currentTier={live?.tier ?? 'MEDIUM'}
+            devKey={usingDevSigningKey()}
+          />
         ) : (
-          <p className="card mt-5 px-5 py-4 text-sm text-clay">
-            Add a signing key to this server to issue licences here. The CLI keeps working on any
-            machine that holds the key:{' '}
-            <code className="font-mono text-xs">pnpm --filter @eyo/api licence:mint</code>.
-          </p>
+          /*
+            Named variables and a command, rather than "add a signing key". Someone reading this is
+            trying to do the portal's main job and has just been told they cannot — the next step
+            belongs on screen, not in a README they would have to know to look for.
+          */
+          <div className="card mt-5 px-5 py-4 text-sm text-clay">
+            <p>This portal is tracking licences only. To issue them, give the server a key:</p>
+            <ol className="mt-2 space-y-1 list-decimal pl-5">
+              <li>
+                Generate one with{' '}
+                <code className="font-mono text-xs">pnpm --filter @eyo/api licence:new-key</code>,
+                keeping the private half off every machine that does not need it.
+              </li>
+              <li>
+                Set <code className="font-mono text-xs">VENDOR_SIGNING_KEY</code> to the PEM, or{' '}
+                <code className="font-mono text-xs">VENDOR_SIGNING_KEY_PATH</code> to a file, and
+                restart.
+              </li>
+              <li>
+                Put the matching public half on each school&apos;s server as{' '}
+                <code className="font-mono text-xs">LICENCE_PUBLIC_KEY</code>, or nothing it issues
+                will verify there.
+              </li>
+            </ol>
+          </div>
         )}
       </main>
     </>

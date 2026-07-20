@@ -19,11 +19,11 @@ pnpm --filter @eyo/vendor dev         # :3200
 
 ## Configuration
 
-| Variable                                         | Meaning                                                                                                        |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
-| `VENDOR_DATABASE_URL`                            | The vendor's own Postgres. Never a school's.                                                                   |
-| `VENDOR_SIGNING_KEY` / `VENDOR_SIGNING_KEY_PATH` | The Ed25519 private key licences are signed with. Without it the portal tracks licences but cannot issue them. |
-| `VENDOR_SESSION_SECRET`                          | Signs staff sessions. Required in production.                                                                  |
+| Variable                                         | Meaning                                                                                                                                                                                                                                        |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VENDOR_DATABASE_URL`                            | The vendor's own Postgres. Never a school's.                                                                                                                                                                                                   |
+| `VENDOR_SIGNING_KEY` / `VENDOR_SIGNING_KEY_PATH` | The Ed25519 private key licences are signed with. In development, leaving both unset falls back to the committed `ops/licence/dev-signing-key.pem`; in production the fallback is refused and the portal tracks licences without issuing them. |
+| `VENDOR_SESSION_SECRET`                          | Signs staff sessions. Required in production.                                                                                                                                                                                                  |
 
 The signing key is the most sensitive thing in the product: whoever holds it can mint a licence for
 any school, for any package, forever. It is never written to the database, never logged, and there

@@ -15,9 +15,12 @@ const TIERS: LicenceTier[] = ['BASIC', 'MEDIUM', 'ADVANCED'];
 export default function IssueForm({
   clientId,
   currentTier,
+  devKey = false,
 }: {
   clientId: string;
   currentTier: LicenceTier;
+  /** Signing with the committed development key — see `lib/vendor-key.ts`. */
+  devKey?: boolean;
 }) {
   const [error, action, pending] = useActionState(issue, null);
   const [tier, setTier] = useState<LicenceTier>(currentTier);
@@ -39,6 +42,19 @@ export default function IssueForm({
         Signed here and recorded against this school. It takes effect on their server once they
         install it.
       </p>
+
+      {/*
+        Said before the form rather than after it. A licence signed with the development key
+        verifies only on a server running from a checkout, so a real school would be sent something
+        that refuses to install — and finding that out after clicking Issue wastes the customer's
+        time as well as yours.
+      */}
+      {devKey && (
+        <p className="mt-3 rounded-lg bg-clay/10 text-clay text-sm px-3 py-2">
+          Signing with the development key. Licences issued here work on a development server and
+          are refused by any school running a real one.
+        </p>
+      )}
 
       <form action={action} className="mt-5">
         <input type="hidden" name="clientId" value={clientId} />
