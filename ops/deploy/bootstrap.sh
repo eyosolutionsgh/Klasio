@@ -76,6 +76,17 @@ if ! id "$DEPLOY_USER" >/dev/null 2>&1; then
 fi
 usermod -aG docker "$DEPLOY_USER"
 
+# Give it the same keys root was reached with. Without this the account exists but nothing can
+# log into it — the password is disabled by design — and every `ssh deploy@<ip>` step in the
+# README fails at a point where the only way back in is as root.
+if [ -f /root/.ssh/authorized_keys ]; then
+  install -d -m 700 -o "$DEPLOY_USER" -g "$DEPLOY_USER" "/home/$DEPLOY_USER/.ssh"
+  install -m 600 -o "$DEPLOY_USER" -g "$DEPLOY_USER" \
+    /root/.ssh/authorized_keys "/home/$DEPLOY_USER/.ssh/authorized_keys"
+else
+  echo "WARNING: /root/.ssh/authorized_keys is absent — $DEPLOY_USER will have no way in." >&2
+fi
+
 log "Deploy directories"
 mkdir -p "$DEPLOY_DIR"/{repo,licence,vendor-keys}
 chown -R "$DEPLOY_USER:$DEPLOY_USER" "$DEPLOY_DIR"
