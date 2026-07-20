@@ -30,6 +30,12 @@ COPY apps/vendor apps/vendor
 # than at import, so compiling needs no database at all. If this build ever fails again on
 # "Invalid value undefined for datasource db", something has started constructing a client at
 # module load — fix that rather than feeding the build a placeholder URL.
+#
+# NEXT_DEPLOYMENT_ID stamps the build for version skew protection — see apps/web/Dockerfile. It
+# matters more here than anywhere: the sign-in form is a Server Action, so a stale page silently
+# fails to send a code and the portal looks broken rather than out of date.
+ARG NEXT_DEPLOYMENT_ID=""
+ENV NEXT_DEPLOYMENT_ID=$NEXT_DEPLOYMENT_ID
 RUN cd apps/vendor && npx prisma generate && pnpm build
 
 # The same invariant apps/api/Dockerfile asserts over dist, asserted here over .next. Catches key

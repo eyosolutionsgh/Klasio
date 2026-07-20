@@ -124,9 +124,18 @@ jobs:
           fi
 
       # Sequential, for the OOM reason above.
+      #
+      # NEXT_DEPLOYMENT_ID stamps both Next builds with the commit being shipped, so a browser
+      # still holding the previous build reloads rather than posting to a Server Function id that
+      # no longer exists. It has to be exported here rather than written to .env: compose reads
+      # build args from the environment, and .env on the box is deliberately never rewritten by a
+      # deploy.
       - name: Build images
         working-directory: /opt/klasio
+        env:
+          NEXT_DEPLOYMENT_ID: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
+          echo "deployment id: $NEXT_DEPLOYMENT_ID"
           for svc in api web vendor; do
             echo "::group::build $svc"
             docker compose build "$svc"

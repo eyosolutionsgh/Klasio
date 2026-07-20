@@ -145,6 +145,11 @@ services:
     build:
       context: ./repo
       dockerfile: apps/web/Dockerfile
+      args:
+        # Set by the deploy workflow to the commit being shipped. Version skew protection — a
+        # client left on a previous build reloads instead of posting to a Server Function id that
+        # no longer exists. Empty on a hand-run build, which turns the feature off.
+        NEXT_DEPLOYMENT_ID: ${NEXT_DEPLOYMENT_ID:-}
     restart: unless-stopped
     environment:
       # Server-side only — apps/web/src/lib/api.ts runs in Server Components and route handlers,
@@ -181,6 +186,8 @@ services:
     build:
       context: ./repo
       dockerfile: apps/vendor/Dockerfile
+      args:
+        NEXT_DEPLOYMENT_ID: ${NEXT_DEPLOYMENT_ID:-}
     restart: unless-stopped
     environment:
       VENDOR_DATABASE_URL: postgresql://eyo:${VENDOR_DB_PASSWORD}@vendordb:5432/eyo_vendor
