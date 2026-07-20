@@ -12,12 +12,21 @@ COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY packages/shared/package.json packages/shared/
 COPY apps/vendor/package.json apps/vendor/
 RUN pnpm install --filter @eyo/vendor... --frozen-lockfile
-# Only apps/vendor. `ops/` is deliberately NOT copied, for a sharper reason than in the API image:
-# ops/licence/dev-signing-key.pem is the PRIVATE half of the development pair, and this is the
-# service that signs licences. An image carrying it could mint a licence every school's API would
-# accept. The real key is mounted at runtime (VENDOR_SIGNING_KEY_PATH) and never baked in.
+# apps/vendor and packages/shared, and nothing else. `ops/` is deliberately NOT copied, for a
+# sharper reason than in the API image: ops/licence/dev-signing-key.pem is the PRIVATE half of the
+# development pair, and this is the service that signs licences. An image carrying it could mint a
+# licence every school's API would accept. The real key is mounted at runtime
+# (VENDOR_SIGNING_KEY_PATH) and never baked in.
 COPY packages/shared packages/shared
 COPY apps/vendor apps/vendor
+
+# src/lib/db.ts builds its PrismaClient at module load from VENDOR_DATABASE_URL, and `next build`
+# evaluates every route module to collect its config — so an unset variable throws
+# "Invalid value undefined for datasource db" and fails the build. Every page is force-dynamic and
+# nothing is queried at build time, so this only has to parse; it is never connected to. The real
+# URL is supplied by compose at runtime, and this ENV lives in the build stage only, so it does
+# not reach the runtime image. CI gets past this the same way, via a top-level workflow env.
+ENV VENDOR_DATABASE_URL=postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder
 RUN cd apps/vendor && npx prisma generate && pnpm build
 
 # The same invariant apps/api/Dockerfile asserts over dist, asserted here over .next. Catches key
