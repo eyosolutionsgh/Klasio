@@ -507,12 +507,10 @@ export class GuardianService {
         announcedAt: { gte: this.carLineDayStart() },
       },
     });
-    const entry =
-      existing ??
-      (await this.db.carLineEntry.create({
-        data: { schoolId: auth.schoolId, guardianId: auth.sub },
-      }));
     if (!existing) {
+      await this.db.carLineEntry.create({
+        data: { schoolId: auth.schoolId, guardianId: auth.sub },
+      });
       await this.db.audit(auth.schoolId, auth.sub, 'carline.announce', 'Guardian', auth.sub);
     }
     return this.myCarLine(auth);
