@@ -1,40 +1,64 @@
 'use client';
 
 import { useActionState, useState } from 'react';
-import { ENTITLEMENT_CATALOGUE, includedIn, type LicenceTier } from '@eyo/shared';
+import { ENTITLEMENT_CATALOGUE } from '@eyo/shared';
 import { issue } from '@/lib/actions';
 import { DEFAULT_TERM, LICENCE_TERMS } from '@/lib/terms';
 
-const TIERS: LicenceTier[] = ['BASIC', 'MEDIUM', 'ADVANCED'];
+export interface SellablePackage {
+  id: string;
+  name: string;
+  description: string | null;
+  tier: string;
+  entitlements: string[];
+}
 
 /**
  * Issuing a renewal, in a browser.
  *
- * Defaults to the package the school is already on and twelve months, because that is what a
- * renewal almost always is: one click for the common case, with the unusual one still to hand.
+ * Pick a package and see what is in it. This used to be a tier plus forty checkboxes, which asked
+ * whoever was selling to reconstruct the product from memory every time — and to get it right
+ * silently, for a school that would not find out until a feature was missing. Composing the
+ * product is a separate job, done once, on the packages page.
+ *
+ * The feature list is shown rather than folded away: this is the last moment somebody can notice
+ * they picked the wrong thing.
  */
 export default function IssueForm({
   clientId,
-  currentTier,
+  packages,
+  currentPackageId,
   devKey = false,
 }: {
   clientId: string;
-  currentTier: LicenceTier;
+  packages: SellablePackage[];
+  /** What this school is on now, so a renewal is one click. */
+  currentPackageId?: string | null;
   /** Signing with the committed development key — see `lib/vendor-key.ts`. */
   devKey?: boolean;
 }) {
   const [error, action, pending] = useActionState(issue, null);
-  const [tier, setTier] = useState<LicenceTier>(currentTier);
+  const [packageId, setPackageId] = useState(
+    currentPackageId && packages.some((p) => p.id === currentPackageId)
+      ? currentPackageId
+      : (packages[0]?.id ?? ''),
+  );
 
-  /*
-    Only the features the chosen package leaves out.
+  const chosen = packages.find((p) => p.id === packageId) ?? null;
 
-    Ticking something the package already carries would be harmless and meaningless, so the list
-    answers "what would this add?" rather than "what exists?" — which is the question someone
-    building a quote is actually asking. It re-filters as the package changes.
-  */
-  const included = includedIn(tier);
-  const extras = ENTITLEMENT_CATALOGUE.filter((e) => !included.has(e.code));
+  if (packages.length === 0) {
+    return (
+      <section className="card mt-5 p-6">
+        <h2 className="text-base font-semibold">Issue a licence</h2>
+        <p className="text-sm text-clay mt-2">
+          Build a package first — a licence is a package sold to a school for a term.{' '}
+          <a href="/packages" className="underline underline-offset-2">
+            Packages
+          </a>
+        </p>
+      </section>
+    );
+  }
 
   return (
     <section className="card mt-5 p-6">
@@ -63,23 +87,25 @@ export default function IssueForm({
         {/* items-start, so every field sits on the same top edge whether or not it carries a hint. */}
         <div className="grid sm:grid-cols-3 gap-x-4 gap-y-4 items-start">
           <div>
-            <label htmlFor="tier" className="label">
+            <label htmlFor="packageId" className="label">
               Package
             </label>
             <select
-              id="tier"
-              name="tier"
-              value={tier}
-              onChange={(e) => setTier(e.target.value as LicenceTier)}
+              id="packageId"
+              name="packageId"
+              value={packageId}
+              onChange={(e) => setPackageId(e.target.value)}
               className="field"
             >
-              {TIERS.map((t) => (
-                <option key={t} value={t}>
-                  {t}
+              {packages.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
                 </option>
               ))}
             </select>
-            <span className="hint" />
+            <span className="hint">
+              {chosen && chosen.id === currentPackageId ? 'What they are on now.' : ''}
+            </span>
           </div>
 
           <div>
@@ -114,38 +140,34 @@ export default function IssueForm({
           </div>
         </div>
 
-        <fieldset className="mt-6 border-t border-mist pt-5">
-          <legend className="sr-only">Extra features</legend>
-          <p className="text-sm font-medium text-slate">Add features from a higher package</p>
-          <p className="text-xs text-slate mt-1 mb-3">
-            Sells a single feature while the school stays on {tier}. Everything {tier} already
-            carries is theirs by default.
-          </p>
+        {chosen && (
+          <div className="mt-6 border-t border-mist pt-5">
+            <p className="text-sm font-medium text-slate">
+              {chosen.name} includes
+              <span className="text-oat font-normal"> · {chosen.entitlements.length} features</span>
+            </p>
+            {chosen.description && <p className="text-xs text-slate mt-1">{chosen.description}</p>}
 
-          {extras.length === 0 ? (
-            <p className="text-sm text-slate">{tier} carries every feature Klasio offers.</p>
-          ) : (
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1">
-              {extras.map((e) => (
-                <label
-                  key={e.code}
-                  className="flex items-start gap-2.5 text-sm py-1.5 cursor-pointer group"
+            {/*
+              Read-only on purpose. Changing what a school gets means changing the product, on the
+              packages page, where the change is deliberate and applies to everyone sold it next.
+            */}
+            <ul className="mt-3 flex flex-wrap gap-1.5">
+              {chosen.entitlements.map((code) => (
+                <li
+                  key={code}
+                  title={code}
+                  className="text-[11px] rounded-full bg-hush text-slate px-2 py-0.5"
                 >
-                  <input
-                    type="checkbox"
-                    name="extras"
-                    value={e.code}
-                    className="mt-0.5 h-4 w-4 shrink-0 accent-[#002b5b]"
-                  />
-                  <span className="min-w-0">
-                    <span className="block leading-snug group-hover:text-navy">{e.label}</span>
-                    <span className="block text-[11px] text-oat font-mono truncate">{e.code}</span>
-                  </span>
-                </label>
+                  {ENTITLEMENT_CATALOGUE.find((e) => e.code === code)?.label ?? code}
+                </li>
               ))}
-            </div>
-          )}
-        </fieldset>
+            </ul>
+            <p className="text-xs text-oat mt-2.5">
+              Shown to the school as {chosen.tier}. To change what is included, edit the package.
+            </p>
+          </div>
+        )}
 
         {error && (
           <p role="alert" className="mt-4 text-sm text-danger">

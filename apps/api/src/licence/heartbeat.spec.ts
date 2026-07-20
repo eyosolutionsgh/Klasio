@@ -20,6 +20,7 @@ const status = (over: Partial<LicenceStatus> = {}): LicenceStatus => ({
   state: 'VALID',
   tier: 'ADVANCED',
   extraEntitlements: [],
+  entitlements: null,
   payload: licence(),
   ...over,
 });
@@ -75,7 +76,7 @@ describe('what the heartbeat says', () => {
 
   it('copes with no licence installed at all', () => {
     const p = heartbeatPayload({
-      status: { state: 'MISSING', tier: 'BASIC', extraEntitlements: [] },
+      status: { state: 'MISSING', tier: 'BASIC', extraEntitlements: [], entitlements: null },
       students: 0,
       verifiedWith: 'none',
       appVersion: '0.1.0',

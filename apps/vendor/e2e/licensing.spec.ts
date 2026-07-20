@@ -12,7 +12,7 @@ import { expect, test, type Page } from '@playwright/test';
  * mistake costs money or reaches a customer.
  *
  * Requires the portal on :3200 and its fixtures:
- *   pnpm --filter @eyo/vendor db:seed        # a member of staff to sign in as
+ *   pnpm --filter @eyo/vendor db:seed        # a member of staff, and the starter packages
  *   pnpm --filter @eyo/vendor db:seed:e2e    # 26 client schools for the list tests
  *
  * The fixture seed is idempotent and owns every row prefixed `e2e-fixture-`, so the counts below
@@ -130,15 +130,19 @@ test.describe('the licensing portal', () => {
 
     // 4. Sell it a package, plus one feature from a higher one.
     await expect(page.getByRole('heading', { name: 'Issue a licence' })).toBeVisible();
-    await page.getByLabel('Package').selectOption('MEDIUM');
+    /*
+      A package, not a tier and forty checkboxes. The form shows what is in it before anything is
+      signed, which is the last moment somebody can notice they picked the wrong product.
+    */
+    await page.getByLabel('Package').selectOption({ label: 'Medium' });
+    await expect(page.getByText(/Medium includes/)).toBeVisible();
     await page.getByLabel('Term').selectOption('QUARTERLY');
-    await page.getByRole('checkbox', { name: 'AI report remarks' }).check();
     await page.getByRole('button', { name: 'Issue licence' }).click();
 
-    // The term sold is recorded and read back, rather than inferred from the two dates.
-    const issued = page.getByText(/MEDIUM · Quarterly · /).first();
+    // The package name and the term are both recorded and read back, rather than inferred.
+    const issued = page.getByText(/Medium · Quarterly · /).first();
     await expect(issued).toBeVisible();
-    await expect(page.getByText('Plus AI report remarks')).toBeVisible();
+    await expect(page.getByText(/Includes .*Online payments/)).toBeVisible();
     await expect(page.getByText('current', { exact: true })).toBeVisible();
 
     // 5. The signed text is what a school gets — so it has to be a licence a school will accept.
@@ -153,7 +157,10 @@ test.describe('the licensing portal', () => {
     expect(payload.schoolSlug).toBe(slug);
     expect(payload.schoolName).toBe(name);
     expect(payload.tier).toBe('MEDIUM');
-    expect(payload.extraEntitlements).toContain('ai.remarks');
+    // The package's exact feature list travels with the licence — that is what lets a package be
+    // any combination rather than a tier with additions.
+    expect(payload.entitlements).toContain('fees.online');
+    expect(payload.entitlements.length).toBeGreaterThan(9);
 
     /*
       6. A renewal supersedes rather than edits.
@@ -161,11 +168,11 @@ test.describe('the licensing portal', () => {
       The licence table is history: support has to be able to see what a school was actually sent,
       not a description of the latest thing. So an upgrade leaves the old row in place, marked.
     */
-    await page.getByLabel('Package').selectOption('ADVANCED');
+    await page.getByLabel('Package').selectOption({ label: 'Advanced' });
     await page.getByLabel('Term').selectOption('BIENNIAL');
     await page.getByRole('button', { name: 'Issue licence' }).click();
 
-    await expect(page.getByText(/ADVANCED · Bi-annually · /).first()).toBeVisible();
+    await expect(page.getByText(/Advanced · Bi-annually · /).first()).toBeVisible();
     await expect(page.getByText(/replaced /)).toBeVisible();
     await expect(page.getByText('current', { exact: true })).toHaveCount(1);
   });
@@ -192,10 +199,12 @@ test.describe('the licensing portal', () => {
     await page.getByRole('link', { name }).click();
 
     // Two licences, so there is a superseded one available to be wrongly promoted.
+    await page.getByLabel('Package').selectOption({ label: 'Basic' });
     await page.getByLabel('Term').selectOption('MONTHLY');
     await page.getByRole('button', { name: 'Issue licence' }).click();
     await expect(page.getByText(/Monthly · /)).toBeVisible();
 
+    await page.getByLabel('Package').selectOption({ label: 'Medium' });
     await page.getByLabel('Term').selectOption('ANNUAL');
     await page.getByRole('button', { name: 'Issue licence' }).click();
     await expect(page.getByText(/Annually · /)).toBeVisible();
@@ -400,6 +409,7 @@ function verifyAgainstSchoolKey(signed: string): {
   schoolSlug: string;
   schoolName: string;
   tier: string;
+  entitlements: string[];
   extraEntitlements: string[];
 } {
   const pem = /-----BEGIN PUBLIC KEY-----[\s\S]*?-----END PUBLIC KEY-----/.exec(

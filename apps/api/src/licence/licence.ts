@@ -54,6 +54,18 @@ export interface LicencePayload {
   studentCap?: number | null;
   /** Individual entitlement codes granted on top of the tier, without cutting a release. */
   extraEntitlements: string[];
+  /**
+   * Exactly what this licence grants, when the vendor sold a package.
+   *
+   * Authoritative when present: the school honours this list and does not consult the tier bundle
+   * at all. That is what lets a package be any combination of features, including one that leaves
+   * out something the named tier carries.
+   *
+   * Absent on every licence issued before packages existed, and on anything cut from the CLI, and
+   * those still resolve the old way — tier bundle plus `extraEntitlements`. A build that predates
+   * this field ignores it and falls back to the same path, which is why `tier` is still sent.
+   */
+  entitlements?: string[];
   issuedAt: string;
   expiresAt: string;
   /** Days past expiry the full tier still applies. See `evaluateLicence`. */
@@ -77,6 +89,14 @@ export interface LicenceStatus {
   /** The tier actually in force, which is BASIC whenever the licence is not carrying one. */
   tier: Tier;
   extraEntitlements: string[];
+  /**
+   * The exact grant, when the licence carried one. Null means "resolve from the tier bundle".
+   *
+   * Kept distinct from an empty array, which is a real answer: a package that grants nothing is a
+   * strange product but an unambiguous one, and collapsing it into "use the bundle" would hand a
+   * school features it did not buy.
+   */
+  entitlements: string[] | null;
   payload?: LicencePayload;
   /** Negative once expired. Present whenever a payload parsed. */
   daysRemaining?: number;
@@ -146,6 +166,14 @@ function assertShape(raw: unknown): LicencePayload {
   ) {
     throw new LicenceError('Licence extraEntitlements must be an array of codes');
   }
+  // Optional, and authoritative when present. Validated the same as `extraEntitlements` because a
+  // malformed grant is worse than an absent one: it would silently reduce what a school paid for.
+  if (
+    p.entitlements !== undefined &&
+    (!Array.isArray(p.entitlements) || p.entitlements.some((e) => typeof e !== 'string'))
+  ) {
+    throw new LicenceError('Licence entitlements must be an array of codes');
+  }
   if (typeof p.graceDays !== 'number' || p.graceDays < 0) {
     throw new LicenceError('Licence graceDays must be a non-negative number');
   }
@@ -208,7 +236,7 @@ export function verifyLicence(licence: string, publicKeyPem: string): LicencePay
  */
 /** What the product falls back to when no licence applies: BASIC, and BASIC's features. */
 function basicFallback(): LicenceStatus {
-  return { state: 'MISSING', tier: 'BASIC', extraEntitlements: [] };
+  return { state: 'MISSING', tier: 'BASIC', extraEntitlements: [], entitlements: null };
 }
 
 export function evaluateLicence(
@@ -247,6 +275,7 @@ export function evaluateLicence(
       state: 'VALID',
       tier: payload.tier,
       extraEntitlements: payload.extraEntitlements,
+      entitlements: payload.entitlements ?? null,
       payload,
       daysRemaining,
     };
@@ -257,6 +286,7 @@ export function evaluateLicence(
       state: 'GRACE',
       tier: payload.tier,
       extraEntitlements: payload.extraEntitlements,
+      entitlements: payload.entitlements ?? null,
       payload,
       daysRemaining,
       reason: `Licence expired ${-daysRemaining} day(s) ago — renew within the grace period`,

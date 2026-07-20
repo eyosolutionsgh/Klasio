@@ -195,3 +195,47 @@ describe('licence evaluation', () => {
     expect(evaluateLicence(payload(), { now: day(5) }).daysRemaining).toBe(-5);
   });
 });
+
+/**
+ * Packages: a licence that names its own grant is the whole product, not a tier with additions.
+ *
+ * `evaluateLicence` only carries the list through; `LicenceService.entitlements()` is what applies
+ * it. These pin the carrying, because getting it wrong is silent — a school keeps working, with
+ * the wrong features, and nobody finds out until they ask where something went.
+ */
+describe('a licence that names its own entitlements', () => {
+  it('carries the list through, distinct from an absent one', () => {
+    const packaged = evaluateLicence(payload({ entitlements: ['sis.core', 'ai.remarks'] }), {
+      now: day(-1),
+    });
+    expect(packaged.entitlements).toEqual(['sis.core', 'ai.remarks']);
+
+    // Absent is not the same as empty: absent means "use the tier bundle".
+    expect(evaluateLicence(payload(), { now: day(-1) }).entitlements).toBeNull();
+  });
+
+  /**
+   * An empty grant is a real answer, however odd a product it is. Collapsing it into "no list, use
+   * the bundle" would hand a school every Medium feature it deliberately was not sold.
+   */
+  it('keeps an empty grant as an empty grant', () => {
+    expect(evaluateLicence(payload({ entitlements: [] }), { now: day(-1) }).entitlements).toEqual(
+      [],
+    );
+  });
+
+  it('drops the grant once the licence has lapsed past grace', () => {
+    const lapsed = evaluateLicence(payload({ entitlements: ['ai.remarks'] }), { now: day(400) });
+    expect(lapsed.tier).toBe('BASIC');
+    // Falls back to the Basic bundle rather than to a package the school stopped paying for.
+    expect(lapsed.entitlements).toBeNull();
+  });
+
+  it('refuses a grant that is not a list of codes', () => {
+    const licence = signLicence(
+      payload({ entitlements: [1, 2] as unknown as string[] }),
+      VENDOR.privatePem,
+    );
+    expect(() => verifyLicence(licence, VENDOR.publicPem)).toThrow(/entitlements must be an array/);
+  });
+});

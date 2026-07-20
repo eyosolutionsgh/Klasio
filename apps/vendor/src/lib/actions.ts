@@ -4,9 +4,9 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import bcrypt from 'bcryptjs';
-import type { LicenceTier } from '@eyo/shared';
 import { db } from './db';
 import { issueLicence } from './issue';
+import { archivePackage, createPackage, updatePackage } from './packages';
 import { DEFAULT_TERM } from './terms';
 import { currentUser, mintSession, SESSION_COOKIE } from './session';
 
@@ -92,17 +92,16 @@ export async function issue(_prev: string | null, form: FormData): Promise<strin
   if (!user) redirect('/login');
 
   const clientId = String(form.get('clientId') ?? '');
-  const tier = String(form.get('tier') ?? 'MEDIUM') as LicenceTier;
+  const packageId = String(form.get('packageId') ?? '');
   const term = String(form.get('term') ?? DEFAULT_TERM);
+
+  if (!packageId) return 'Choose a package to issue.';
 
   try {
     await issueLicence({
       clientId,
-      tier,
+      packageId,
       term,
-      // getAll: the form posts one entry per ticked box now, rather than one comma-separated
-      // string. Reading it with `get` would silently keep only the first feature sold.
-      extraEntitlements: form.getAll('extras').map(String).filter(Boolean),
       graceDays: Number(form.get('graceDays') ?? 30),
       issuedById: user.id,
     });
@@ -152,5 +151,52 @@ export async function revoke(_prev: string | null, form: FormData): Promise<stri
 
   revalidatePath(`/clients/${licence.clientId}`);
   revalidatePath('/');
+  return null;
+}
+
+/**
+ * Build or edit a package.
+ *
+ * One action for both, because the form is the same and the difference is a hidden id. Editing
+ * never touches a licence already issued — those froze their own copy of the feature list, which
+ * is what keeps "what did this school pay for" answerable after a product is repriced.
+ */
+export async function savePackage(_prev: string | null, form: FormData): Promise<string | null> {
+  const user = await currentUser();
+  if (!user) redirect('/login');
+
+  const id = String(form.get('id') ?? '');
+  const input = {
+    name: String(form.get('name') ?? ''),
+    description: String(form.get('description') ?? ''),
+    tier: String(form.get('tier') ?? 'MEDIUM') as 'BASIC' | 'MEDIUM' | 'ADVANCED',
+    // getAll: one entry per ticked box. `get` would keep only the first feature in the package.
+    entitlements: form.getAll('entitlements').map(String).filter(Boolean),
+  };
+
+  try {
+    if (id) await updatePackage(id, input);
+    else await createPackage(input);
+  } catch (e) {
+    return e instanceof Error ? e.message : 'Could not save that package.';
+  }
+  revalidatePath('/packages');
+  return null;
+}
+
+/** Withdraw a package from sale, or put it back. Never a delete — licences point at it. */
+export async function setPackageArchived(
+  _prev: string | null,
+  form: FormData,
+): Promise<string | null> {
+  const user = await currentUser();
+  if (!user) redirect('/login');
+
+  try {
+    await archivePackage(String(form.get('id') ?? ''), form.get('archived') === 'true');
+  } catch (e) {
+    return e instanceof Error ? e.message : 'Could not change that package.';
+  }
+  revalidatePath('/packages');
   return null;
 }

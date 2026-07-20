@@ -66,6 +66,37 @@ model Client {
   @@index([slug])
 }
 
+/// A product: a named set of features, built by the vendor and sold as one thing.
+///
+/// The features are held as codes rather than as a tier, so a package can be any combination at
+/// all — including one that leaves out something a built-in tier carries. That is what makes a
+/// package a product rather than a shortcut for ticking boxes.
+///
+/// A school never sees this table. What reaches a school is the resolved list of codes inside its
+/// signed licence, which is why editing a package cannot change what an issued licence granted.
+model Package {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+
+  /// Exactly what this package grants. The school honours this list and nothing else.
+  entitlements String[] @default([])
+
+  /// What the school's own screens call the package it is running. Display only — every gate in
+  /// the product checks an entitlement code, never a tier name.
+  tier Tier
+
+  /// Withdrawn from sale. Never deleted: licences point at what was sold, and a package that
+  /// vanished would leave that history unreadable.
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  licences Licence[]
+
+  @@index([archived, name])
+}
+
 /// A licence that was issued. Append-only in spirit: a renewal is a new row, not an edit.
 ///
 /// The signed text is kept so it can be re-sent when a school loses the email, and so support can
@@ -79,6 +110,24 @@ model Licence {
   /// The `licenceId` inside the payload — what support asks a school to read out.
   licenceId String @unique
   tier      Tier
+
+  /// The package sold, and its name as it read at the time.
+  ///
+  /// Both, on purpose. The link is for reporting — what is Kwahu Ridge on? — and the name is a
+  /// snapshot, because a package can be renamed or retired and a licence has to keep saying what
+  /// was actually sold.
+  packageId   String?
+  package     Package? @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  packageName String?
+
+  /// Exactly what this licence granted, resolved at issue and frozen here.
+  ///
+  /// Copied rather than read back through the package, for the same reason the name is: editing a
+  /// package must never rewrite history, and support answering "what did they pay for" needs the
+  /// answer to be in the row.
+  entitlements String[] @default([])
+
+  /// Codes granted on top of a tier, from before packages existed. Kept so old rows still read.
   extraEntitlements String[] @default([])
   issuedAt  DateTime
   expiresAt DateTime

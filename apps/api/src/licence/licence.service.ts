@@ -60,6 +60,7 @@ export class LicenceService implements OnModuleInit, OnModuleDestroy {
     state: 'MISSING',
     tier: 'BASIC',
     extraEntitlements: [],
+    entitlements: null,
   };
   private timer?: NodeJS.Timeout;
   private heartbeatTimer?: NodeJS.Timeout;
@@ -160,8 +161,16 @@ export class LicenceService implements OnModuleInit, OnModuleDestroy {
     return this.status;
   }
 
-  /** The entitlement set in force, tier bundle plus anything the licence granted on top. */
+  /**
+   * The entitlement set in force.
+   *
+   * A licence that names its own set wins outright — that is a package, and a package is the whole
+   * product rather than a tier with additions, so the bundle is not consulted. Anything else
+   * resolves the old way: the tier's bundle plus whatever was granted on top.
+   */
   entitlements(): string[] {
+    const explicit = this.status.entitlements;
+    if (explicit) return [...new Set(explicit)];
     return entitlementsFor(this.status.tier, this.status.extraEntitlements);
   }
 
@@ -303,6 +312,12 @@ export class LicenceService implements OnModuleInit, OnModuleDestroy {
         code,
         label: entitlementLabel(code),
       })),
+      /*
+        Everything this licence grants, named. On a package the tier is only a word on a screen, so
+        the school's own licence page has to be able to show the actual list rather than implying
+        one from the label.
+      */
+      entitlements: this.entitlements().map((code) => ({ code, label: entitlementLabel(code) })),
       daysRemaining: s.daysRemaining ?? null,
       reason: s.reason ?? null,
       usingDevKey: usingDevLicenceKey(),

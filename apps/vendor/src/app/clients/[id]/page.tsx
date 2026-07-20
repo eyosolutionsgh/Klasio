@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { ENTITLEMENT_CATALOGUE } from '@eyo/shared';
 import { db } from '@/lib/db';
+import { sellablePackages } from '@/lib/packages';
 import { assessClient } from '@/lib/issue';
 import { currentUser } from '@/lib/session-ui';
 import { termLabel } from '@/lib/terms';
@@ -41,6 +42,8 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
     },
   });
   if (!client) notFound();
+
+  const packages = await sellablePackages();
 
   // Neither replaced nor withdrawn — see the note on the dashboard query. Withdrawing the current
   // licence must not promote the one it replaced.
@@ -160,18 +163,28 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                     </p>
                   </div>
                   <p className="text-sm mt-1">
-                    {l.tier} · {termLabel(l.termMonths)} · {day(l.issuedAt)} – {day(l.expiresAt)} ·{' '}
-                    {l.graceDays}d grace
+                    {/* The package as it was named when sold — it may have been renamed since. */}
+                    {l.packageName ?? l.tier} · {termLabel(l.termMonths)} · {day(l.issuedAt)} –{' '}
+                    {day(l.expiresAt)} · {l.graceDays}d grace
                   </p>
                   {/*
                   The features sold on top of the package. Shown as labels rather than codes: the
                   person reading this is checking an invoice, and "AI report remarks" answers that
                   where "ai.remarks" needs looking up.
                 */}
-                  {l.extraEntitlements.length > 0 && (
+                  {/*
+                    What this licence actually granted, frozen at issue. `entitlements` is a
+                    package; `extraEntitlements` is the older shape, kept so licences issued before
+                    packages still read. Neither is recomputed — editing a product must not rewrite
+                    what a school was sold.
+                  */}
+                  {(l.entitlements.length > 0 ? l.entitlements : l.extraEntitlements).length >
+                    0 && (
                     <p className="text-sm mt-1.5">
-                      <span className="text-slate">Plus </span>
-                      {l.extraEntitlements
+                      <span className="text-slate">
+                        {l.entitlements.length > 0 ? 'Includes ' : 'Plus '}
+                      </span>
+                      {(l.entitlements.length > 0 ? l.entitlements : l.extraEntitlements)
                         .map((c) => ENTITLEMENT_CATALOGUE.find((e) => e.code === c)?.label ?? c)
                         .join(', ')}
                     </p>
@@ -221,7 +234,14 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
         {canIssue() ? (
           <IssueForm
             clientId={client.id}
-            currentTier={live?.tier ?? 'MEDIUM'}
+            packages={packages.map((p) => ({
+              id: p.id,
+              name: p.name,
+              description: p.description,
+              tier: p.tier,
+              entitlements: p.entitlements,
+            }))}
+            currentPackageId={live?.packageId ?? null}
             devKey={usingDevSigningKey()}
           />
         ) : (
