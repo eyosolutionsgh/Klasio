@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Klasio — school management for African private schools (Ghana-first, pre-school→SHS). **One school, one server**: every school is deployed on its own cloud VM or on-prem box, online or offline. There is no multi-tenant hosted estate and no vendor console — what a school is entitled to comes from a vendor-signed licence file it installs (`apps/api/src/licence/`). The product plan lives in [`docs/`](docs/README.md); `docs/03-architecture.md` and `docs/04-tech-stack.md` are the authoritative references for the rules below.
 
-Monorepo (pnpm workspaces): `apps/api` (NestJS), `apps/web` (Next.js), `packages/shared` (currently empty scaffold). Requires Node 22+, pnpm 10, PostgreSQL 16.
+Monorepo (pnpm workspaces): `apps/api` (NestJS), `apps/web` (Next.js), `apps/vendor` (the licensing portal, Next.js — vendor infrastructure, never part of a school's box), `packages/shared` (the licence byte layout and the entitlement catalogue). `packages/shared` is raw TypeScript — `main` points at `src/index.ts` and there is no build step — and `apps/vendor` is the only app that imports it, so anything packaging the vendor app must bring the source along. Requires Node 22+, pnpm 10, PostgreSQL 16.
 
 ## Commands
 
