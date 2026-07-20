@@ -4,12 +4,19 @@ WORKDIR /repo
 
 FROM base AS build
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+# @eyo/shared too, and the trailing `...` on the filter to pull in workspace dependencies.
+# The vendor app is the only one that imports it (the licence byte layout and the entitlement
+# catalogue live there), which is why the api and web images build without it and this one does
+# not. It is raw TypeScript — `main` points at src/index.ts and there is no build step — so the
+# source has to be present at build time, not just a compiled artifact.
+COPY packages/shared/package.json packages/shared/
 COPY apps/vendor/package.json apps/vendor/
-RUN pnpm install --filter @eyo/vendor --frozen-lockfile
+RUN pnpm install --filter @eyo/vendor... --frozen-lockfile
 # Only apps/vendor. `ops/` is deliberately NOT copied, for a sharper reason than in the API image:
 # ops/licence/dev-signing-key.pem is the PRIVATE half of the development pair, and this is the
 # service that signs licences. An image carrying it could mint a licence every school's API would
 # accept. The real key is mounted at runtime (VENDOR_SIGNING_KEY_PATH) and never baked in.
+COPY packages/shared packages/shared
 COPY apps/vendor apps/vendor
 RUN cd apps/vendor && npx prisma generate && pnpm build
 
