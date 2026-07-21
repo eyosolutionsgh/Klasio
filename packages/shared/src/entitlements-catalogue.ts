@@ -58,6 +58,7 @@ export const ENTITLEMENT_CATALOGUE: EntitlementSpec[] = [
   { code: 'comms.whatsapp.chatbot', label: 'WhatsApp assistant', tier: 'ADVANCED' },
   { code: 'comms.ussd', label: 'USSD access', tier: 'ADVANCED' },
   { code: 'hr.payroll', label: 'Staff payroll', tier: 'ADVANCED' },
+  { code: 'hr.attendance', label: 'Staff attendance & leave', tier: 'ADVANCED' },
   { code: 'exams.cbt', label: 'Computer-based exams', tier: 'ADVANCED' },
   { code: 'platform.api', label: 'API access', tier: 'ADVANCED' },
   { code: 'platform.multicampus', label: 'Multi-campus', tier: 'ADVANCED' },

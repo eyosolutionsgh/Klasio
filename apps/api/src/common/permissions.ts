@@ -190,6 +190,15 @@ export const PERMISSIONS = [
   { code: 'calendar.view', label: 'See the school calendar', group: 'Communication' },
   { code: 'calendar.manage', label: 'Manage the school calendar', group: 'Communication' },
 
+  // ── Staff & HR ────────────────────────────────────────────────────
+  { code: 'hr.attendance', label: 'Mark staff attendance', group: 'Staff & HR' },
+  {
+    code: 'hr.leave',
+    label: 'Approve or decline staff leave',
+    group: 'Staff & HR',
+    caution: 'Nobody can decide their own request, whatever they hold.',
+  },
+
   // ── Administration ────────────────────────────────────────────────
   {
     code: 'school.settings',
@@ -292,6 +301,8 @@ export const ROLE_PRESETS: RolePreset[] = [
       'pickup.view',
       'pickup.manage',
       'safety.emergency',
+      'hr.attendance',
+      'hr.leave',
       'comms.announce',
       'comms.social',
       'comms.sms',
@@ -320,6 +331,8 @@ export const ROLE_PRESETS: RolePreset[] = [
       'resources.manage',
       'pickup.view',
       'safety.emergency',
+      'hr.attendance',
+      'hr.leave',
       'comms.announce',
       'comms.social',
       'calendar.manage',

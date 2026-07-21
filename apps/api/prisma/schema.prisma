@@ -128,6 +128,8 @@ model User {
 
   timetableSlots TimetableSlot[]
   passwordResets PasswordReset[]
+  staffAttendance StaffAttendanceRecord[]
+  leaveRequests   LeaveRequest[]
 }
 
 /// A staff password-reset request, issued by email and usable once.
@@ -995,6 +997,51 @@ model ReleaseLog {
   @@unique([schoolId, clientRef])
   @@index([schoolId, releasedAt])
   @@index([studentId])
+}
+
+/// One mark per member of staff per day — the staff register (FEATURES.md §3/§17).
+/// Reuses the student AttendanceStatus vocabulary; a User is the subject instead of a Student.
+model StaffAttendanceRecord {
+  id           String           @id @default(cuid())
+  schoolId     String
+  userId       String
+  user         User             @relation(fields: [userId], references: [id])
+  date         DateTime
+  status       AttendanceStatus
+  recordedById String
+  recordedAt   DateTime         @default(now())
+
+  @@unique([schoolId, userId, date])
+  @@index([schoolId, date])
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  CANCELLED
+}
+
+/// A member of staff asking for time away. Requests are decided by someone else — the service
+/// refuses self-approval, because leave is the smallest version of separation of duties.
+model LeaveRequest {
+  id           String      @id @default(cuid())
+  schoolId     String
+  userId       String
+  user         User        @relation(fields: [userId], references: [id])
+  /// ANNUAL | SICK | MATERNITY | CASUAL | STUDY | OTHER — free string, schools name their own.
+  kind         String
+  startDate    DateTime
+  endDate      DateTime
+  reason       String
+  status       LeaveStatus @default(PENDING)
+  decidedById  String?
+  decidedAt    DateTime?
+  decisionNote String?
+  createdAt    DateTime    @default(now())
+
+  @@index([schoolId, status])
+  @@index([userId])
 }
 
 enum CarLineStatus {
