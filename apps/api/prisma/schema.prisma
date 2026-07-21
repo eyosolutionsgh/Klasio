@@ -271,6 +271,7 @@ model AcademicYear {
   closedAt   DateTime?
   closedById String?
   terms     Term[]
+  promotions PromotionRecord[]
 
   @@unique([schoolId, name])
 }
@@ -430,6 +431,7 @@ model Student {
   scores       Score[]
   termReports  TermReport[]
   feeClearances FeeClearance[]
+  promotions   PromotionRecord[]
   invoices     Invoice[]
   ledger       LedgerEntry[]
   documents      StudentDocument[]
@@ -705,6 +707,36 @@ model TermReport {
 
   @@unique([studentId, termId])
   @@index([schoolId, termId, classId])
+}
+
+enum PromotionAction {
+  PROMOTED
+  REPEATED
+  GRADUATED
+}
+
+/// What happened to one child at the end of one academic year.
+///
+/// Repeating a year is a fact about a child's schooling that a parent will ask about years later,
+/// and before this it left no trace at all: promotion was an `updateMany` that moved a class, so
+/// a child held back was simply a child whose `classId` did not change. Absence of a change is
+/// not a record. This is what the cumulative record card reads to say "repeated Basic 4".
+model PromotionRecord {
+  id             String          @id @default(cuid())
+  schoolId       String
+  studentId      String
+  student        Student         @relation(fields: [studentId], references: [id])
+  academicYearId String
+  academicYear   AcademicYear    @relation(fields: [academicYearId], references: [id])
+  action         PromotionAction
+  fromClassId    String?
+  /// Null for a repeat (they stay) and for a graduation (they leave).
+  toClassId      String?
+  decidedById    String
+  createdAt      DateTime        @default(now())
+
+  @@unique([studentId, academicYearId])
+  @@index([schoolId, academicYearId])
 }
 
 /// One child let through the fee-clearance gate for one term, despite a balance.

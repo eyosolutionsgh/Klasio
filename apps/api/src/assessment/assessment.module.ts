@@ -1017,6 +1017,29 @@ export class AssessmentService {
           ) / 10
         : null;
 
+    /*
+      Year-end outcomes, which are not derivable from the term rows above: a repeated year looks
+      identical to a normal one in the marks, and shows up only as the same class appearing twice.
+      A parent asking "did he repeat Basic 4?" is asking about this, not about an average.
+    */
+    const promotions = await this.db.promotionRecord.findMany({
+      where: { schoolId: auth.schoolId, studentId },
+      include: { academicYear: { select: { name: true, startDate: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    const classNames = new Map(
+      (
+        await this.db.classRoom.findMany({
+          where: {
+            id: {
+              in: promotions.flatMap((p) => [p.fromClassId, p.toClassId].filter((x): x is string => !!x)),
+            },
+          },
+          select: { id: true, name: true },
+        })
+      ).map((c) => [c.id, c.name]),
+    );
+
     return {
       student: {
         id: student.id,
@@ -1030,6 +1053,14 @@ export class AssessmentService {
       trend,
       termsRecorded: rows.length,
       classesAttended: [...new Set(rows.map((r) => r.className))],
+      promotions: promotions.map((p) => ({
+        year: p.academicYear.name,
+        action: p.action,
+        fromClass: p.fromClassId ? (classNames.get(p.fromClassId) ?? null) : null,
+        toClass: p.toClassId ? (classNames.get(p.toClassId) ?? null) : null,
+        decidedAt: p.createdAt,
+      })),
+      yearsRepeated: promotions.filter((p) => p.action === 'REPEATED').length,
     };
   }
 

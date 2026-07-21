@@ -17,7 +17,19 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { IsBoolean, IsDateString, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsDateString,
+  IsEnum,
+  IsIn,
+  IsNumber,
+  IsOptional,
+  IsString,
+  MinLength,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 import { CustodyFlag, Gender, Prisma, StudentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { checkTemplate, DEFAULT_TEMPLATE, formatAdmissionNo } from '../common/admission-no';
@@ -34,6 +46,7 @@ import {
   storage,
 } from '../common/storage';
 import { balanceOf, reversedIds } from '../common/ledger';
+import { isFinalClass, suggestNextClass, type ClassLike } from '../common/promotion';
 import { PageQuery, dateWindow, orderBy, pageArgs, toPage } from '../common/list-query';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -122,6 +135,29 @@ class UpdateGuardianDto {
   @IsOptional() @IsBoolean() canPickup?: boolean;
   @IsOptional() @IsEnum(CustodyFlag) custodyFlag?: CustodyFlag;
   @IsOptional() @IsBoolean() whatsappOptIn?: boolean;
+}
+
+class PromotionDecisionDto {
+  @IsString() studentId: string;
+  @IsIn(['PROMOTE', 'REPEAT', 'GRADUATE']) action: 'PROMOTE' | 'REPEAT' | 'GRADUATE';
+  /** Required for PROMOTE, meaningless otherwise — the service enforces that, not the shape. */
+  @IsOptional() @IsString() toClassId?: string;
+}
+
+class PromotionRunDto {
+  @IsString() fromClassId: string;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PromotionDecisionDto)
+  decisions: PromotionDecisionDto[];
+  /**
+   * How many children the caller believes they are graduating.
+   *
+   * Graduation cannot be undone in the product, so it is not enough for the payload to contain
+   * GRADUATE — the reviewer has to have seen the number and agreed to it. A mismatch means the
+   * roll changed under them while they were deciding, and the run stops rather than guessing.
+   */
+  @IsOptional() @IsNumber() confirmGraduating?: number;
 }
 
 class PromoteDto {
@@ -697,6 +733,167 @@ export class StudentsService {
    * Outstanding fees carry forward automatically — the append-only ledger spans terms and is
    * never reset, so no ledger mutation is needed here.
    */
+  /** Every class in the school, flattened to what the promotion helpers need. */
+  private async classLadder(schoolId: string): Promise<ClassLike[]> {
+    const rows = await this.db.classRoom.findMany({
+      where: { schoolId },
+      select: { id: true, name: true, levelId: true, level: { select: { order: true } } },
+    });
+    return rows.map((c) => ({
+      id: c.id,
+      name: c.name,
+      levelId: c.levelId,
+      levelOrder: c.level.order,
+    }));
+  }
+
+  /**
+   * The end-of-year roll for one class, each child carrying a suggested decision.
+   *
+   * The point of the review screen: a school does not promote a class, it promotes children, most
+   * of whom happen to be going the same way. The suggestion makes the common case one click and
+   * the exception one dropdown, rather than making every child a decision from scratch.
+   */
+  async promotionPreview(auth: AuthUser, classId: string) {
+    const ladder = await this.classLadder(auth.schoolId);
+    const from = ladder.find((c) => c.id === classId);
+    if (!from) throw new NotFoundException('Class not found');
+
+    const [students, next] = await Promise.all([
+      this.db.student.findMany({
+        where: { schoolId: auth.schoolId, classId, status: 'ACTIVE' },
+        select: { id: true, firstName: true, lastName: true, admissionNo: true },
+        orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+      }),
+      Promise.resolve(suggestNextClass(from, ladder)),
+    ]);
+    const final = isFinalClass(from, ladder);
+
+    return {
+      fromClassId: classId,
+      fromClassName: from.name,
+      /** True when this class's children leave rather than move up. */
+      isFinalClass: final,
+      suggestedToClassId: next?.id ?? null,
+      suggestedToClassName: next?.name ?? null,
+      // Every class, so a reviewer can send one child somewhere the suggestion never considered
+      // — a repeat into a different stream, or a jump for a child who was mis-placed.
+      classes: ladder
+        .filter((c) => c.id !== classId)
+        .sort((a, b) => a.levelOrder - b.levelOrder || a.name.localeCompare(b.name))
+        .map((c) => ({ id: c.id, name: c.name })),
+      students: students.map((s) => ({
+        studentId: s.id,
+        name: `${s.firstName} ${s.lastName}`,
+        admissionNo: s.admissionNo,
+        suggestedAction: final ? 'GRADUATE' : next ? 'PROMOTE' : 'REPEAT',
+        suggestedToClassId: final ? null : (next?.id ?? null),
+      })),
+    };
+  }
+
+  /**
+   * Apply a reviewed set of per-child decisions.
+   *
+   * Arrears are untouched by design: the ledger is append-only and carries the child, so moving
+   * them up a class cannot lose what the family owes. Each decision writes a PromotionRecord, so
+   * "repeated Basic 4" survives as a fact rather than as the absence of a class change.
+   */
+  async runPromotion(auth: AuthUser, dto: PromotionRunDto) {
+    const ladder = await this.classLadder(auth.schoolId);
+    const from = ladder.find((c) => c.id === dto.fromClassId);
+    if (!from) throw new NotFoundException('Class not found');
+
+    const roll = await this.db.student.findMany({
+      where: { schoolId: auth.schoolId, classId: dto.fromClassId, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    const onRoll = new Set(roll.map((s) => s.id));
+    for (const d of dto.decisions) {
+      if (!onRoll.has(d.studentId)) {
+        throw new BadRequestException('That list includes a child who is not in this class');
+      }
+    }
+
+    const graduating = dto.decisions.filter((d) => d.action === 'GRADUATE');
+    if (graduating.length > 0 && dto.confirmGraduating !== graduating.length) {
+      /*
+        Graduation cannot be undone in the product. The count has to be stated, and has to still
+        match, so a roll that changed while somebody was deciding stops the run rather than
+        quietly graduating one more child than the screen showed.
+      */
+      throw new BadRequestException(
+        `This will graduate ${graduating.length} student(s) and cannot be undone. Confirm the number to continue.`,
+      );
+    }
+
+    const year = await this.db.academicYear.findFirst({
+      where: { schoolId: auth.schoolId, isCurrent: true },
+    });
+    if (!year) throw new BadRequestException('No current academic year');
+
+    const known = new Set(ladder.map((c) => c.id));
+    let promoted = 0;
+    let repeated = 0;
+    let graduated = 0;
+
+    for (const d of dto.decisions) {
+      if (d.action === 'PROMOTE') {
+        if (!d.toClassId || !known.has(d.toClassId)) {
+          throw new NotFoundException('Destination class not found');
+        }
+        await this.db.student.update({
+          where: { id: d.studentId },
+          data: { classId: d.toClassId },
+        });
+        promoted++;
+      } else if (d.action === 'GRADUATE') {
+        await this.db.student.update({
+          where: { id: d.studentId },
+          data: { status: 'GRADUATED', exitDate: new Date(), exitReason: 'Graduated' },
+        });
+        graduated++;
+      } else {
+        // Repeat: the child stays exactly where they are. The record is the whole change.
+        repeated++;
+      }
+
+      await this.db.promotionRecord.upsert({
+        where: {
+          studentId_academicYearId: { studentId: d.studentId, academicYearId: year.id },
+        },
+        create: {
+          schoolId: auth.schoolId,
+          studentId: d.studentId,
+          academicYearId: year.id,
+          action:
+            d.action === 'PROMOTE' ? 'PROMOTED' : d.action === 'GRADUATE' ? 'GRADUATED' : 'REPEATED',
+          fromClassId: dto.fromClassId,
+          toClassId: d.action === 'PROMOTE' ? (d.toClassId ?? null) : null,
+          decidedById: auth.sub,
+        },
+        update: {
+          action:
+            d.action === 'PROMOTE' ? 'PROMOTED' : d.action === 'GRADUATE' ? 'GRADUATED' : 'REPEATED',
+          toClassId: d.action === 'PROMOTE' ? (d.toClassId ?? null) : null,
+          decidedById: auth.sub,
+        },
+      });
+    }
+
+    await this.db.audit(auth.schoolId, auth.sub, 'students.promotion.run', 'ClassRoom', dto.fromClassId, {
+      promoted,
+      repeated,
+      graduated,
+      year: year.name,
+    });
+    return { promoted, repeated, graduated, moved: promoted };
+  }
+
+  /**
+   * Move a whole class at once — the common case, expressed as a run in which every child gets
+   * the same decision. One code path, so the promotion record is written either way.
+   */
   async promote(auth: AuthUser, dto: PromoteDto) {
     const from = await this.db.classRoom.findFirst({
       where: { id: dto.fromClassId, schoolId: auth.schoolId },
@@ -717,18 +914,22 @@ export class StudentsService {
       );
     }
 
-    const result = await this.db.student.updateMany({
+    const roll = await this.db.student.findMany({
       where: { schoolId: auth.schoolId, classId: dto.fromClassId, status: 'ACTIVE' },
-      data: graduating
-        ? { status: 'GRADUATED', exitDate: new Date(), exitReason: 'Graduated' }
-        : { classId: dto.toClassId },
+      select: { id: true },
     });
-    await this.db.audit(auth.schoolId, auth.sub, 'students.promote', 'ClassRoom', dto.fromClassId, {
-      toClassId: dto.toClassId ?? null,
-      graduated: graduating,
-      count: result.count,
+    const decisions = roll.map((s) => ({
+      studentId: s.id,
+      action: (graduating ? 'GRADUATE' : 'PROMOTE') as 'GRADUATE' | 'PROMOTE',
+      toClassId: graduating ? undefined : dto.toClassId,
+    }));
+    const result = await this.runPromotion(auth, {
+      fromClassId: dto.fromClassId,
+      decisions,
+      // Already confirmed by `graduate: true` on the way in; the run wants the count.
+      confirmGraduating: graduating ? decisions.length : undefined,
     });
-    return { moved: result.count, graduated: graduating };
+    return { moved: graduating ? result.graduated : result.promoted, graduated: graduating };
   }
 
   private async exit(
@@ -1074,6 +1275,18 @@ export class StudentsController {
   @RequirePermission('students.lifecycle')
   promote(@CurrentUser() user: AuthUser, @Body() dto: PromoteDto) {
     return this.svc.promote(user, dto);
+  }
+
+  @Get('promotion/preview')
+  @RequirePermission('students.lifecycle')
+  promotionPreview(@CurrentUser() user: AuthUser, @Query('classId') classId: string) {
+    return this.svc.promotionPreview(user, classId);
+  }
+
+  @Post('promotion/run')
+  @RequirePermission('students.lifecycle')
+  runPromotion(@CurrentUser() user: AuthUser, @Body() dto: PromotionRunDto) {
+    return this.svc.runPromotion(user, dto);
   }
 
   @Get('export')
