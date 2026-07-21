@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   admissionLetterPdf,
+  leaverDocPdf,
   reportCardPdf,
   receiptPdf,
   broadsheetPdf,
@@ -105,6 +106,65 @@ describe('PDF builders', () => {
       signatory: 'Mrs. Adjei',
     });
     expect(isPdf(buf)).toBe(true);
+  });
+
+  describe('leaver documents', () => {
+    const base = {
+      school: { name: 'Brighton Academy', motto: 'Knowledge', address: 'Accra', phone: '024' },
+      student: {
+        name: 'Ama Mensah',
+        admissionNo: 'BA-0001',
+        className: 'JHS 3',
+        dateOfBirth: '2010-05-04',
+      },
+      enrolledAt: '2019-09-10',
+      exitDate: '2026-07-23',
+      issuedAt: '2026-07-24',
+      signatory: 'Mr Kofi Owusu',
+    };
+
+    it('renders a transfer letter addressed to the next headteacher', async () => {
+      const buf = await leaverDocPdf({
+        ...base,
+        kind: 'TRANSFER',
+        exitReason: 'Family relocating to Kumasi',
+      });
+      expect(isPdf(buf)).toBe(true);
+      expect(buf.length).toBeGreaterThan(500);
+    });
+
+    it('renders a testimonial, with the academic summary and conduct on file', async () => {
+      const buf = await leaverDocPdf({
+        ...base,
+        kind: 'TESTIMONIAL',
+        academic: {
+          termsRecorded: 9,
+          cumulativeAverage: 72.4,
+          lastTerm: 'Term 3',
+          lastPosition: '4 of 31',
+        },
+        conduct: 'Courteous and dependable; a steadying presence in the class.',
+      });
+      expect(isPdf(buf)).toBe(true);
+    });
+
+    it('renders for a child who has not left yet', async () => {
+      // A transfer letter is often written the week before the child actually goes, so a null
+      // exit date must not blow up or print "Invalid Date".
+      const buf = await leaverDocPdf({
+        ...base,
+        kind: 'TRANSFER',
+        exitDate: null,
+        exitReason: null,
+      });
+      expect(isPdf(buf)).toBe(true);
+    });
+
+    it('renders with no academic history at all', async () => {
+      // A child who left in their first term has no terminal report; the letter still has to exist.
+      const buf = await leaverDocPdf({ ...base, kind: 'TESTIMONIAL', academic: undefined });
+      expect(isPdf(buf)).toBe(true);
+    });
   });
 
   describe('gate pass', () => {

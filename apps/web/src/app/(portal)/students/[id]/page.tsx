@@ -187,6 +187,29 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
               />
             </div>
           )}
+          {/*
+            Offered for anyone who has left, and for anyone still here — a transfer letter is
+            often written the week before a child actually goes, and a school asked for a
+            testimonial years later needs it to still be one click.
+          */}
+          <div className="no-print">
+            <DownloadButton
+              path={`/students/${s.id}/leaver-doc?kind=TRANSFER`}
+              filename={`transfer-letter-${s.admissionNo}.pdf`}
+              label="Transfer letter"
+              variant="ghost"
+              tip="For a child moving to another school — dates, class and standing, on your letterhead"
+            />
+          </div>
+          <div className="no-print">
+            <DownloadButton
+              path={`/students/${s.id}/leaver-doc?kind=TESTIMONIAL`}
+              filename={`testimonial-${s.admissionNo}.pdf`}
+              label="Testimonial"
+              variant="ghost"
+              tip="For a leaver — time at the school, academic summary and the conduct remark on file"
+            />
+          </div>
           {canPrintCard && s.status === 'ACTIVE' && (
             <div className="no-print">
               <DownloadButton

@@ -928,6 +928,193 @@ export function admissionLetterPdf(data: AdmissionLetterData): Promise<Buffer> {
   return toBuffer(doc);
 }
 
+// ── Leaver documents ─────────────────────────────────────────────────
+
+/** Shorten to fit one fixed-height row, with an ellipsis so the reader knows it was cut. */
+function clip(value: string, max: number): string {
+  return value.length <= max ? value : `${value.slice(0, max - 1).trimEnd()}…`;
+}
+
+export interface LeaverDocData {
+  school: DocSchool;
+  /**
+   * A transfer letter follows a child to another school mid-stream; a testimonial is what a
+   * leaver carries away at the end. Same letterhead, different promise — one is addressed to the
+   * next headteacher, the other to whoever the young person shows it to.
+   */
+  kind: 'TRANSFER' | 'TESTIMONIAL';
+  student: {
+    name: string;
+    admissionNo: string;
+    className: string | null;
+    dateOfBirth?: string | Date | null;
+    gender?: string | null;
+  };
+  enrolledAt: string | Date;
+  /** When they left. Null while they are still on the roll — a letter can be issued in advance. */
+  exitDate?: string | Date | null;
+  exitReason?: string | null;
+  /** Drawn from the terminal reports on file, so the letter cannot flatter or damn from memory. */
+  academic?: {
+    termsRecorded: number;
+    cumulativeAverage: number | null;
+    lastTerm?: string | null;
+    lastPosition?: string | null;
+  };
+  conduct?: string | null;
+  issuedAt: string | Date;
+  signatory: string;
+}
+
+/**
+ * The letter a child leaves with.
+ *
+ * Both kinds state only what the records already hold — dates, class, attendance-backed academic
+ * summary, and the conduct remark the school itself wrote on the last report. A testimonial that
+ * editorialises beyond the file is the sort of document that gets a school's letters distrusted,
+ * and a transfer letter is read by another headteacher who will ask for the record anyway.
+ */
+export function leaverDocPdf(data: LeaverDocData): Promise<Buffer> {
+  const doc = new PDFDocument({ size: 'A4', margin: 50 });
+  const left = doc.page.margins.left;
+  const width = doc.page.width - left - doc.page.margins.right;
+  const BRAND = brandOf(data.school);
+  const transfer = data.kind === 'TRANSFER';
+
+  if (drawCrest(doc, data.school, left + width / 2 - 24, doc.y, 48)) doc.y += 56;
+  doc
+    .fillColor(BRAND)
+    .font('Helvetica-Bold')
+    .fontSize(20)
+    .text(data.school.name, left, doc.y, { width, align: 'center' });
+  doc.fillColor(OAT).font('Helvetica-Oblique').fontSize(9);
+  if (data.school.motto) doc.text(data.school.motto, { align: 'center' });
+  doc.font('Helvetica').text([data.school.address, data.school.phone].filter(Boolean).join(' · '), {
+    align: 'center',
+  });
+  doc
+    .moveTo(left, doc.y + 6)
+    .lineTo(left + width, doc.y + 6)
+    .strokeColor(BRAND)
+    .lineWidth(1.5)
+    .stroke();
+  doc.moveDown(1.4);
+
+  doc
+    .fillColor(OAT)
+    .font('Helvetica')
+    .fontSize(9)
+    .text(fmtDate(data.issuedAt), left, doc.y, { width, align: 'right' });
+  doc.moveDown(0.6);
+
+  doc
+    .fillColor(INK)
+    .font('Helvetica-Bold')
+    .fontSize(13)
+    .text(transfer ? 'TRANSFER LETTER' : 'TESTIMONIAL', left, doc.y, { width, align: 'center' });
+  doc.moveDown(1.2);
+
+  doc.fillColor(INK).font('Helvetica').fontSize(10.5);
+  doc.text(transfer ? 'To the Headteacher,' : 'To whom it may concern,', left, doc.y, { width });
+  doc.moveDown(0.8);
+
+  const from = fmtDate(data.enrolledAt);
+  const to = data.exitDate ? fmtDate(data.exitDate) : 'the present';
+  doc.text(
+    transfer
+      ? `This is to certify that ${data.student.name} was a pupil of this school from ${from} ` +
+          `to ${to}. The pupil is leaving us in good standing and their record is released to ` +
+          `your school on request. We ask that you afford them every assistance.`
+      : `This is to certify that ${data.student.name} was a pupil of this school from ${from} ` +
+          `to ${to}, and completed their time here in good standing.`,
+    { width, align: 'justify' },
+  );
+  doc.moveDown(0.9);
+
+  const facts: Array<[string, string]> = [
+    ['Name', data.student.name],
+    ['Admission number', data.student.admissionNo],
+    ['Class on leaving', data.student.className ?? '—'],
+  ];
+  if (data.student.dateOfBirth) facts.push(['Date of birth', fmtDate(data.student.dateOfBirth)]);
+  facts.push(['Admitted', from]);
+  facts.push(['Left', data.exitDate ? fmtDate(data.exitDate) : '—']);
+  if (transfer && data.exitReason) facts.push(['Reason', data.exitReason]);
+  if (data.academic?.termsRecorded) {
+    facts.push(['Terms on record', String(data.academic.termsRecorded)]);
+    if (data.academic.cumulativeAverage !== null && data.academic.cumulativeAverage !== undefined) {
+      facts.push(['Average across terms', data.academic.cumulativeAverage.toFixed(1)]);
+    }
+    if (data.academic.lastPosition) facts.push(['Last position', data.academic.lastPosition]);
+  }
+
+  const boxTop = doc.y;
+  const boxH = facts.length * 17 + 16;
+  doc.rect(left, boxTop, width, boxH).fill('#eef3f8');
+  facts.forEach(([k, v], i) => {
+    const y = boxTop + 9 + i * 17;
+    doc
+      .fillColor(OAT)
+      .font('Helvetica')
+      .fontSize(9.5)
+      .text(`${k}: `, left + 12, y, { continued: true });
+    // Rows are a fixed 17pt apart, and pdfkit's own ellipsis/lineBreak options do not reliably
+    // stop a long value wrapping onto the next one. The exit reason is free text, so it is
+    // shortened here rather than left to overprint the line below it.
+    doc.fillColor(INK).font('Helvetica-Bold').text(clip(v, 74));
+  });
+  doc.y = boxTop + boxH;
+  doc.x = left;
+  doc.moveDown(1);
+
+  if (data.conduct) {
+    // The school's own words from the last report, quoted rather than reinvented.
+    doc.fillColor(OAT).font('Helvetica').fontSize(9).text('Conduct', left, doc.y, { width });
+    doc
+      .fillColor(INK)
+      .font('Helvetica-Oblique')
+      .fontSize(10.5)
+      .text(data.conduct, left, doc.y + 2, { width, align: 'justify' });
+    doc.moveDown(1);
+  }
+
+  doc.fillColor(INK).font('Helvetica').fontSize(10.5);
+  doc.text(
+    transfer
+      ? 'All fees due to this school have been settled or arranged with the bursar, unless ' +
+          'stated otherwise in accompanying correspondence.'
+      : 'We wish them every success in their future studies.',
+    left,
+    doc.y,
+    { width, align: 'justify' },
+  );
+  doc.moveDown(1.4);
+  doc.text('Yours faithfully,', left, doc.y, { width });
+
+  doc.moveDown(2.6);
+  const sigY = doc.y;
+  doc
+    .moveTo(left, sigY)
+    .lineTo(left + 200, sigY)
+    .strokeColor(MIST)
+    .lineWidth(0.8)
+    .stroke();
+  doc.fillColor(INK).font('Helvetica-Bold').fontSize(10).text(data.signatory, left, sigY + 5);
+  doc
+    .fillColor(OAT)
+    .font('Helvetica')
+    .fontSize(8.5)
+    .text('for ' + data.school.name, left, doc.y);
+
+  doc
+    .fillColor(OAT)
+    .font('Helvetica')
+    .fontSize(8)
+    .text('Generated by Klasio School Management', left, doc.page.height - 60, { width });
+
+  return toBuffer(doc);
+}
+
 // ── Gate pass ────────────────────────────────────────────────────────
 
 export interface PickupCardData {

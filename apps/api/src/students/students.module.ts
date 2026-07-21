@@ -33,7 +33,7 @@ import { Type } from 'class-transformer';
 import { CustodyFlag, Gender, Prisma, StudentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { checkTemplate, DEFAULT_TEMPLATE, formatAdmissionNo } from '../common/admission-no';
-import { studentIdCardSheet, type StudentIdCardData } from '../common/pdf';
+import { leaverDocPdf, studentIdCardSheet, type StudentIdCardData } from '../common/pdf';
 import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
 import { demoteOthers, reconcileLink, successorPrimary } from '../common/guardianship';
 import { normalizeMsisdn } from '../common/phone';
@@ -733,6 +733,88 @@ export class StudentsService {
    * Outstanding fees carry forward automatically — the append-only ledger spans terms and is
    * never reset, so no ledger mutation is needed here.
    */
+  /**
+   * The letter a child leaves with — a transfer letter for a move mid-stream, a testimonial for
+   * a leaver at the end.
+   *
+   * Everything on it comes from the record: dates from the enrolment and exit, the academic
+   * summary from the terminal reports actually on file, and the conduct line quoted from the
+   * school's own last report rather than written fresh. A letter that editorialises beyond the
+   * file is how a school's letters stop being believed.
+   */
+  async leaverDoc(auth: AuthUser, studentId: string, kind: 'TRANSFER' | 'TESTIMONIAL') {
+    const student = await this.db.student.findFirst({
+      where: { id: studentId, schoolId: auth.schoolId },
+      include: { classRoom: { select: { name: true } } },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+
+    const [school, reports, signer] = await Promise.all([
+      this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } }),
+      this.db.termReport.findMany({
+        where: { schoolId: auth.schoolId, studentId },
+        orderBy: { generatedAt: 'desc' },
+      }),
+      this.db.user.findUnique({ where: { id: auth.sub }, select: { name: true } }),
+    ]);
+
+    // Averaged across subjects, like the cumulative record: a nine-subject term and a six-subject
+    // term are not comparable on the raw total.
+    const averages = reports
+      .map((r) => {
+        const lines = (r.lines ?? []) as unknown as unknown[];
+        const n = Array.isArray(lines) ? lines.length : 0;
+        return n ? Number(r.overallTotal) / n : null;
+      })
+      .filter((x): x is number => x !== null);
+    const latest = reports[0];
+
+    const pdf = await leaverDocPdf({
+      school: {
+        name: school.name,
+        motto: school.motto,
+        address: school.address,
+        phone: school.phone,
+        brandColor: school.brandColor,
+        logo: school.logoUrl
+          ? await storage()
+              .get(school.logoUrl)
+              .catch(() => null)
+          : null,
+      },
+      kind,
+      student: {
+        name: `${student.firstName} ${student.lastName}`,
+        admissionNo: student.admissionNo,
+        className: student.classRoom?.name ?? null,
+        dateOfBirth: student.dateOfBirth,
+        gender: student.gender,
+      },
+      enrolledAt: student.enrolledAt,
+      exitDate: student.exitDate,
+      exitReason: student.exitReason,
+      academic: {
+        termsRecorded: reports.length,
+        cumulativeAverage: averages.length
+          ? Math.round((averages.reduce((a, b) => a + b, 0) / averages.length) * 10) / 10
+          : null,
+        lastTerm: null,
+        lastPosition:
+          latest?.classPosition && latest?.classSize
+            ? `${latest.classPosition} of ${latest.classSize}`
+            : null,
+      },
+      conduct: latest?.conduct ?? null,
+      issuedAt: new Date(),
+      signatory: signer?.name ?? 'Headteacher',
+    });
+
+    await this.db.audit(auth.schoolId, auth.sub, 'students.leaver_doc', 'Student', studentId, {
+      kind,
+    });
+    return { pdf, name: `${student.firstName}-${student.lastName}` };
+  }
+
   /** Every class in the school, flattened to what the promotion helpers need. */
   private async classLadder(schoolId: string): Promise<ClassLike[]> {
     const rows = await this.db.classRoom.findMany({
@@ -1339,6 +1421,21 @@ export class StudentsController {
     return new StreamableFile(pdf, {
       type: 'application/pdf',
       disposition: `inline; filename="id-cards-${count}.pdf"`,
+    });
+  }
+
+  @Get(':id/leaver-doc')
+  @RequirePermission('students.view')
+  async leaverDoc(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('kind') kind?: string,
+  ) {
+    const wanted = kind === 'TESTIMONIAL' ? 'TESTIMONIAL' : 'TRANSFER';
+    const { pdf, name } = await this.svc.leaverDoc(user, id, wanted);
+    return new StreamableFile(pdf, {
+      type: 'application/pdf',
+      disposition: `inline; filename="${wanted.toLowerCase()}-${name}.pdf"`,
     });
   }
 
