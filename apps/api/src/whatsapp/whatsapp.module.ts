@@ -112,7 +112,7 @@ class CloudApiProvider implements WhatsAppProvider {
     const form = new FormData();
     form.set('messaging_product', 'whatsapp');
     form.set('type', 'application/pdf');
-    form.set('file', new Blob([file], { type: 'application/pdf' }), filename);
+    form.set('file', new Blob([new Uint8Array(file)], { type: 'application/pdf' }), filename);
 
     const upload = await fetch(`https://graph.facebook.com/v21.0/${this.phoneNumberId}/media`, {
       method: 'POST',

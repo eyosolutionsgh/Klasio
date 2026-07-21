@@ -75,7 +75,12 @@ export async function call<T = unknown>(
     payload = JSON.stringify(opts.body);
     headers['content-type'] = 'application/json';
   }
-  const res = await fetch(`${baseUrl}${path}`, { method, headers, body: payload });
+  // Buffer is a Uint8Array, but BodyInit will not take one whose buffer might be shared.
+  // Uint8Array.from copies into a plain ArrayBuffer, which it accepts — same bytes either way,
+  // and the raw bytes are the point here: the webhook specs sign exactly what is sent.
+  const requestBody =
+    typeof payload === 'string' || payload === undefined ? payload : Uint8Array.from(payload);
+  const res = await fetch(`${baseUrl}${path}`, { method, headers, body: requestBody });
   const text = await res.text();
   let body: unknown = text;
   try {

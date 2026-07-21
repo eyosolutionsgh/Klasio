@@ -2,20 +2,31 @@
   "compilerOptions": {
     "module": "commonjs",
     "target": "ES2022",
-    "lib": ["ES2022"],
     /**
-     * Pinned, and load-bearing. Without it TypeScript auto-includes every @types/* package it can
-     * see, and @types/node declares the fetch globals as
-     *   `typeof globalThis extends { onmessage: any } ? {} : undici-types' version`
-     * on the assumption that whatever supplied `onmessage` will also supply a real `Response`.
-     * So one unrelated @types package declaring a web global collapses `Response` and
-     * `RequestInit` to `{}`, and every `.ok`/`.status`/`.json()` in this codebase stops
-     * compiling — 84 errors, in files that never changed.
+     * DOM is here for `fetch`, not for a browser — and it is load-bearing.
      *
-     * That is exactly what happened on Vercel and never locally: same lockfile, different set of
-     * @types visible to the compiler. Pinning the list makes the build depend on this repo's
-     * dependencies rather than on what else happens to be installed around it.
+     * `@types/node` declares the fetch globals conditionally (`web-globals/fetch.d.ts`):
+     *
+     *   type _Response = typeof globalThis extends { onmessage: any } ? {} : undici.Response;
+     *   interface Response extends _Response {}
+     *
+     * It assumes whatever supplied `onmessage` — i.e. `lib.dom` — also supplies a real
+     * `Response`. Anything that supplies `onmessage` *without* a DOM lib breaks that assumption:
+     * `Response`, `RequestInit`, `Headers` and `FormData` all collapse to `{}`, and every
+     * `.ok`/`.status`/`.json()`/`.text()` in this codebase stops compiling — 84 errors, in files
+     * nobody touched. That is what building this app on Vercel did and a local build never did,
+     * on the same commit and the same lockfile (`@types/node` 22.20.1 both sides); neither a
+     * clean `--frozen-lockfile` clone nor a fresh `nest build` reproduces it here, so the trigger
+     * is in the build image and is not something this repo can pin.
+     *
+     * Including DOM settles it in either environment, because DOM itself declares `onmessage`:
+     * the guard always takes its intended branch and DOM always supplies the real shapes. The
+     * cost is that DOM's `BlobPart`/`BodyInit` do not accept a Node `Buffer`, so the few places
+     * that build a `Blob` or a request body wrap it in `new Uint8Array(...)` — which
+     * `social/providers.ts` already did.
      */
+    "lib": ["ES2022", "DOM"],
+    /** Only @types/node is auto-included, so a stray @types package cannot change what compiles. */
     "types": ["node"],
     "declaration": false,
     "removeComments": true,

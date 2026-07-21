@@ -55,7 +55,7 @@ describe('learning resources media', () => {
 
   async function uploadFile(name: string, type: string, bytes: Buffer) {
     const fd = new FormData();
-    fd.append('file', new Blob([bytes], { type }), name);
+    fd.append('file', new Blob([new Uint8Array(bytes)], { type }), name);
     fd.append('title', `Integration upload ${name}`);
     const res = await fetch(`${api.baseUrl}/resources`, {
       method: 'POST',
