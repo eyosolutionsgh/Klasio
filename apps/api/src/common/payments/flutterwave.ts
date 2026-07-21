@@ -21,6 +21,7 @@ import {
   ProviderStatus,
   VerifyResult,
 } from './provider';
+import { asResponse } from '../http';
 
 const BASE = process.env.FLUTTERWAVE_BASE_URL ?? 'https://api.flutterwave.com';
 
@@ -44,14 +45,16 @@ export class FlutterwaveProvider implements PaymentProvider {
   constructor(private creds: ProviderCredentials) {}
 
   private async call(path: string, init?: RequestInit) {
-    const res = await fetch(`${BASE}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${this.creds.secret}`,
-        'Content-Type': 'application/json',
-        ...(init?.headers ?? {}),
-      },
-    });
+    const res = asResponse(
+      await fetch(`${BASE}${path}`, {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${this.creds.secret}`,
+          'Content-Type': 'application/json',
+          ...(init?.headers ?? {}),
+        },
+      }),
+    );
     const body = asRecord(await res.json().catch(() => ({})));
     if (!res.ok || body.status === 'error') {
       throw new Error(`Flutterwave ${path} failed: ${body.message ?? res.status}`);

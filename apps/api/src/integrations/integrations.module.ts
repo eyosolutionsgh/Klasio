@@ -35,6 +35,7 @@ import {
   RequirePermission,
 } from '../common/auth';
 import { balanceOf } from '../common/ledger';
+import { asResponse } from '../common/http';
 
 const hash = (key: string) => createHash('sha256').update(key).digest('hex');
 
@@ -274,21 +275,28 @@ export class IntegrationsService {
     const targets = hooks.filter((h) => h.events.length === 0 || h.events.includes(event));
     if (targets.length === 0) return { sent: 0 };
 
-    const body = JSON.stringify({ event, schoolId, sentAt: new Date().toISOString(), data: payload });
+    const body = JSON.stringify({
+      event,
+      schoolId,
+      sentAt: new Date().toISOString(),
+      data: payload,
+    });
     let sent = 0;
     for (const hook of targets) {
       const signature = createHmac('sha256', hook.secret).update(body).digest('hex');
       try {
-        const res = await fetch(hook.url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Klasio-Event': event,
-            'X-Klasio-Signature': `sha256=${signature}`,
-          },
-          body,
-          signal: AbortSignal.timeout(8000),
-        });
+        const res = asResponse(
+          await fetch(hook.url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Klasio-Event': event,
+              'X-Klasio-Signature': `sha256=${signature}`,
+            },
+            body,
+            signal: AbortSignal.timeout(8000),
+          }),
+        );
         await this.db.system.webhook.update({
           where: { id: hook.id },
           data: {
@@ -308,7 +316,6 @@ export class IntegrationsService {
     return { sent };
   }
 }
-
 
 @Controller('integrations')
 @RequireEntitlement('platform.api')

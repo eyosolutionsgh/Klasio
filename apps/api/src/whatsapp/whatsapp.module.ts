@@ -40,6 +40,7 @@ import {
 import { LicenceService } from '../licence/licence.service';
 import { SmsModule, SmsService } from '../sms/sms.module';
 import { AiModule, AiService } from '../ai/ai.module';
+import { asResponse } from '../common/http';
 
 /**
  * WhatsApp, strictly reply-only.
@@ -77,19 +78,21 @@ class CloudApiProvider implements WhatsAppProvider {
   ) {}
 
   async send(to: string, body: string) {
-    const res = await fetch(`https://graph.facebook.com/v21.0/${this.phoneNumberId}/messages`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to: to.replace('+', ''),
-        type: 'text',
-        text: { body },
+    const res = asResponse(
+      await fetch(`https://graph.facebook.com/v21.0/${this.phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: to.replace('+', ''),
+          type: 'text',
+          text: { body },
+        }),
       }),
-    });
+    );
     const data = (await res.json().catch(() => ({}))) as {
       messages?: { id: string }[];
       error?: { message?: string };
@@ -114,11 +117,13 @@ class CloudApiProvider implements WhatsAppProvider {
     form.set('type', 'application/pdf');
     form.set('file', new Blob([file], { type: 'application/pdf' }), filename);
 
-    const upload = await fetch(`https://graph.facebook.com/v21.0/${this.phoneNumberId}/media`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${this.token}` },
-      body: form,
-    });
+    const upload = asResponse(
+      await fetch(`https://graph.facebook.com/v21.0/${this.phoneNumberId}/media`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.token}` },
+        body: form,
+      }),
+    );
     const uploaded = (await upload.json().catch(() => ({}))) as {
       id?: string;
       error?: { message?: string };
@@ -127,19 +132,21 @@ class CloudApiProvider implements WhatsAppProvider {
       throw new BadRequestException(uploaded.error?.message ?? 'WhatsApp would not take that file');
     }
 
-    const res = await fetch(`https://graph.facebook.com/v21.0/${this.phoneNumberId}/messages`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to: to.replace('+', ''),
-        type: 'document',
-        document: { id: uploaded.id, filename, caption },
+    const res = asResponse(
+      await fetch(`https://graph.facebook.com/v21.0/${this.phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: to.replace('+', ''),
+          type: 'document',
+          document: { id: uploaded.id, filename, caption },
+        }),
       }),
-    });
+    );
     const data = (await res.json().catch(() => ({}))) as {
       messages?: { id: string }[];
       error?: { message?: string };

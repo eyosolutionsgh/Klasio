@@ -29,6 +29,7 @@ import {
   ProviderStatus,
   VerifyResult,
 } from './provider';
+import { asResponse } from '../http';
 
 const CHECKOUT_BASE = process.env.HUBTEL_CHECKOUT_URL ?? 'https://payproxyapi.hubtel.com';
 const STATUS_BASE = process.env.HUBTEL_STATUS_URL ?? 'https://api-txnstatus.hubtel.com';
@@ -54,19 +55,21 @@ export class HubtelProvider implements PaymentProvider {
   }
 
   async initiate(input: InitiateInput): Promise<InitiateResult> {
-    const res = await fetch(`${CHECKOUT_BASE}/items/initiate`, {
-      method: 'POST',
-      headers: { Authorization: this.authHeader(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        totalAmount: Number(input.amount.toFixed(2)),
-        description: input.description,
-        callbackUrl: input.callbackUrl,
-        returnUrl: input.returnUrl,
-        cancellationUrl: input.returnUrl,
-        merchantAccountNumber: this.creds.merchantNumber,
-        clientReference: input.reference,
+    const res = asResponse(
+      await fetch(`${CHECKOUT_BASE}/items/initiate`, {
+        method: 'POST',
+        headers: { Authorization: this.authHeader(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          totalAmount: Number(input.amount.toFixed(2)),
+          description: input.description,
+          callbackUrl: input.callbackUrl,
+          returnUrl: input.returnUrl,
+          cancellationUrl: input.returnUrl,
+          merchantAccountNumber: this.creds.merchantNumber,
+          clientReference: input.reference,
+        }),
       }),
-    });
+    );
     const body = asRecord(await res.json().catch(() => ({})));
     const ok = res.ok && String(body.responseCode) === '0000';
     if (!ok) throw new Error(`Hubtel initiate failed: ${body.message ?? res.status}`);
@@ -84,7 +87,7 @@ export class HubtelProvider implements PaymentProvider {
   async verify(ref: { reference: string; providerRef?: string }): Promise<VerifyResult> {
     const merchant = encodeURIComponent(this.creds.merchantNumber ?? '');
     const url = `${STATUS_BASE}/transactions/${merchant}/status?clientReference=${encodeURIComponent(ref.reference)}`;
-    const res = await fetch(url, { headers: { Authorization: this.authHeader() } });
+    const res = asResponse(await fetch(url, { headers: { Authorization: this.authHeader() } }));
     const body = asRecord(await res.json().catch(() => ({})));
     if (!res.ok) throw new Error(`Hubtel status check failed: ${res.status}`);
     const data = asRecord(body.data);

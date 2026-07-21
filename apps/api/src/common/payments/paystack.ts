@@ -20,6 +20,7 @@ import {
   ProviderStatus,
   VerifyResult,
 } from './provider';
+import { asResponse } from '../http';
 
 const BASE = process.env.PAYSTACK_BASE_URL ?? 'https://api.paystack.co';
 
@@ -50,14 +51,16 @@ export class PaystackProvider implements PaymentProvider {
   constructor(private creds: ProviderCredentials) {}
 
   private async call(path: string, init?: RequestInit) {
-    const res = await fetch(`${BASE}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${this.creds.secret}`,
-        'Content-Type': 'application/json',
-        ...(init?.headers ?? {}),
-      },
-    });
+    const res = asResponse(
+      await fetch(`${BASE}${path}`, {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${this.creds.secret}`,
+          'Content-Type': 'application/json',
+          ...(init?.headers ?? {}),
+        },
+      }),
+    );
     const body = asRecord(await res.json().catch(() => ({})));
     if (!res.ok || body.status === false) {
       throw new Error(`Paystack ${path} failed: ${body.message ?? res.status}`);
