@@ -130,6 +130,7 @@ model User {
   passwordResets PasswordReset[]
   staffAttendance StaffAttendanceRecord[]
   leaveRequests   LeaveRequest[]
+  reliefCovers    Substitution[] @relation("ReliefCover")
 }
 
 /// A staff password-reset request, issued by email and usable once.
@@ -1491,6 +1492,27 @@ model TimetableSlot {
   /// because they span classes and a unique index cannot express "unless the teacher is null".
   @@unique([classId, periodId, weekday])
   @@index([schoolId, teacherId, weekday])
+
+  substitutions Substitution[]
+}
+
+/// Cover for one lesson on one date (FEATURES.md §6). A null relief teacher records the honest
+/// outcome — the lesson goes unstaffed — rather than pretending someone was found.
+model Substitution {
+  id              String        @id @default(cuid())
+  schoolId        String
+  slotId          String
+  slot            TimetableSlot @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  /// The calendar day being covered; the slot's weekday must match it.
+  date            DateTime
+  reliefTeacherId String?
+  reliefTeacher   User?         @relation("ReliefCover", fields: [reliefTeacherId], references: [id], onDelete: SetNull)
+  reason          String?
+  createdById     String
+  createdAt       DateTime      @default(now())
+
+  @@unique([schoolId, slotId, date])
+  @@index([schoolId, date])
 }
 
 enum WhatsAppDirection {

@@ -153,6 +153,9 @@ export default function TimetablePage() {
           class is refused with the clash named.{' '}
           <a href="/timetable/syllabus" className="text-brand underline underline-offset-2">
             Syllabus coverage →
+          </a>{' '}
+          <a href="/timetable/substitutions" className="text-brand underline underline-offset-2">
+            Substitutions →
           </a>
         </p>
       </div>

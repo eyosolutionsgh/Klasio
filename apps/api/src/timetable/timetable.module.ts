@@ -11,6 +11,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { IsBoolean, IsInt, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
 import { PrismaService } from '../prisma/prisma.service';
@@ -57,6 +58,15 @@ class UpdateSlotDto {
   @IsOptional() @IsString() subjectId?: string | null;
   @IsOptional() @IsString() teacherId?: string | null;
   @IsOptional() @IsString() room?: string | null;
+}
+
+class CoverDto {
+  @IsString() slotId: string;
+  /** The calendar day being covered; must fall on the slot's weekday. */
+  @IsString() date: string;
+  /** Omitted records the lesson as going unstaffed — honest, and visible on the day sheet. */
+  @IsOptional() @IsString() reliefTeacherId?: string;
+  @IsOptional() @IsString() reason?: string;
 }
 
 /** What the service reads back to decide a clash — ids plus the names the message needs. */
@@ -433,6 +443,170 @@ export class TimetableService {
     };
   }
 
+  // ── Substitutions ──────────────────────────────────────────────────
+
+  /** Midnight of a date, and its timetable weekday (1–5), refusing weekends. */
+  private schoolDay(date: string): { day: Date; weekday: number } {
+    const day = new Date(date);
+    if (Number.isNaN(day.getTime())) throw new BadRequestException('That is not a date');
+    day.setHours(0, 0, 0, 0);
+    const jsDay = day.getDay(); // Sun=0
+    if (jsDay === 0 || jsDay === 6) {
+      throw new BadRequestException('Nothing is timetabled on a weekend');
+    }
+    return { day, weekday: jsDay };
+  }
+
+  /** One absent teacher's lessons on one date, with any cover already arranged. */
+  async absenteeSlots(auth: AuthUser, teacherId: string, date: string) {
+    const { day, weekday } = this.schoolDay(date);
+    const teacher = await this.db.user.findFirst({
+      where: { id: teacherId, schoolId: auth.schoolId },
+      select: { id: true, name: true },
+    });
+    if (!teacher) throw new NotFoundException('Staff member not found');
+    const slots = await this.db.timetableSlot.findMany({
+      where: { schoolId: auth.schoolId, teacherId, weekday },
+      include: {
+        ...SLOT_CONTEXT,
+        substitutions: {
+          where: { date: day },
+          include: { reliefTeacher: { select: { id: true, name: true } } },
+        },
+      },
+      orderBy: { period: { order: 'asc' } },
+    });
+    return {
+      teacher,
+      date: day,
+      slots: slots.map((s) => ({
+        id: s.id,
+        className: s.classRoom.name,
+        period: s.period.name,
+        subject: s.subject?.name ?? null,
+        room: s.room,
+        cover: s.substitutions[0]
+          ? {
+              id: s.substitutions[0].id,
+              reliefTeacherId: s.substitutions[0].reliefTeacher?.id ?? null,
+              reliefTeacher: s.substitutions[0].reliefTeacher?.name ?? null,
+              reason: s.substitutions[0].reason,
+            }
+          : null,
+      })),
+    };
+  }
+
+  /**
+   * Arrange (or re-arrange) cover for one lesson on one date.
+   *
+   * The relief teacher is checked the same way a placement is: against their own timetable for
+   * that weekday, and against any other lesson they are already covering that date and period.
+   * A clash names where they already are, exactly like the builder does.
+   */
+  async cover(auth: AuthUser, dto: CoverDto) {
+    const { day, weekday } = this.schoolDay(dto.date);
+    const slot = await this.db.timetableSlot.findFirst({
+      where: { id: dto.slotId, schoolId: auth.schoolId },
+      include: SLOT_CONTEXT,
+    });
+    if (!slot) throw new NotFoundException('Timetable slot not found');
+    if (slot.weekday !== weekday) {
+      throw new BadRequestException(
+        `That lesson is on ${WEEKDAYS[slot.weekday - 1]}, not on the date chosen`,
+      );
+    }
+
+    if (dto.reliefTeacherId) {
+      if (dto.reliefTeacherId === slot.teacherId) {
+        throw new BadRequestException('That is the teacher being covered');
+      }
+      const relief = await this.db.user.findFirst({
+        where: { id: dto.reliefTeacherId, schoolId: auth.schoolId, active: true },
+        select: { id: true, name: true },
+      });
+      if (!relief) throw new NotFoundException('Relief teacher not found');
+
+      // Their own timetable first…
+      const own = await this.db.timetableSlot.findFirst({
+        where: {
+          schoolId: auth.schoolId,
+          teacherId: relief.id,
+          weekday,
+          periodId: slot.periodId,
+        },
+        include: SLOT_CONTEXT,
+      });
+      if (own) {
+        throw new ConflictException(
+          `${relief.name} already teaches ${own.classRoom.name} in ${own.period.name}`,
+        );
+      }
+      // …then any cover they have already taken on for that date and period.
+      const covering = await this.db.substitution.findFirst({
+        where: {
+          schoolId: auth.schoolId,
+          reliefTeacherId: relief.id,
+          date: day,
+          slot: { periodId: slot.periodId },
+        },
+        include: { slot: { include: SLOT_CONTEXT } },
+      });
+      if (covering) {
+        throw new ConflictException(
+          `${relief.name} is already covering ${covering.slot.classRoom.name} in ${covering.slot.period.name} that day`,
+        );
+      }
+    }
+
+    const sub = await this.db.substitution.upsert({
+      where: { schoolId_slotId_date: { schoolId: auth.schoolId, slotId: slot.id, date: day } },
+      create: {
+        schoolId: auth.schoolId,
+        slotId: slot.id,
+        date: day,
+        reliefTeacherId: dto.reliefTeacherId ?? null,
+        reason: dto.reason ?? null,
+        createdById: auth.sub,
+      },
+      update: { reliefTeacherId: dto.reliefTeacherId ?? null, reason: dto.reason ?? null },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'timetable.cover', 'TimetableSlot', slot.id, {
+      date: dto.date,
+      relief: dto.reliefTeacherId ?? 'unstaffed',
+    });
+    return { id: sub.id };
+  }
+
+  async uncover(auth: AuthUser, id: string) {
+    const sub = await this.db.substitution.findFirst({ where: { id, schoolId: auth.schoolId } });
+    if (!sub) throw new NotFoundException('Cover not found');
+    await this.db.substitution.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  /** The day's cover sheet: every arranged substitution, in period order. */
+  async daySheet(auth: AuthUser, date: string) {
+    const { day } = this.schoolDay(date);
+    const subs = await this.db.substitution.findMany({
+      where: { schoolId: auth.schoolId, date: day },
+      include: {
+        slot: { include: SLOT_CONTEXT },
+        reliefTeacher: { select: { name: true } },
+      },
+      orderBy: { slot: { period: { order: 'asc' } } },
+    });
+    return subs.map((s) => ({
+      id: s.id,
+      className: s.slot.classRoom.name,
+      period: s.slot.period.name,
+      subject: s.slot.subject?.name ?? null,
+      absent: s.slot.teacher?.name ?? '—',
+      relief: s.reliefTeacher?.name ?? null,
+      reason: s.reason,
+    }));
+  }
+
   /**
    * Everything the timetable screen needs to populate its pickers.
    *
@@ -526,6 +700,34 @@ export class TimetableController {
   @RequirePermission('timetable.manage')
   clearSlot(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.clearSlot(user, id);
+  }
+
+  @Get('substitutions')
+  @RequirePermission('timetable.view')
+  daySheet(@CurrentUser() user: AuthUser, @Query('date') date: string) {
+    return this.svc.daySheet(user, date);
+  }
+
+  @Get('substitutions/absentee')
+  @RequirePermission('timetable.manage')
+  absenteeSlots(
+    @CurrentUser() user: AuthUser,
+    @Query('teacherId') teacherId: string,
+    @Query('date') date: string,
+  ) {
+    return this.svc.absenteeSlots(user, teacherId, date);
+  }
+
+  @Post('substitutions')
+  @RequirePermission('timetable.manage')
+  cover(@CurrentUser() user: AuthUser, @Body() dto: CoverDto) {
+    return this.svc.cover(user, dto);
+  }
+
+  @Delete('substitutions/:id')
+  @RequirePermission('timetable.manage')
+  uncover(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.uncover(user, id);
   }
 
   // Reading is open to anyone who may see the timetable — a teacher has to be able to look up
