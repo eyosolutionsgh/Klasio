@@ -8,6 +8,13 @@ import { objectKey, storage } from '../src/common/storage';
 
 const db = new PrismaClient();
 
+/**
+ * Every seeded guardian's phone. A single number the demo's owner controls, so a deployed
+ * instance with real SMS credentials can text freely without reaching anybody else.
+ * Override with DEMO_GUARDIAN_PHONE when seeding an instance somebody else runs.
+ */
+const DEMO_GUARDIAN_PHONE = process.env.DEMO_GUARDIAN_PHONE || '+233554654834';
+
 const GES_BANDS = [
   { min: 80, max: 100, grade: '1', remark: 'Excellent' },
   { min: 70, max: 79, grade: '2', remark: 'Very Good' },
@@ -445,7 +452,19 @@ async function main() {
             schoolId: sid,
             firstName: male ? pick(FIRST_F) : pick(FIRST_M),
             lastName: last,
-            phone: `+23324${String(1000000 + Math.floor(rng() * 8999999))}`,
+            /**
+             * One real number the demo's owner controls, deliberately not a random one.
+             *
+             * This used to generate `+23324XXXXXXX`, which is live MTN Ghana subscriber format —
+             * so a deployed demo with real SMS credentials texted thirteen actual strangers about
+             * children who are not theirs. Invented-looking numbers in a seed are still somebody's
+             * number.
+             *
+             * Every guardian shares it, which is safe but not free: guardian sign-in resolves a
+             * phone with `findFirst` (guardian.module.ts), so the family portal will only ever
+             * open the first matching family. That is a demo limitation, not a product one.
+             */
+            phone: DEMO_GUARDIAN_PHONE,
             whatsappOptIn: rng() > 0.3,
           },
         }));
