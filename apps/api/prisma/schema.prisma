@@ -814,6 +814,7 @@ model Receipt {
 enum GatewayProvider {
   HUBTEL
   PAYSTACK
+  FLUTTERWAVE
   MOCK
 }
 

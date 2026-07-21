@@ -20,6 +20,7 @@ interface Gateway {
 const PROVIDERS = [
   { value: 'PAYSTACK', label: 'PAYSTACK' },
   { value: 'HUBTEL', label: 'HUBTEL' },
+  { value: 'FLUTTERWAVE', label: 'FLUTTERWAVE (diaspora)' },
 ] as const;
 const MODES = [
   { value: 'TEST', label: 'TEST' },
@@ -28,7 +29,7 @@ const MODES = [
 
 export default function GatewaysPage() {
   const [gateways, setGateways] = useState<Gateway[]>([]);
-  const [provider, setProvider] = useState<'PAYSTACK' | 'HUBTEL'>('PAYSTACK');
+  const [provider, setProvider] = useState<'PAYSTACK' | 'HUBTEL' | 'FLUTTERWAVE'>('PAYSTACK');
   const [mode, setMode] = useState<'TEST' | 'LIVE'>('TEST');
   const [secret, setSecret] = useState('');
   const [publicKey, setPublicKey] = useState('');

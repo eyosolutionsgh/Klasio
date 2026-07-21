@@ -32,6 +32,7 @@ import { decryptSecret, encryptSecret, publicToken } from '../common/crypto';
 import { PaymentProvider, ProviderStatus } from '../common/payments/provider';
 import { PaystackProvider } from '../common/payments/paystack';
 import { HubtelProvider } from '../common/payments/hubtel';
+import { FlutterwaveProvider } from '../common/payments/flutterwave';
 import { MockProvider, MOCK_SECRET } from '../common/payments/mock';
 import { hasEntitlement } from '../common/entitlements';
 import { createHmac } from 'crypto';
@@ -39,7 +40,7 @@ import { balanceOf } from '../common/ledger';
 import { nextInSequence, refNumber } from '../common/sequences';
 
 class ConnectGatewayDto {
-  @IsIn(['HUBTEL', 'PAYSTACK']) provider: 'HUBTEL' | 'PAYSTACK';
+  @IsIn(['HUBTEL', 'PAYSTACK', 'FLUTTERWAVE']) provider: 'HUBTEL' | 'PAYSTACK' | 'FLUTTERWAVE';
   @IsIn(['TEST', 'LIVE']) mode: 'TEST' | 'LIVE';
   @IsString() @MinLength(8) secret: string;
   @IsOptional() @IsString() publicKey?: string;
@@ -53,7 +54,7 @@ class CheckoutDto {
   @IsOptional() @IsNumber() @IsPositive() amount?: number;
   @IsIn(['MOMO', 'CARD', 'USSD']) channel: PaymentChannel;
   @IsOptional() @IsString() phone?: string;
-  @IsOptional() @IsIn(['HUBTEL', 'PAYSTACK', 'MOCK']) provider?: GatewayProvider;
+  @IsOptional() @IsIn(['HUBTEL', 'PAYSTACK', 'FLUTTERWAVE', 'MOCK']) provider?: GatewayProvider;
 }
 
 const PAYMENTS_QUEUE = 'payments';
@@ -117,7 +118,11 @@ export class PaymentsService {
       merchantNumber: acct.merchantNumber ?? undefined,
       subaccountCode: acct.subaccountCode ?? undefined,
     };
-    return acct.provider === 'PAYSTACK' ? new PaystackProvider(creds) : new HubtelProvider(creds);
+    return acct.provider === 'PAYSTACK'
+      ? new PaystackProvider(creds)
+      : acct.provider === 'FLUTTERWAVE'
+        ? new FlutterwaveProvider(creds)
+        : new HubtelProvider(creds);
   }
 
   /** Outstanding balance for a student across all terms (append-only ledger projection). */
@@ -533,9 +538,11 @@ export class PaymentsService {
     const parser =
       kind === 'PAYSTACK'
         ? new PaystackProvider({ secret: '' })
-        : kind === 'HUBTEL'
-          ? new HubtelProvider({ secret: '' })
-          : new MockProvider();
+        : kind === 'FLUTTERWAVE'
+          ? new FlutterwaveProvider({ secret: '' })
+          : kind === 'HUBTEL'
+            ? new HubtelProvider({ secret: '' })
+            : new MockProvider();
     const parsed = parser.parseWebhook(payload);
     if (!parsed?.reference) throw new BadRequestException('Unrecognised webhook payload');
     // Captured before the closure below: the narrowing from the guard above does not survive
@@ -784,7 +791,7 @@ export class PaymentsController {
   @Public()
   webhook(@Param('provider') provider: string, @Req() req: RawRequest) {
     const kind = provider.toUpperCase();
-    if (!['HUBTEL', 'PAYSTACK', 'MOCK'].includes(kind)) {
+    if (!['HUBTEL', 'PAYSTACK', 'FLUTTERWAVE', 'MOCK'].includes(kind)) {
       throw new BadRequestException('Unknown provider');
     }
     const raw = req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}));
