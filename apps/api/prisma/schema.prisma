@@ -294,6 +294,7 @@ model Level {
   gradingScheme   GradingScheme? @relation(fields: [gradingSchemeId], references: [id])
   classes         ClassRoom[]
   components      AssessmentComponent[]
+  syllabusTopics  SyllabusTopic[]
 
   @@unique([schoolId, name])
 
@@ -319,6 +320,7 @@ model ClassRoom {
 
   learningResources LearningResource[]
   timetableSlots    TimetableSlot[]
+  syllabusCoverage  SyllabusCoverage[]
 }
 
 model Subject {
@@ -335,6 +337,7 @@ model Subject {
 
   learningResources LearningResource[]
   timetableSlots    TimetableSlot[]
+  syllabusTopics    SyllabusTopic[]
 }
 
 // ── Students & guardians ─────────────────────────────────────────────
@@ -997,6 +1000,40 @@ model ReleaseLog {
   @@unique([schoolId, clientRef])
   @@index([schoolId, releasedAt])
   @@index([studentId])
+}
+
+/// A syllabus topic for one subject at one level (FEATURES.md §6) — the unit of "have we
+/// taught this yet". Ordered, so the list reads like the scheme of work it mirrors.
+model SyllabusTopic {
+  id        String   @id @default(cuid())
+  schoolId  String
+  subjectId String
+  subject   Subject  @relation(fields: [subjectId], references: [id])
+  levelId   String
+  level     Level    @relation(fields: [levelId], references: [id])
+  title     String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  coverage SyllabusCoverage[]
+
+  @@index([schoolId, subjectId, levelId])
+}
+
+/// A topic marked covered for one class. One row per (topic, class); unmarking deletes it —
+/// coverage is a fact about teaching, not an audit ledger.
+model SyllabusCoverage {
+  id          String        @id @default(cuid())
+  schoolId    String
+  topicId     String
+  topic       SyllabusTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  classId     String
+  classRoom   ClassRoom     @relation(fields: [classId], references: [id])
+  coveredById String
+  coveredAt   DateTime      @default(now())
+
+  @@unique([topicId, classId])
+  @@index([schoolId, classId])
 }
 
 /// One mark per member of staff per day — the staff register (FEATURES.md §3/§17).

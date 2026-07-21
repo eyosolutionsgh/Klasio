@@ -150,7 +150,10 @@ export default function TimetablePage() {
         <h1 className="font-display text-3xl">Timetable</h1>
         <p className="text-sm text-oat mt-1.5">
           The week for one class, or for one member of staff. A teacher already busy in another
-          class is refused with the clash named.
+          class is refused with the clash named.{' '}
+          <a href="/timetable/syllabus" className="text-brand underline underline-offset-2">
+            Syllabus coverage →
+          </a>
         </p>
       </div>
 

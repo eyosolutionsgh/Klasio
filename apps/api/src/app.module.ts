@@ -20,6 +20,7 @@ import { GuardianModule } from './guardian/guardian.module';
 import { PaymentsModule } from './payments/payments.module';
 import { PickupModule } from './pickup/pickup.module';
 import { HrModule } from './hr/hr.module';
+import { SyllabusModule } from './syllabus/syllabus.module';
 import { StudentPortalModule } from './student-portal/student-portal.module';
 import { ReconciliationModule } from './reconciliation/reconciliation.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
@@ -60,6 +61,7 @@ import { SetupModule } from './setup/setup.module';
     PaymentsModule,
     PickupModule,
     HrModule,
+    SyllabusModule,
     StudentPortalModule,
     ReconciliationModule,
     WhatsAppModule,

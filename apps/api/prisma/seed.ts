@@ -131,6 +131,8 @@ async function main() {
     await db.guardianOtp.deleteMany({ where: { schoolId: sid } });
     await db.guardian.deleteMany({ where: { schoolId: sid } });
     await db.student.deleteMany({ where: { schoolId: sid } });
+    await db.syllabusCoverage.deleteMany({ where: { schoolId: sid } });
+    await db.syllabusTopic.deleteMany({ where: { schoolId: sid } });
     await db.subject.deleteMany({ where: { schoolId: sid } });
     await db.classRoom.deleteMany({ where: { schoolId: sid } });
     await db.level.deleteMany({ where: { schoolId: sid } });
@@ -139,6 +141,8 @@ async function main() {
     await db.term.deleteMany({ where: { academicYear: { schoolId: sid } } });
     await db.academicYear.deleteMany({ where: { schoolId: sid } });
     await db.auditLog.deleteMany({ where: { schoolId: sid } });
+    await db.staffAttendanceRecord.deleteMany({ where: { schoolId: sid } });
+    await db.leaveRequest.deleteMany({ where: { schoolId: sid } });
     await db.user.deleteMany({ where: { schoolId: sid } });
     await db.school.delete({ where: { id: sid } });
   }
