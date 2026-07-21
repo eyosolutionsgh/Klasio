@@ -35,6 +35,7 @@ import { TimetableModule } from './timetable/timetable.module';
 import { CustomFieldsModule } from './customfields/customfields.module';
 import { RemarksModule } from './remarks/remarks.module';
 import { ReturnsModule } from './returns/returns.module';
+import { ComplianceModule } from './compliance/compliance.module';
 import { RolesModule } from './roles/roles.module';
 import { LicenceModule } from './licence/licence.module';
 import { SetupModule } from './setup/setup.module';
@@ -80,6 +81,7 @@ import { SetupModule } from './setup/setup.module';
     CustomFieldsModule,
     RemarksModule,
     ReturnsModule,
+    ComplianceModule,
     RolesModule,
   ],
   providers: [

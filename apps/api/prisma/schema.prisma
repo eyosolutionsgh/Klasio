@@ -101,6 +101,10 @@ model User {
   school       School   @relation(fields: [schoolId], references: [id])
   name         String
   email        String   @unique
+  /// Teacher licence number from the National Teaching Council, and the qualification behind it.
+  /// NaSIA inspections ask for the staff list with these on it, and so does the annual census.
+  ntcNumber     String?
+  qualification String?
   phone        String?
   passwordHash String
   /// Legacy coarse role. Retained because it still identifies the proprietor (OWNER always holds
@@ -416,6 +420,10 @@ model Student {
   exitDate     DateTime? // set on transfer / withdrawal / graduation
   exitReason   String?
   medicalNotes String?
+  /// The child's name exactly as it appears on the birth certificate, when that differs from the
+  /// name the school uses day to day. WAEC prints certificates from what is registered and a
+  /// mismatch blocks a candidate outright — chronically, and always discovered too late.
+  certificateName String?
   /// Hash of the portal PIN the school issues. Null until a PIN is set; students without one
   /// simply cannot sign in, which is the right default for the youngest classes.
   portalPinHash String?
@@ -432,6 +440,7 @@ model Student {
   termReports  TermReport[]
   feeClearances FeeClearance[]
   promotions   PromotionRecord[]
+  csspsChoices CsspsChoice[]
   invoices     Invoice[]
   ledger       LedgerEntry[]
   documents      StudentDocument[]
@@ -707,6 +716,31 @@ model TermReport {
 
   @@unique([studentId, termId])
   @@index([schoolId, termId, classId])
+}
+
+/// A BECE candidate's ranked choice of senior high school, for the CSSPS placement forms.
+///
+/// The choices are made *before* the exam and administered by the JHS, so the school is the one
+/// holding them — on paper, until now. 2026 raised the list from seven schools to eight and added
+/// category rules, which is exactly the kind of thing a paper form gets wrong quietly.
+model CsspsChoice {
+  id         String   @id @default(cuid())
+  schoolId   String
+  studentId  String
+  student    Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  /// 1 is the candidate's first choice.
+  rank       Int
+  schoolName String
+  programme  String?
+  /// A–D as published by CSSPS; kept as free text because the categories are reissued yearly.
+  category   String?
+  /// Boarding or day, which the placement rules treat differently.
+  residency  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([studentId, rank])
+  @@index([schoolId, studentId])
 }
 
 enum PromotionAction {

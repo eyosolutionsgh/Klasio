@@ -124,10 +124,10 @@ describe('whatsapp assistant', () => {
     });
 
     await inbound(api, schoolId, guardianPhone, 'Did the results come out?');
-    let reply = await lastBotReply(guardianPhone);
+    const reply = await lastBotReply(guardianPhone);
+    // The assistant asks which child when a family has more than one; drive through to the answer.
     if (reply.body.startsWith('Which child')) {
       await inbound(api, schoolId, guardianPhone, '1');
-      reply = await lastBotReply(guardianPhone);
     }
 
     // The attachment is logged like any other outbound message: "did the school ever send it?"

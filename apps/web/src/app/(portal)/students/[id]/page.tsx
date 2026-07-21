@@ -13,6 +13,7 @@ import GrantConcession from '@/components/GrantConcession';
 import StudentConcessions from '@/components/StudentConcessions';
 import PickupList from '@/components/PickupList';
 import CumulativeRecord from '@/components/CumulativeRecord';
+import CsspsChoices from '@/components/CsspsChoices';
 import ReverseEntry from '@/components/ReverseEntry';
 import StudentPortalAccess from '@/components/StudentPortalAccess';
 import EditStudent from '@/components/EditStudent';
@@ -48,7 +49,11 @@ interface Detail {
   photoUrl?: string | null;
   /** Absent without `students.medical` — the nurse holds that, the librarian does not. */
   medicalNotes?: string | null;
+  /** The name on the birth certificate, when it differs from the one the school uses. */
+  certificateName?: string | null;
   className: string | null;
+  /** PRE_SCHOOL / PRIMARY / JHS / SHS — decides which class-specific panels are worth showing. */
+  levelCategory?: string | null;
   /**
    * The one `GuardianLink` rather than a second copy of its shape. Declared inline, this drifted:
    * `phone` and `whatsappOptIn` stayed required here after the component had already made them
@@ -304,6 +309,11 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
 
         <div className="space-y-6">
           <CumulativeRecord studentId={s.id} />
+
+          {/* Only for the classes that actually sit BECE — a KG record has no use for it. */}
+          {(s.levelCategory === 'JHS' || s.levelCategory === 'SHS') && (
+            <CsspsChoices studentId={s.id} />
+          )}
 
           {/* Ledger */}
           {mayReadFees && ledger !== undefined && (

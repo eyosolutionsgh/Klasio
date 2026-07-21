@@ -111,6 +111,8 @@ class UpdateStudentDto {
   @IsOptional() @IsDateString() dateOfBirth?: string;
   @IsOptional() @IsString() classId?: string;
   @IsOptional() @IsString() medicalNotes?: string;
+  /** The name on the birth certificate, when it differs from the one the school uses. */
+  @IsOptional() @IsString() certificateName?: string;
 }
 
 class AddGuardianDto {
@@ -352,6 +354,9 @@ export class StudentsService {
        * to be on the field, because the field is what is sensitive.
        */
       medicalNotes: mayReadMedical ? s.medicalNotes : undefined,
+      // Ordinary record data, not sensitive: it is the name already printed on a document the
+      // parent handed in, and the exams officer needs it without holding the medical permission.
+      certificateName: s.certificateName,
       className: s.classRoom?.name,
       // The id as well as the name, so the edit form can preselect the class the child is in.
       classId: s.classId,
