@@ -1,11 +1,19 @@
-# $0 demo deployment
+# The demo deployment (Neon + Vercel)
 
-This describes a **demo-only** deployment of Klasio at $0 (or as close to it as free tiers
-allow). It is not the product's target deployment model — see `03-architecture.md` — which is
-"one school, one server" on a VM or on-prem box the school controls. This doc exists to get a
-live, shareable instance of the app up for demos and evaluation without provisioning a VM.
+**This is live.** Klasio's own shareable demo and evaluation instance runs on the stack below, on
+Vercel-assigned URLs. It replaced a Hetzner box (`klasio-prelive`, CPX22, Caddy, self-hosted
+GitHub Actions runner), which was decommissioned on 21 Jul 2026.
 
-## Constraints this plan works under
+It is still **not the product's deployment model** — see `03-architecture.md`, which remains
+authoritative: a school gets "one school, one server", a cloud VM or on-prem box it controls, with
+its tier from a signed licence file. Nothing here changes that. This is how *we* host a demo, at
+$0 or as close to it as free tiers allow, without provisioning a VM.
+
+The distinction matters when reading the rest of this document: several choices below (a hosted
+queue, a hosted LLM, a hosted object store) would be unacceptable on a school's own box, and are
+only tolerable because this instance is ours and holds no real school's data.
+
+## Constraints this deployment works under
 
 - No paid infrastructure — every service below has a free tier used within its limits.
 - The database is allowed to sleep/autosuspend on inactivity; the apps are not.
@@ -22,7 +30,7 @@ live, shareable instance of the app up for demos and evaluation without provisio
 | Piece | Service | Tier |
 | --- | --- | --- |
 | `apps/web` | Vercel | Free (Hobby) |
-| `apps/vendor` (optional — only if licence-minting must be live) | Vercel | Free (Hobby) |
+| `apps/vendor` (the licensing portal) | Vercel | Free (Hobby) |
 | `apps/api` | Vercel | Free (Hobby), via a serverless entrypoint |
 | Database (school app) | Neon (Postgres 16) | Free |
 | Database (vendor portal, if deployed) | Neon — separate project | Free |
@@ -32,8 +40,8 @@ live, shareable instance of the app up for demos and evaluation without provisio
 
 ### 1. Database — Neon
 
-- One Neon project per app that needs a database: the school app, and — only if `apps/vendor` is
-  deployed — a second, separate Neon project for it. Per `vendor-licensing-portal`, the vendor
+- One Neon project per app that needs a database: the school app, and a second, separate Neon
+  project for `apps/vendor`. Per `vendor-licensing-portal`, the vendor
   portal's database must never be the same one a school's data lives in.
 - Neon gives two connection strings per project:
   - **Direct** (non-pooled) — used for running migrations (`pnpm db:deploy`), seeding
@@ -53,12 +61,14 @@ live, shareable instance of the app up for demos and evaluation without provisio
   code changes needed.
 - Env: `API_URL` (or equivalent) pointing at the deployed api project's URL.
 
-### 3. apps/vendor — Vercel (optional)
+### 3. apps/vendor — Vercel
 
-- Only needed if the licence-minting flow itself must be demoable live. Otherwise, mint a demo
-  licence once locally (`pnpm --filter @eyo/api licence:mint`) and skip deploying this app.
-- If deployed: its own Vercel project, root directory `apps/vendor`, pointed at its own Neon
-  project (never the school app's database).
+- Deployed, so the licence-minting flow is demoable live. (A licence can still be minted locally
+  with `pnpm --filter @eyo/api licence:mint` and installed by hand — useful when the school app
+  needs entitlements before the vendor portal is reachable.)
+- **Deployed.** Its own Vercel project, root directory `apps/vendor`, pointed at its own Neon
+  project — never the school app's database. This restores a separation the decommissioned
+  Hetzner box had compromised by co-tenanting both stacks on one machine.
 
 ### 4. apps/api — Vercel
 

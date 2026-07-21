@@ -13,6 +13,11 @@ only the vendor can mint one.
 > `05-roadmap.md` still describe the SaaS commercial model and have not been rewritten — treat the
 > architecture doc as authoritative where they disagree.
 
+> **Note (21 July 2026).** Klasio's own **demo and evaluation instance** moved to Neon + Vercel;
+> the Hetzner pre-live box was decommissioned. That is `10-zero-cost-deployment.md`, and it is
+> about how *we* host a demo — it does **not** change what a school gets, which remains one
+> school, one server, per `03-architecture.md`.
+
 ## Document index
 
 | Doc                                                        | Contents                                                                              |
@@ -26,7 +31,7 @@ only the vendor can mint one.
 | [07-ux-guidelines.md](07-ux-guidelines.md)                 | HCI best practices, design language, tooltips and in-app guidance                     |
 | [08-user-types-and-user-stories.md](08-user-types-and-user-stories.md) | Every user type, their daily/termly/yearly stories, term & year lifecycles, Ghana-context gaps |
 | [09-implementation-status.md](09-implementation-status.md) | Code audit of doc 08 against `main` — what's implemented, partial, missing, plus defects found |
-| [10-zero-cost-deployment.md](10-zero-cost-deployment.md) | $0 demo deployment plan (Vercel + Neon + Upstash QStash) — not the product's target architecture |
+| [10-zero-cost-deployment.md](10-zero-cost-deployment.md) | **Live** demo deployment on Neon + Vercel (+ QStash, R2, Gemini) — how *we* host a demo, not what a school gets |
 
 ## Product principles
 
