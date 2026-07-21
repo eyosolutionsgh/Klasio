@@ -39,7 +39,7 @@ The emotional core of the product for Ghanaian schools.
 | Feature                                                                                                                                                                                          | Tier |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- |
 | SBA engine: configurable continuous-assessment components, scaling, SBA/exam weighting (default 30/70)                                                                                           | B    |
-| Grading schemes: GES classic (scores, grades, subject & class positions), NaCCA proficiency bands (Beginning/Approaching/Meeting/Exceeding), early-years observation scales; per-level selection | B    |
+| Grading schemes: GES classic (scores, grades, subject & class positions), NaCCA proficiency bands (Emerging/Developing/Approaching Proficiency/Proficient/Highly Proficient), early-years observation scales; per-level selection | B    |
 | Terminal report cards: pixel-faithful GES format + modern format; attendance count, conduct, interest, teacher & head remarks, next-term date; PDF export                                        | B    |
 | Broadsheets / tabulation sheets, class ranking                                                                                                                                                   | B    |
 | Teacher marks entry: web + mobile, autosave, works offline                                                                                                                                       | B    |
@@ -76,7 +76,7 @@ The emotional core of the product for Ghanaian schools.
 | ------------------------------------------------------------------------------------------------------------------------------------------ | ---- |
 | Authorized pickup list per student (guardians + delegates), school override, custody red-flags                                             | M    |
 | Handoff verification: QR on ID/pickup card + PIN fallback + guardian photo confirmation; **printed card path for no-smartphone guardians** | M    |
-| Staff check-out/check-in app (offline-capable scanner), immutable release log (who, whom, when, mode)                                      | M    |
+| Staff check-out/check-in **in the staff web app** (offline-capable, browser QR scanning — no separate app to install), immutable release log (who, whom, when, mode) | M    |
 | Instant guardian notification on pickup/drop-off ("Ama was picked up by Kofi Mensah at 15:42")                                             | M    |
 | Same-day dismissal-change requests (guardian PWA → front-office approval)                                                                  | M    |
 | Car line management: guardian "announce arrival" (GPS/geofence), staging queue display                                                     | A    |
@@ -93,9 +93,9 @@ The emotional core of the product for Ghanaian schools.
 | Bulk SMS (integrated Ghana SMS gateways e.g. Arkesel/Hubtel; school buys credits)                                                                                                                               | B (pay-as-you-go) |
 | Event calendar, targeted messaging by class/level/route                                                                                                                                                         | M                 |
 | WhatsApp notifications (templates): fee reminders, receipts, absence alerts, results links, announcements                                                                                                       | M                 |
-| **WhatsApp guardian chatbot** (self-service): check balance, mini-statement, results link, attendance summary, report absence, request dismissal change, talk-to-school handoff; opt-in collected at enrollment | A                 |
+| **WhatsApp guardian chatbot** (self-service): check balance, mini-statement, results link, attendance summary, report absence, request dismissal change, talk-to-school handoff; opt-in collected at enrollment | B                 |
 | **AI assistant in chatbot** — natural-language Q&A grounded in the school's data, English + local-language friendly phrasing                                                                                    | A                 |
-| Guardian mobile app (branded, push notifications)                                                                                                                                                               | A                 |
+| _Guardian mobile app (branded, push notifications)_                                                                                                                                                             | **Struck — see [03-architecture.md](03-architecture.md) §3.9. No parent app; WhatsApp + PWA carry this.** |
 
 ## 2.7 Learning Resources (LMS deferred)
 
@@ -133,9 +133,9 @@ The emotional core of the product for Ghanaian schools.
 | GES/NaSIA termly returns export (enrolment, attendance, performance)                                                                               | M                                      |
 | Data export (Excel/CSV/PDF) & import (Excel onboarding templates)                                                                                  | B                                      |
 | **Insights dashboard** — cross-module KPIs; **AI natural-language queries** ("Which JHS2 students owe more than GHS 500 and were absent 3+ days?") | A                                      |
-| White-label branding (school logo/colors on portal, receipts, reports, apps)                                                                       | M (docs/receipts) / A (full apps)      |
+| White-label branding (school logo/colors on portal, receipts, reports, sign-in pages)                                                              | M                                      |
 | API access & webhooks for school's own integrations                                                                                                | A                                      |
-| Offline data entry (marks, attendance, gate scanner — local queue, sync on reconnect)                                                              | All tiers, all shapes                  |
+| Offline data entry (marks, attendance, gate releases — local queue, sync on reconnect)                                                             | All tiers, all shapes                  |
 | Full offline operation (school LAN server, air-gap capable)                                                                                        | Standalone deployments                 |
 
 ## 2.11 AI feature summary (the "stand out" layer)
