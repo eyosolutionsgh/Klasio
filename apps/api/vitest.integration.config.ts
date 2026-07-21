@@ -46,6 +46,19 @@ export default defineConfig({
       // has one connected, so the mock provider stands in and no real money can move.
       PAYMENTS_ENCRYPTION_KEY: process.env.PAYMENTS_ENCRYPTION_KEY ?? '0'.repeat(64),
       PUBLIC_BASE_URL: 'http://127.0.0.1:3000',
+      /**
+       * Blanked for the same reason as the payment credentials above, and it is the more urgent
+       * of the two: vitest loads `.env` into `process.env`, so a developer with working Nalo
+       * credentials — which is every developer, they are in `apps/api/.env` — had every spec that
+       * touches an absence alert, a fee reminder or a gate notification firing **real** texts at
+       * the seed's invented Ghanaian numbers, and debiting a real account to do it.
+       *
+       * Empty means `SmsService` falls back to MockSmsProvider, which records the message and
+       * delivers nothing. Tests assert on the SmsMessage row, which is the part that matters.
+       */
+      NALO_SMS_ENDPOINT: '',
+      NALO_SMS_USERNAME: '',
+      NALO_SMS_PASSWORD: '',
       // Leave the BullMQ sweep off: it would re-query PENDING intents on a timer and settle
       // payments underneath the tests.
       REDIS_URL: '',
