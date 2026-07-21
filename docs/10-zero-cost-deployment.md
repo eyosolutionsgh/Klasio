@@ -134,10 +134,13 @@ with, which reads exactly like the variable not working.
 
 Getting a rebuild is less obvious than it sounds, because this is a monorepo:
 
-- Vercel [skips unaffected projects](https://vercel.com/docs/monorepos#skipping-unaffected-projects).
-  A commit that touches nothing under the project's root directory is cancelled, not built. An
-  empty commit is always skipped, and so is a commit that only touches `docs/` — neither is a way
-  to force a deploy of `apps/api`.
+- An **empty commit is skipped**, not built: the deployment is created and immediately cancelled,
+  with `errorLink` pointing at
+  [skipping unaffected projects](https://vercel.com/docs/monorepos#skipping-unaffected-projects).
+  `git commit --allow-empty` is not a way to force a deploy.
+  A commit that changes files _outside_ `apps/api` — `docs/`, for instance — **does** build, as
+  this document's own commit did. The rule is narrower than the name suggests, so measure rather
+  than predict: the only reliable signal is whether a new deployment id appears.
 - Redeploying from the dashboard with **"Use existing Build Cache" left ticked** can return the
   existing deployment instead of producing a new one. Untick it.
 - The reliable check is whether a _new deployment id_ appears. If the id serving traffic has not
