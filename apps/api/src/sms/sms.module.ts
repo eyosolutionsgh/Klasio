@@ -13,7 +13,6 @@ import { IsArray, IsEnum, IsIn, IsOptional, IsString, MaxLength, MinLength } fro
 import { Prisma, SmsStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
-import { asResponse } from '../common/http';
 import { normalizeMsisdn } from '../common/phone';
 import { PageQuery, dateWindow, orderBy, pageArgs, toPage } from '../common/list-query';
 
@@ -102,7 +101,7 @@ export class NaloSmsProvider implements SmsProvider {
     url.searchParams.set('source', sender || this.cfg.source);
     url.searchParams.set('message', body);
     try {
-      const res = asResponse(await fetch(url, { method: 'GET' }));
+      const res = await fetch(url, { method: 'GET' });
       const text = (await res.text()).trim();
       const ok = text.startsWith('1701');
       return ok ? { ok: true, ref: text } : { ok: false, error: text || `HTTP ${res.status}` };

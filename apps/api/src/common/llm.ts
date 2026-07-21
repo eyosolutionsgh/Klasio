@@ -8,7 +8,6 @@
  * every AI feature degrades to its deterministic behaviour or says plainly that it is off.
  * A school box with no key and no internet loses suggestions, never records.
  */
-import { asResponse } from './http';
 
 export interface LlmConfig {
   anthropicApiKey?: string;
@@ -82,7 +81,7 @@ async function withTimeout(fetchFn: typeof fetch, url: string, init: RequestInit
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
   try {
-    return asResponse(await fetchFn(url, { ...init, signal: ctrl.signal }));
+    return await fetchFn(url, { ...init, signal: ctrl.signal });
   } finally {
     clearTimeout(timer);
   }

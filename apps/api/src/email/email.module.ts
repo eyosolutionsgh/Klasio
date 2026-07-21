@@ -1,7 +1,6 @@
 import { Injectable, Logger, Module } from '@nestjs/common';
 import { InlineImage, RenderedEmail, crestAttachment } from '../common/email-templates';
 import { storage } from '../common/storage';
-import { asResponse } from '../common/http';
 
 export interface EmailResult {
   ok: boolean;
@@ -68,39 +67,37 @@ class MailerSendProvider implements EmailProvider {
     msg: RenderedEmail,
   ): Promise<{ result: EmailResult; retryable: boolean; retryAfterSeconds: number }> {
     try {
-      const res = asResponse(
-        await fetch('https://api.mailersend.com/v1/email', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${this.cfg.token}`,
-            'Content-Type': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest',
-          },
-          body: JSON.stringify({
-            from: { email: this.cfg.fromEmail, name: this.cfg.fromName },
-            to: [{ email: to, ...(toName ? { name: toName } : {}) }],
-            ...(this.cfg.replyTo ? { reply_to: { email: this.cfg.replyTo } } : {}),
-            subject: msg.subject,
-            html: msg.html,
-            text: msg.text,
-            /**
-             * Inline images ride along as base64 attachments with `disposition: 'inline'`, and the
-             * HTML refers to them by `cid:<id>`. Omitted entirely when there are none — an empty
-             * `attachments` array is a validation error rather than a no-op.
-             */
-            ...(msg.inlineImages?.length
-              ? {
-                  attachments: msg.inlineImages.map((img) => ({
-                    id: img.id,
-                    filename: img.filename,
-                    disposition: 'inline',
-                    content: img.content.toString('base64'),
-                  })),
-                }
-              : {}),
-          }),
+      const res = await fetch('https://api.mailersend.com/v1/email', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.cfg.token}`,
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify({
+          from: { email: this.cfg.fromEmail, name: this.cfg.fromName },
+          to: [{ email: to, ...(toName ? { name: toName } : {}) }],
+          ...(this.cfg.replyTo ? { reply_to: { email: this.cfg.replyTo } } : {}),
+          subject: msg.subject,
+          html: msg.html,
+          text: msg.text,
+          /**
+           * Inline images ride along as base64 attachments with `disposition: 'inline'`, and the
+           * HTML refers to them by `cid:<id>`. Omitted entirely when there are none — an empty
+           * `attachments` array is a validation error rather than a no-op.
+           */
+          ...(msg.inlineImages?.length
+            ? {
+                attachments: msg.inlineImages.map((img) => ({
+                  id: img.id,
+                  filename: img.filename,
+                  disposition: 'inline',
+                  content: img.content.toString('base64'),
+                })),
+              }
+            : {}),
         }),
-      );
+      });
 
       if (res.status === 202) {
         return {

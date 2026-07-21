@@ -3,6 +3,20 @@
     "module": "commonjs",
     "target": "ES2022",
     "lib": ["ES2022"],
+    /**
+     * Pinned, and load-bearing. Without it TypeScript auto-includes every @types/* package it can
+     * see, and @types/node declares the fetch globals as
+     *   `typeof globalThis extends { onmessage: any } ? {} : undici-types' version`
+     * on the assumption that whatever supplied `onmessage` will also supply a real `Response`.
+     * So one unrelated @types package declaring a web global collapses `Response` and
+     * `RequestInit` to `{}`, and every `.ok`/`.status`/`.json()` in this codebase stops
+     * compiling — 84 errors, in files that never changed.
+     *
+     * That is exactly what happened on Vercel and never locally: same lockfile, different set of
+     * @types visible to the compiler. Pinning the list makes the build depend on this repo's
+     * dependencies rather than on what else happens to be installed around it.
+     */
+    "types": ["node"],
     "declaration": false,
     "removeComments": true,
     "emitDecoratorMetadata": true,

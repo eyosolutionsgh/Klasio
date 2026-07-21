@@ -35,7 +35,6 @@ import {
   RequirePermission,
 } from '../common/auth';
 import { balanceOf } from '../common/ledger';
-import { asResponse } from '../common/http';
 
 const hash = (key: string) => createHash('sha256').update(key).digest('hex');
 
@@ -285,18 +284,16 @@ export class IntegrationsService {
     for (const hook of targets) {
       const signature = createHmac('sha256', hook.secret).update(body).digest('hex');
       try {
-        const res = asResponse(
-          await fetch(hook.url, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Klasio-Event': event,
-              'X-Klasio-Signature': `sha256=${signature}`,
-            },
-            body,
-            signal: AbortSignal.timeout(8000),
-          }),
-        );
+        const res = await fetch(hook.url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Klasio-Event': event,
+            'X-Klasio-Signature': `sha256=${signature}`,
+          },
+          body,
+          signal: AbortSignal.timeout(8000),
+        });
         await this.db.system.webhook.update({
           where: { id: hook.id },
           data: {

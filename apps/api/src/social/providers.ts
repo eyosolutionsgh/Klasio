@@ -8,7 +8,6 @@
  */
 import { Logger } from '@nestjs/common';
 import type { SocialPlatform } from '@prisma/client';
-import { asResponse } from '../common/http';
 
 const GRAPH = 'https://graph.facebook.com/v21.0';
 
@@ -58,12 +57,10 @@ export interface SocialProvider {
 async function graph(path: string, params: Record<string, string>, method: 'GET' | 'POST' = 'GET') {
   const url = new URL(`${GRAPH}${path}`);
   if (method === 'GET') for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  const res = asResponse(
-    await fetch(url, {
-      method,
-      ...(method === 'POST' ? { body: new URLSearchParams(params) } : {}),
-    }),
-  );
+  const res = await fetch(url, {
+    method,
+    ...(method === 'POST' ? { body: new URLSearchParams(params) } : {}),
+  });
   const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) {
     const err = json.error as { message?: string } | undefined;
@@ -156,9 +153,7 @@ export class FacebookPageProvider implements SocialProvider {
         new Blob([new Uint8Array(input.media[0].buffer)], { type: input.media[0].mimeType }),
         input.media[0].filename,
       );
-      const res = asResponse(
-        await fetch(`${GRAPH}/${pageId}/photos`, { method: 'POST', body: form }),
-      );
+      const res = await fetch(`${GRAPH}/${pageId}/photos`, { method: 'POST', body: form });
       const json = (await res.json().catch(() => ({}))) as {
         id?: string;
         post_id?: string;

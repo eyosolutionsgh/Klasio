@@ -32,7 +32,6 @@
  */
 import type { Tier } from '@prisma/client';
 import type { LicenceStatus } from './licence';
-import { asResponse } from '../common/http';
 
 /** Which key the box verified its licence against — the field that makes tampering visible. */
 export type VerifiedWith = 'vendor' | 'development' | 'none';
@@ -120,14 +119,12 @@ export async function sendHeartbeat(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const res = asResponse(
-      await doFetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      }),
-    );
+    const res = await doFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
     return res.ok
       ? { ok: true, detail: `Reported (${res.status})` }
       : { ok: false, detail: `Supplier returned ${res.status}` };
