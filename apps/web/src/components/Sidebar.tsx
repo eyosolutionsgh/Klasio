@@ -104,6 +104,14 @@ const NAV: NavItem[] = [
     group: 'Daily',
   },
   {
+    href: '/transport',
+    label: 'Transport',
+    icon: 'M4 16c0 .9.4 1.7 1 2.2V20a1 1 0 001 1h1a1 1 0 001-1v-1h8v1a1 1 0 001 1h1a1 1 0 001-1v-1.8c.6-.5 1-1.3 1-2.2V6c0-3.5-3.6-4-8-4s-8 .5-8 4v10zm3.5 1a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm9 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM6 11V6h12v5H6z',
+    tip: 'Bus routes, manifests and boarding scans',
+    needs: 'safety.transport',
+    group: 'Daily',
+  },
+  {
     href: '/announcements',
     label: 'Announcements',
     icon: 'M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.1-1.6-5.6-4.5-6.3V4c0-.8-.7-1.5-1.5-1.5S10.5 3.2 10.5 4v.7C7.6 5.4 6 7.9 6 11v5l-2 2v1h16v-1l-2-2z',

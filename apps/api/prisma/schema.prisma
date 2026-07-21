@@ -416,6 +416,8 @@ model Student {
   releases        ReleaseLog[]
   checkIns        CheckInLog[]
   dismissalRequests DismissalRequest[]
+  transportRider  TransportRider?
+  transportScans  TransportScan[]
 
   @@unique([schoolId, admissionNo])
   @@index([schoolId, classId])
@@ -1019,6 +1021,79 @@ model ReleaseLog {
 
   @@unique([schoolId, clientRef])
   @@index([schoolId, releasedAt])
+  @@index([studentId])
+}
+
+// ── School transport (FEATURES.md §10, safety.transport) ────────────
+
+/// A bus route. Billing rides the fees module: a route may point at an optional FeeItem, and
+/// assigning a rider subscribes them to it — the ledger stays the only place money lives.
+model TransportRoute {
+  id          String  @id @default(cuid())
+  schoolId    String
+  name        String
+  description String?
+  /// Optional fee item this route bills through (per-term transport billing).
+  feeItemId   String?
+  createdAt   DateTime @default(now())
+
+  stops  TransportStop[]
+  riders TransportRider[]
+  scans  TransportScan[]
+
+  @@unique([schoolId, name])
+}
+
+model TransportStop {
+  id       String         @id @default(cuid())
+  schoolId String
+  routeId  String
+  route    TransportRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  name     String
+  order    Int            @default(0)
+
+  riders TransportRider[]
+
+  @@index([schoolId, routeId])
+}
+
+/// Who rides which bus — the manifest. One route per child.
+model TransportRider {
+  id        String         @id @default(cuid())
+  schoolId  String
+  /// Unique on its own: one route per child, and Prisma's 1:1 needs a single-field key.
+  studentId String         @unique
+  student   Student        @relation(fields: [studentId], references: [id])
+  routeId   String
+  route     TransportRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  stopId    String?
+  stop      TransportStop? @relation(fields: [stopId], references: [id], onDelete: SetNull)
+  createdAt DateTime       @default(now())
+
+  @@index([schoolId, routeId])
+}
+
+enum TransportDirection {
+  BOARD
+  ALIGHT
+}
+
+/// A child scanned on or off the bus. Immutable, idempotent via clientRef — the bus is the
+/// definition of an offline device.
+model TransportScan {
+  id           String             @id @default(cuid())
+  schoolId     String
+  studentId    String
+  student      Student            @relation(fields: [studentId], references: [id])
+  routeId      String
+  route        TransportRoute     @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  direction    TransportDirection
+  recordedById String
+  scannedAt    DateTime           @default(now())
+  clientRef    String?
+
+  @@unique([schoolId, clientRef])
+  @@index([schoolId, scannedAt])
   @@index([studentId])
 }
 
@@ -1699,10 +1774,12 @@ model Broadcast {
   title    String
   body     String
 
-  /// WHICH PEOPLE — the SMS vocabulary. ALL | CLASS | LEVEL | CUSTOM
+  /// WHICH PEOPLE — the SMS vocabulary. ALL | CLASS | LEVEL | ROUTE | CUSTOM
   audienceScope String   @default("ALL")
   classId       String?
   levelId       String?
+  /// For ROUTE scope: the transport route whose riders' families are addressed.
+  routeId       String?
   /// Explicit numbers, for CUSTOM.
   recipients    String[]
   /// WHICH PORTALS — the Announcement vocabulary. GUARDIANS | STUDENTS | STAFF

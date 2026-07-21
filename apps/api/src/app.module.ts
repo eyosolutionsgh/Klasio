@@ -21,6 +21,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { PickupModule } from './pickup/pickup.module';
 import { HrModule } from './hr/hr.module';
 import { SyllabusModule } from './syllabus/syllabus.module';
+import { TransportModule } from './transport/transport.module';
 import { StudentPortalModule } from './student-portal/student-portal.module';
 import { ReconciliationModule } from './reconciliation/reconciliation.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
@@ -62,6 +63,7 @@ import { SetupModule } from './setup/setup.module';
     PickupModule,
     HrModule,
     SyllabusModule,
+    TransportModule,
     StudentPortalModule,
     ReconciliationModule,
     WhatsAppModule,

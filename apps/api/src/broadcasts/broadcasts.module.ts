@@ -62,7 +62,7 @@ import { PageQuery, pageArgs, toPage } from '../common/list-query';
 
 export const CHANNELS = ['PORTAL', 'SMS', 'EMAIL', 'SOCIAL'] as const;
 export type Channel = (typeof CHANNELS)[number];
-const SCOPES = ['ALL', 'CLASS', 'LEVEL', 'CUSTOM'] as const;
+const SCOPES = ['ALL', 'CLASS', 'LEVEL', 'ROUTE', 'CUSTOM'] as const;
 const ROLES = ['GUARDIANS', 'STUDENTS', 'STAFF'] as const;
 
 class CreateBroadcastDto {
@@ -72,6 +72,7 @@ class CreateBroadcastDto {
   @IsIn(SCOPES) audienceScope: (typeof SCOPES)[number];
   @IsOptional() @IsString() classId?: string;
   @IsOptional() @IsString() levelId?: string;
+  @IsOptional() @IsString() routeId?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) recipients?: string[];
 
   @IsArray() @ArrayNotEmpty() @IsIn(ROLES, { each: true }) audienceRoles: string[];
@@ -173,6 +174,7 @@ export class BroadcastsService {
       status: 'ACTIVE';
       classId?: string;
       classRoom?: { levelId: string };
+      transportRider?: { routeId: string };
     } = { schoolId: auth.schoolId, status: 'ACTIVE' };
     if (dto.audienceScope === 'CLASS') {
       if (!dto.classId) throw new BadRequestException('Pick a class');
@@ -181,6 +183,10 @@ export class BroadcastsService {
     if (dto.audienceScope === 'LEVEL') {
       if (!dto.levelId) throw new BadRequestException('Pick a level');
       where.classRoom = { levelId: dto.levelId };
+    }
+    if (dto.audienceScope === 'ROUTE') {
+      if (!dto.routeId) throw new BadRequestException('Pick a route');
+      where.transportRider = { routeId: dto.routeId };
     }
     const students = await this.db.student.findMany({
       where,
@@ -212,9 +218,13 @@ export class BroadcastsService {
       status: 'ACTIVE';
       classId?: string;
       classRoom?: { levelId: string };
+      transportRider?: { routeId: string };
     } = { schoolId: auth.schoolId, status: 'ACTIVE' };
     if (dto.audienceScope === 'CLASS' && dto.classId) where.classId = dto.classId;
     if (dto.audienceScope === 'LEVEL' && dto.levelId) where.classRoom = { levelId: dto.levelId };
+    if (dto.audienceScope === 'ROUTE' && dto.routeId) {
+      where.transportRider = { routeId: dto.routeId };
+    }
 
     const students = await this.db.student.findMany({
       where,
@@ -277,6 +287,7 @@ export class BroadcastsService {
         audienceScope: dto.audienceScope,
         classId: dto.classId,
         levelId: dto.levelId,
+        routeId: dto.routeId,
         recipients: dto.recipients ?? [],
         audienceRoles: dto.audienceRoles,
         channels: dto.channels,

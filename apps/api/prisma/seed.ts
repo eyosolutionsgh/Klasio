@@ -104,6 +104,9 @@ async function main() {
     await db.releaseLog.deleteMany({ where: { schoolId: sid } });
     await db.checkInLog.deleteMany({ where: { schoolId: sid } });
     await db.carLineEntry.deleteMany({ where: { schoolId: sid } });
+    await db.transportScan.deleteMany({ where: { schoolId: sid } });
+    await db.transportRider.deleteMany({ where: { schoolId: sid } });
+    await db.transportRoute.deleteMany({ where: { schoolId: sid } });
     await db.dismissalRequest.deleteMany({ where: { schoolId: sid } });
     // Optional-fee subscriptions reference both students and fee items.
     await db.studentFeeItem.deleteMany({ where: { schoolId: sid } });
