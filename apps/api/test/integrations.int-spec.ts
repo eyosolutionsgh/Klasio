@@ -50,7 +50,8 @@ describe('integrations api keys', () => {
       headers: { 'x-api-key': minted.body.key },
     });
     expect(summary.status).toBe(200);
-    expect((await summary.json()).totalOutstanding).toBeGreaterThanOrEqual(0);
+    const summaryBody = (await summary.json()) as { totalOutstanding: number };
+    expect(summaryBody.totalOutstanding).toBeGreaterThanOrEqual(0);
 
     // Revoke, and the same key is dead.
     const keys = await call<{ id: string }[]>(api.baseUrl, 'GET', '/integrations/keys', { token });
