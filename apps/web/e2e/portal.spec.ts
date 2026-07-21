@@ -63,26 +63,26 @@ test.describe('EYO SMS portal — end-to-end', () => {
      * A throwaway address, not a demo account.
      *
      * Wrong passwords now count towards a lockout, and they count against the address whether or
-     * not it has an account. Failing `bursar@demo.school` here would spend one of that account's
+     * not it has an account. Failing `klasio-bursar@mailinator.com` here would spend one of that account's
      * five attempts on every run — and the tests below sign in as the bursar, so a handful of
      * runs inside the window would start failing them with a 429 that reads, from the browser,
      * exactly like a broken login page.
      */
-    await page.getByLabel('Email address').fill('not-a-real-account@demo.school');
+    await page.getByLabel('Email address').fill('klasio-not-a-real-account@mailinator.com');
     await page.getByRole('textbox', { name: 'Password' }).fill('wrong-password');
     await page.getByRole('button', { name: 'Log in' }).click();
     await expect(page.getByText('That email or password is not right')).toBeVisible();
   });
 
   test('dashboard shows term stats after login', async ({ page }) => {
-    await login(page, 'bursar@demo.school');
+    await login(page, 'klasio-bursar@mailinator.com');
     await expect(page.getByText('Fees position')).toBeVisible();
     await expect(page.getByText('Students enrolled')).toBeVisible();
     await page.screenshot({ path: `${SHOTS}/02-dashboard.png`, fullPage: true });
   });
 
   test('students list, filter and detail with ledger', async ({ page }) => {
-    await login(page, 'bursar@demo.school');
+    await login(page, 'klasio-bursar@mailinator.com');
     await visit(page, '/students');
     await expect(page.getByRole('heading', { name: 'Students' })).toBeVisible();
     await page.screenshot({ path: `${SHOTS}/03-students.png`, fullPage: true });
@@ -102,7 +102,7 @@ test.describe('EYO SMS portal — end-to-end', () => {
   });
 
   test('teacher marks attendance for a class', async ({ page }) => {
-    await login(page, 'teacher@demo.school');
+    await login(page, 'klasio-teacher@mailinator.com');
     await visit(page, '/attendance');
     await page.waitForSelector('li:has-text("BA-")');
     await page.getByRole('button', { name: 'All present' }).click();
@@ -123,7 +123,7 @@ test.describe('EYO SMS portal — end-to-end', () => {
   });
 
   test('teacher edits a score and saves', async ({ page }) => {
-    await login(page, 'teacher@demo.school');
+    await login(page, 'klasio-teacher@mailinator.com');
     await visit(page, '/marks');
     await page.waitForSelector('tbody tr');
     const firstInput = page.locator('tbody input').first();
@@ -136,7 +136,7 @@ test.describe('EYO SMS portal — end-to-end', () => {
   });
 
   test('head generates terminal reports and views a GES terminal report', async ({ page }) => {
-    await login(page, 'head@demo.school');
+    await login(page, 'klasio-head@mailinator.com');
     await visit(page, '/reports');
     /*
       Pick JHS 2 (it has full scores) and wait for the class switch to land.
@@ -164,7 +164,7 @@ test.describe('EYO SMS portal — end-to-end', () => {
   });
 
   test('bursar records a payment against a defaulter', async ({ page }) => {
-    await login(page, 'bursar@demo.school');
+    await login(page, 'klasio-bursar@mailinator.com');
     await visit(page, '/fees');
     await expect(page.getByRole('heading', { name: 'Defaulters' })).toBeVisible();
     await page.screenshot({ path: `${SHOTS}/09-fees.png`, fullPage: true });
@@ -191,7 +191,7 @@ test.describe('EYO SMS portal — end-to-end', () => {
    * an automated run should do to a school's account.
    */
   test('head sends a broadcast to the notice board', async ({ page }) => {
-    await login(page, 'head@demo.school');
+    await login(page, 'klasio-head@mailinator.com');
     await visit(page, '/announcements');
     await page.getByLabel('Title').fill('Speech and Prize-Giving Day');
     await page
@@ -211,7 +211,7 @@ test.describe('EYO SMS portal — end-to-end', () => {
   });
 
   test('role gating: teacher cannot record payments (API 403)', async ({ page }) => {
-    await login(page, 'teacher@demo.school');
+    await login(page, 'klasio-teacher@mailinator.com');
     const res = await page.request.post('/api/proxy/fees/payments', {
       data: { studentId: 'x', amount: 10, method: 'CASH' },
     });

@@ -167,7 +167,7 @@ async function main() {
       motto: 'Knowledge · Discipline · Service',
       address: 'Adjiringanor Road, East Legon, Accra',
       phone: '+233 24 000 0000',
-      email: 'info@brightonacademy.edu.gh',
+      email: 'klasio-brighton@mailinator.com',
       region: 'Greater Accra',
       website: 'www.brightonacademy.edu.gh',
       brandColor: '#002b5b',
@@ -224,7 +224,7 @@ async function main() {
       data: {
         schoolId: sid,
         name: 'Alexander Odoom',
-        email: 'owner@demo.school',
+        email: 'klasio-owner@mailinator.com',
         role: 'OWNER',
         passwordHash: hash,
       },
@@ -233,7 +233,7 @@ async function main() {
       data: {
         schoolId: sid,
         name: 'Mrs. Dora Ampofo',
-        email: 'head@demo.school',
+        email: 'klasio-head@mailinator.com',
         role: 'HEAD',
         staffRoleId: roleByKey.get('HEAD'),
         passwordHash: hash,
@@ -243,7 +243,7 @@ async function main() {
       data: {
         schoolId: sid,
         name: 'Mr. Ebo Quaye',
-        email: 'bursar@demo.school',
+        email: 'klasio-bursar@mailinator.com',
         role: 'BURSAR',
         staffRoleId: roleByKey.get('BURSAR'),
         passwordHash: hash,
@@ -253,7 +253,7 @@ async function main() {
       data: {
         schoolId: sid,
         name: 'Ms. Efua Sarpong',
-        email: 'teacher@demo.school',
+        email: 'klasio-teacher@mailinator.com',
         role: 'TEACHER',
         staffRoleId: roleByKey.get('CLASS_TEACHER'),
         passwordHash: hash,
@@ -665,7 +665,7 @@ async function main() {
     `Seeded ${school.name}: ${allStudents.length} students, 3 terms, scores + fees for Term 3.`,
   );
   console.log(
-    'Logins (password: Password1!): owner@demo.school · head@demo.school · bursar@demo.school · teacher@demo.school',
+    'Logins (password: Password1!): klasio-owner@mailinator.com · klasio-head@mailinator.com · klasio-bursar@mailinator.com · klasio-teacher@mailinator.com',
   );
 }
 

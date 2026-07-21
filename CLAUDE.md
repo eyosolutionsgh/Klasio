@@ -39,7 +39,7 @@ pnpm --filter @eyo/api exec vitest run --config vitest.integration.config.ts tes
 pnpm --filter @eyo/web exec playwright test e2e/portal.spec.ts
 ```
 
-Demo logins (password `Password1!`): `owner@ · head@ · bursar@ · teacher@` `demo.school`.
+Demo logins (password `Password1!`): `klasio-owner@ · klasio-head@ · klasio-bursar@ · klasio-teacher@` `mailinator.com`.
 
 A **fresh** install has no school at all: the first visit lands on `/setup`, which creates the
 school and its owner and then closes permanently (guarded on `school.count() === 0`, not a token).

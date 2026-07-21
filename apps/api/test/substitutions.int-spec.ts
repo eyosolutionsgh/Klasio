@@ -39,8 +39,8 @@ describe('substitutions', () => {
     periodId = period.id;
     const classes = await db.classRoom.findMany({ where: { schoolId }, take: 2 });
     const [teacherA, teacherB] = await Promise.all([
-      db.user.findFirstOrThrow({ where: { schoolId, email: 'teacher@demo.school' } }),
-      db.user.findFirstOrThrow({ where: { schoolId, email: 'head@demo.school' } }),
+      db.user.findFirstOrThrow({ where: { schoolId, email: 'klasio-teacher@mailinator.com' } }),
+      db.user.findFirstOrThrow({ where: { schoolId, email: 'klasio-head@mailinator.com' } }),
     ]);
     absentId = teacherA.id;
     reliefId = teacherB.id;

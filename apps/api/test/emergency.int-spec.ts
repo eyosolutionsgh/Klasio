@@ -22,7 +22,7 @@ describe('emergency alerts', () => {
     schoolId = seeded.school.id;
     // Staff numbers exist in the seed? Give the head a phone so the staff leg has a target.
     await db.user.updateMany({
-      where: { schoolId, email: 'head@demo.school' },
+      where: { schoolId, email: 'klasio-head@mailinator.com' },
       data: { phone: '0244000001' },
     });
   });
@@ -86,7 +86,7 @@ describe('emergency alerts', () => {
 
   it('refuses a teacher, who does not hold the emergency permission', async () => {
     const signIn = await call<{ token: string }>(api.baseUrl, 'POST', '/auth/login', {
-      body: { email: 'teacher@demo.school', password: 'Password1!' },
+      body: { email: 'klasio-teacher@mailinator.com', password: 'Password1!' },
     });
     expect(signIn.status, JSON.stringify(signIn.body)).toBe(201);
     const res = await call(api.baseUrl, 'POST', '/broadcasts/emergency', {

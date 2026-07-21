@@ -21,8 +21,9 @@ describe('payroll', () => {
     const seeded = await seededSchool(db);
     token = seeded.token;
     schoolId = seeded.school.id;
-    headId = (await db.user.findFirstOrThrow({ where: { schoolId, email: 'head@demo.school' } }))
-      .id;
+    headId = (
+      await db.user.findFirstOrThrow({ where: { schoolId, email: 'klasio-head@mailinator.com' } })
+    ).id;
   });
 
   afterAll(async () => {
@@ -95,7 +96,7 @@ describe('payroll', () => {
 
   it('refuses payroll to a teacher', async () => {
     const signIn = await call<{ token: string }>(api.baseUrl, 'POST', '/auth/login', {
-      body: { email: 'teacher@demo.school', password: 'Password1!' },
+      body: { email: 'klasio-teacher@mailinator.com', password: 'Password1!' },
     });
     const res = await call(api.baseUrl, 'GET', '/payroll/profiles', {
       token: signIn.body.token,

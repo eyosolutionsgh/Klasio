@@ -27,7 +27,7 @@ const SHOTS = 'e2e/screenshots/tenancy';
 
 /** School A — the original demo school. Nothing in this file may change it. */
 const A = {
-  owner: 'owner@demo.school',
+  owner: 'klasio-owner@mailinator.com',
   school: 'Brighton Academy',
   admissionPrefix: 'BA-',
   term: 'Term 3',
@@ -35,7 +35,7 @@ const A = {
 
 /** School B — provisioned by seed-second-school.ts. */
 const B = {
-  owner: 'owner@sunbeam.school',
+  owner: 'klasio-sunbeam-owner@mailinator.com',
   school: 'Sunbeam International School',
   admissionPrefix: 'SIS/',
   term: 'Trinity Term',

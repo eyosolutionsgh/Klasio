@@ -36,7 +36,7 @@ pnpm db:seed                          # demo school: Brighton Academy
 pnpm dev                              # api :4000 · web :3000
 ```
 
-Demo logins (password `Password1!`): `owner@demo.school` · `head@demo.school` · `bursar@demo.school` · `teacher@demo.school`
+Demo logins (password `Password1!`): `klasio-owner@mailinator.com` · `klasio-head@mailinator.com` · `klasio-bursar@mailinator.com` · `klasio-teacher@mailinator.com`
 
 ## Tests
 

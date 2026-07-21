@@ -22,11 +22,11 @@ describe('staff attendance and leave', () => {
     ownerToken = seeded.token;
     schoolId = seeded.school.id;
     const head = await db.user.findFirstOrThrow({
-      where: { schoolId, email: 'head@demo.school' },
+      where: { schoolId, email: 'klasio-head@mailinator.com' },
     });
     headId = head.id;
     const signIn = await call<{ token: string }>(api.baseUrl, 'POST', '/auth/login', {
-      body: { email: 'head@demo.school', password: 'Password1!' },
+      body: { email: 'klasio-head@mailinator.com', password: 'Password1!' },
     });
     expect(signIn.status, JSON.stringify(signIn.body)).toBe(201);
     headToken = signIn.body.token;

@@ -103,7 +103,7 @@ async function main() {
       motto: 'Light · Truth · Excellence',
       address: 'Spintex Road, Tema, Greater Accra',
       phone: '+233 30 111 2222',
-      email: 'info@sunbeam.edu.gh',
+      email: 'klasio-sunbeam@mailinator.com',
       region: 'Greater Accra',
       website: 'www.sunbeam.edu.gh',
       // Deliberately nothing like Brighton's green — a leaked page is visible at a glance.
@@ -136,7 +136,7 @@ async function main() {
       data: {
         schoolId: sid,
         name: 'Mr. Selorm Zorkpe',
-        email: 'owner@sunbeam.school',
+        email: 'klasio-sunbeam-owner@mailinator.com',
         role: 'OWNER',
         passwordHash: hash,
       },
@@ -145,7 +145,7 @@ async function main() {
       data: {
         schoolId: sid,
         name: 'Mrs. Dzifa Vandyke',
-        email: 'head@sunbeam.school',
+        email: 'klasio-sunbeam-head@mailinator.com',
         role: 'HEAD',
         staffRoleId: roleByKey.get('HEAD'),
         passwordHash: hash,
@@ -155,7 +155,7 @@ async function main() {
       data: {
         schoolId: sid,
         name: 'Mr. Mawuli Xatse',
-        email: 'bursar@sunbeam.school',
+        email: 'klasio-sunbeam-bursar@mailinator.com',
         role: 'BURSAR',
         staffRoleId: roleByKey.get('BURSAR'),
         passwordHash: hash,
@@ -165,7 +165,7 @@ async function main() {
       data: {
         schoolId: sid,
         name: 'Ms. Sedinam Wuni',
-        email: 'teacher@sunbeam.school',
+        email: 'klasio-sunbeam-teacher@mailinator.com',
         role: 'TEACHER',
         staffRoleId: roleByKey.get('CLASS_TEACHER'),
         passwordHash: hash,
@@ -333,7 +333,9 @@ async function main() {
   }
 
   console.log(`Sunbeam International School provisioned: ${sid} (tier ${school.tier})`);
-  console.log('  owner@sunbeam.school / head@sunbeam.school / bursar@sunbeam.school — Password1!');
+  console.log(
+    '  klasio-sunbeam-owner@mailinator.com / klasio-sunbeam-head@mailinator.com / klasio-sunbeam-bursar@mailinator.com — Password1!',
+  );
 }
 
 main()
