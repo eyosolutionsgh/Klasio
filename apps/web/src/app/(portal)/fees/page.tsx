@@ -232,7 +232,17 @@ export default async function FeesPage({
             </p>
           )}
 
-          <DefaultersTable rows={defaulters.rows} currency={cur} params={params} />
+          <DefaultersTable
+            rows={defaulters.rows}
+            currency={cur}
+            params={params}
+            termId={termId}
+            /* Only worth offering when the school actually withholds reports and this user may
+               override it — otherwise it offers to undo something that never happens. */
+            canClear={
+              !!me.school?.reportsRequireFeeClearance && !!me.permissions?.includes('fees.clearance')
+            }
+          />
           <Pagination page={defaulters} base="/fees" params={params} label="defaulters" />
         </section>
 

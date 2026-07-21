@@ -38,6 +38,8 @@ export interface Me {
     email: string | null;
     website: string | null;
     brandColor: string | null;
+    /** "No fees, no report card" — whether this school withholds reports over a balance. */
+    reportsRequireFeeClearance?: boolean;
     hasLogo: boolean;
   };
   currentTerm: {

@@ -31,6 +31,7 @@ import { maskEmail } from '../common/mask';
 import { isOverLimit, pruneWindows, recordHit, RateWindow } from '../common/rate-window';
 import { reportCardPdf, ReportCardData } from '../common/pdf';
 import { balanceOf } from '../common/ledger';
+import { clearanceVerdict } from '../common/fee-clearance';
 import { storage } from '../common/storage';
 import { SmsModule, SmsService } from '../sms/sms.module';
 import { EmailModule, EmailService } from '../email/email.module';
@@ -637,6 +638,31 @@ export class GuardianService {
     };
   }
 
+  /**
+   * Is this family's report held back for unpaid fees?
+   *
+   * Answered once, here, so the list, the detail and the PDF cannot disagree — a report that is
+   * visible in the list and refused on download is worse than one that is plainly held.
+   */
+  private async clearance(auth: GuardianUser, studentId: string, termId: string) {
+    const [school, cleared, ledger] = await Promise.all([
+      this.db.school.findUniqueOrThrow({
+        where: { id: auth.schoolId },
+        select: { reportsRequireFeeClearance: true },
+      }),
+      this.db.feeClearance.findUnique({
+        where: { studentId_termId: { studentId, termId } },
+      }),
+      // Cumulative, never a single term's slice: what a family owes includes what it carried in.
+      this.db.ledgerEntry.findMany({ where: { studentId } }),
+    ]);
+    return clearanceVerdict({
+      policyOn: school.reportsRequireFeeClearance,
+      balance: balanceOf(ledger),
+      cleared: !!cleared,
+    });
+  }
+
   /** Only published reports are ever visible to a guardian. */
   async wardReports(auth: GuardianUser, studentId: string) {
     await this.ward(auth, studentId);
@@ -649,15 +675,43 @@ export class GuardianService {
       include: { academicYear: { select: { name: true } } },
     });
     const termById = new Map(terms.map((t) => [t.id, t]));
-    return reports.map((r) => ({
-      termId: r.termId,
-      term: termById.get(r.termId)?.name ?? '',
-      year: termById.get(r.termId)?.academicYear.name ?? '',
-      overallTotal: r.overallTotal,
-      classPosition: r.classPosition,
-      classSize: r.classSize,
-      publishedAt: r.publishedAt,
-    }));
+
+    /*
+      A held report is listed, not hidden. The family is meant to know the report exists and why
+      they cannot open it — that is the entire point of the policy, and silently omitting it would
+      read as "the school never published my child's results".
+    */
+    const [school, clearances, ledger] = await Promise.all([
+      this.db.school.findUniqueOrThrow({
+        where: { id: auth.schoolId },
+        select: { reportsRequireFeeClearance: true },
+      }),
+      this.db.feeClearance.findMany({ where: { studentId }, select: { termId: true } }),
+      this.db.ledgerEntry.findMany({ where: { studentId } }),
+    ]);
+    const clearedTerms = new Set(clearances.map((c) => c.termId));
+    const balance = balanceOf(ledger);
+
+    return reports.map((r) => {
+      const verdict = clearanceVerdict({
+        policyOn: school.reportsRequireFeeClearance,
+        balance,
+        cleared: clearedTerms.has(r.termId),
+      });
+      return {
+        termId: r.termId,
+        term: termById.get(r.termId)?.name ?? '',
+        year: termById.get(r.termId)?.academicYear.name ?? '',
+        // Withheld marks are absent, not zeroed: a nulled position is "not shown", a zero is a
+        // claim about the child. See student-detail-custody-redaction.
+        overallTotal: verdict.allowed ? r.overallTotal : null,
+        classPosition: verdict.allowed ? r.classPosition : null,
+        classSize: verdict.allowed ? r.classSize : null,
+        publishedAt: r.publishedAt,
+        held: !verdict.allowed,
+        heldReason: verdict.allowed ? null : verdict.reason,
+      };
+    });
   }
 
   private async publishedCard(auth: GuardianUser, studentId: string, termId: string) {
@@ -666,6 +720,11 @@ export class GuardianService {
       where: { studentId, termId, schoolId: auth.schoolId, publishedAt: { not: null } },
     });
     if (!report) throw new NotFoundException('That report has not been published');
+
+    // Checked on the detail and the PDF as well as the list, because a link that is merely not
+    // rendered is not a gate — the URL is guessable and the term id is on screen.
+    const verdict = await this.clearance(auth, studentId, termId);
+    if (!verdict.allowed) throw new ForbiddenException(verdict.reason);
 
     const [school, term, level] = await Promise.all([
       this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } }),

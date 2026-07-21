@@ -27,6 +27,7 @@ import {
 import { canReply, minutesLeft, windowFromInbound } from '../common/whatsapp-window';
 import { normalizeMsisdn } from '../common/phone';
 import { balanceOf } from '../common/ledger';
+import { clearanceVerdict } from '../common/fee-clearance';
 import {
   WhatsAppIntent,
   classifyMessage,
@@ -410,6 +411,29 @@ export class WhatsAppService {
     });
     if (!report) {
       return `${ward.firstName}'s next terminal report hasn't been released yet. You'll get a text the moment it is published.`;
+    }
+    /*
+      The assistant is a third door onto the same report, so it obeys the same fee gate as the two
+      portals. Quoting the total here while the portal held it would have made the policy look
+      like a broken link rather than a decision — and would have handed over the mark anyway.
+    */
+    const [school, cleared, ledger] = await Promise.all([
+      this.db.school.findUniqueOrThrow({
+        where: { id: schoolId },
+        select: { reportsRequireFeeClearance: true },
+      }),
+      this.db.feeClearance.findUnique({
+        where: { studentId_termId: { studentId: ward.id, termId: report.termId } },
+      }),
+      this.db.ledgerEntry.findMany({ where: { studentId: ward.id } }),
+    ]);
+    const gate = clearanceVerdict({
+      policyOn: school.reportsRequireFeeClearance,
+      balance: balanceOf(ledger),
+      cleared: !!cleared,
+    });
+    if (!gate.allowed) {
+      return `${ward.firstName}'s terminal report is ready, but it is held until the fees are settled. ${gate.reason}`;
     }
     const term = await this.db.term.findUnique({
       where: { id: report.termId },

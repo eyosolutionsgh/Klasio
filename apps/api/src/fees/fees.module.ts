@@ -159,6 +159,13 @@ class ReverseDto {
   @IsString() @MinLength(4) reason: string;
 }
 
+class FeeClearanceDto {
+  @IsString() studentId: string;
+  @IsString() termId: string;
+  /** Same rule as a reversal or a scholarship: state why, or it is a favour rather than a decision. */
+  @IsString() @MinLength(4) reason: string;
+}
+
 class ConcessionDto {
   @IsString() studentId: string;
   @IsNumber() @IsPositive() amount: number;
@@ -760,6 +767,74 @@ export class FeesService {
    * comes from `overview()`, which sums the whole set and does not page — turning a page must not
    * be able to change what a school believes it is owed.
    */
+  /**
+   * Let one child's family read a held report despite the balance.
+   *
+   * The reason is required for the same reason a scholarship's is: an override without a stated
+   * reason is a favour, and the next bursar cannot tell a payment plan from a friendship.
+   */
+  async grantClearance(auth: AuthUser, dto: FeeClearanceDto) {
+    const [student, term] = await Promise.all([
+      this.db.student.findFirst({ where: { id: dto.studentId, schoolId: auth.schoolId } }),
+      this.db.term.findFirst({
+        where: { id: dto.termId, academicYear: { schoolId: auth.schoolId } },
+      }),
+    ]);
+    if (!student) throw new NotFoundException('Student not found');
+    if (!term) throw new NotFoundException('Term not found');
+
+    const row = await this.db.feeClearance.upsert({
+      where: { studentId_termId: { studentId: dto.studentId, termId: dto.termId } },
+      create: {
+        schoolId: auth.schoolId,
+        studentId: dto.studentId,
+        termId: dto.termId,
+        reason: dto.reason.trim(),
+        grantedById: auth.sub,
+      },
+      update: { reason: dto.reason.trim(), grantedById: auth.sub },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'fees.clearance.grant', 'Student', dto.studentId, {
+      termId: dto.termId,
+      reason: dto.reason.trim(),
+    });
+    return { id: row.id, granted: true };
+  }
+
+  /** Take a clearance back. Audited, because it re-closes a door that was opened deliberately. */
+  async revokeClearance(auth: AuthUser, studentId: string, termId: string) {
+    const existing = await this.db.feeClearance.findUnique({
+      where: { studentId_termId: { studentId, termId } },
+    });
+    if (!existing || existing.schoolId !== auth.schoolId) {
+      throw new NotFoundException('No clearance on file');
+    }
+    await this.db.feeClearance.delete({ where: { id: existing.id } });
+    await this.db.audit(auth.schoolId, auth.sub, 'fees.clearance.revoke', 'Student', studentId, {
+      termId,
+    });
+    return { revoked: true };
+  }
+
+  /** Who has been let through for a term, and why. */
+  async listClearances(auth: AuthUser, termId: string) {
+    const rows = await this.db.feeClearance.findMany({
+      where: { schoolId: auth.schoolId, termId },
+      include: {
+        student: { select: { id: true, firstName: true, lastName: true, admissionNo: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      studentId: r.studentId,
+      studentName: `${r.student.firstName} ${r.student.lastName}`,
+      admissionNo: r.student.admissionNo,
+      reason: r.reason,
+      createdAt: r.createdAt,
+    }));
+  }
+
   async listDefaulters(auth: AuthUser, q: ListDefaultersDto) {
     const all = await this.defaulters(auth, q.termId);
     const needle = q.q?.trim().toLowerCase();
@@ -1907,6 +1982,28 @@ export class FeesController {
   @RequirePermission('fees.view')
   defaulters(@CurrentUser() user: AuthUser, @Query() query: ListDefaultersDto) {
     return this.svc.listDefaulters(user, query);
+  }
+
+  @Get('clearances')
+  @RequirePermission('fees.view')
+  clearances(@CurrentUser() user: AuthUser, @Query('termId') termId: string) {
+    return this.svc.listClearances(user, termId);
+  }
+
+  @Post('clearances')
+  @RequirePermission('fees.clearance')
+  grantClearance(@CurrentUser() user: AuthUser, @Body() dto: FeeClearanceDto) {
+    return this.svc.grantClearance(user, dto);
+  }
+
+  @Delete('clearances/:studentId/:termId')
+  @RequirePermission('fees.clearance')
+  revokeClearance(
+    @CurrentUser() user: AuthUser,
+    @Param('studentId') studentId: string,
+    @Param('termId') termId: string,
+  ) {
+    return this.svc.revokeClearance(user, studentId, termId);
   }
 
   @Get('students/:id/statement.pdf')

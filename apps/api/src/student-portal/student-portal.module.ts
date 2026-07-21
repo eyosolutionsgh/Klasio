@@ -2,6 +2,7 @@ import {
   CanActivate,
   Controller,
   ExecutionContext,
+  ForbiddenException,
   Get,
   Injectable,
   Module,
@@ -25,6 +26,7 @@ import { CalendarModule, CalendarService } from '../calendar/calendar.module';
 import { ResourcesModule, ResourcesService, ResourceScope } from '../resources/resources.module';
 import { balanceOf } from '../common/ledger';
 import { reportCardPdf, ReportCardData } from '../common/pdf';
+import { clearanceVerdict } from '../common/fee-clearance';
 import { storage } from '../common/storage';
 
 /** Wrong PINs before the account is barred, and for how long. */
@@ -195,10 +197,17 @@ export class StudentPortalService {
       where: { id: auth.sub },
       include: {
         classRoom: { select: { name: true } },
-        school: { select: { name: true, phone: true, currency: true } },
+        school: {
+          select: {
+            name: true,
+            phone: true,
+            currency: true,
+            reportsRequireFeeClearance: true,
+          },
+        },
       },
     });
-    const [attendance, reports, ledger] = await Promise.all([
+    const [attendance, reports, ledger, clearances] = await Promise.all([
       this.db.attendanceRecord.groupBy({
         by: ['status'],
         where: { studentId: auth.sub },
@@ -210,9 +219,19 @@ export class StudentPortalService {
         orderBy: { generatedAt: 'desc' },
       }),
       this.db.ledgerEntry.findMany({ where: { studentId: auth.sub } }),
+      this.db.feeClearance.findMany({ where: { studentId: auth.sub }, select: { termId: true } }),
     ]);
 
     const balance = balanceOf(ledger);
+    // The pupil's own view obeys the same fee gate as their guardian's: a child must not be the
+    // way around a policy their family is subject to.
+    const clearedTerms = new Set(clearances.map((c) => c.termId));
+    const verdictFor = (termId: string) =>
+      clearanceVerdict({
+        policyOn: student.school.reportsRequireFeeClearance,
+        balance,
+        cleared: clearedTerms.has(termId),
+      });
 
     const terms = await this.db.term.findMany({
       where: { id: { in: reports.map((r) => r.termId) } },
@@ -232,14 +251,19 @@ export class StudentPortalService {
         (acc, a) => ({ ...acc, [a.status]: a._count }),
         {} as Record<string, number>,
       ),
-      reports: reports.map((r) => ({
-        termId: r.termId,
-        term: termById.get(r.termId)?.name ?? '',
-        year: termById.get(r.termId)?.academicYear.name ?? '',
-        overallTotal: Number(r.overallTotal),
-        classPosition: r.classPosition,
-        classSize: r.classSize,
-      })),
+      reports: reports.map((r) => {
+        const verdict = verdictFor(r.termId);
+        return {
+          termId: r.termId,
+          term: termById.get(r.termId)?.name ?? '',
+          year: termById.get(r.termId)?.academicYear.name ?? '',
+          overallTotal: verdict.allowed ? Number(r.overallTotal) : null,
+          classPosition: verdict.allowed ? r.classPosition : null,
+          classSize: verdict.allowed ? r.classSize : null,
+          held: !verdict.allowed,
+          heldReason: verdict.allowed ? null : verdict.reason,
+        };
+      }),
     };
   }
 
@@ -259,6 +283,25 @@ export class StudentPortalService {
       }),
     ]);
     if (!report) throw new NotFoundException('That report has not been published');
+
+    // Same gate as the list, for the same reason as in the guardian portal: a URL nobody rendered
+    // is still a URL, and the term id is on the screen the pupil just came from.
+    const [gateSchool, gateCleared, gateLedger] = await Promise.all([
+      this.db.school.findUniqueOrThrow({
+        where: { id: auth.schoolId },
+        select: { reportsRequireFeeClearance: true },
+      }),
+      this.db.feeClearance.findUnique({
+        where: { studentId_termId: { studentId: auth.sub, termId } },
+      }),
+      this.db.ledgerEntry.findMany({ where: { studentId: auth.sub } }),
+    ]);
+    const gate = clearanceVerdict({
+      policyOn: gateSchool.reportsRequireFeeClearance,
+      balance: balanceOf(gateLedger),
+      cleared: !!gateCleared,
+    });
+    if (!gate.allowed) throw new ForbiddenException(gate.reason);
 
     const [school, term, level] = await Promise.all([
       this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } }),

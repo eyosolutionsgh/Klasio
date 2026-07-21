@@ -65,6 +65,8 @@ interface UploadedFileLike {
 
 class SchoolSettingsDto {
   @IsOptional() @IsIn(['GES', 'MODERN']) reportTemplate?: ReportTemplate;
+  /// "No fees, no report card". Off unless a school turns it on — see common/fee-clearance.ts.
+  @IsOptional() @IsBoolean() reportsRequireFeeClearance?: boolean;
   /// The school's own admission-number format. Validated in the service, where the message can
   /// explain what is wrong rather than just rejecting a pattern.
   @IsOptional() @IsString() admissionNoFormat?: string;
@@ -223,6 +225,9 @@ export class SchoolsService {
       where: { id: auth.schoolId },
       data: {
         ...(dto.reportTemplate ? { reportTemplate: dto.reportTemplate } : {}),
+        ...(dto.reportsRequireFeeClearance !== undefined
+          ? { reportsRequireFeeClearance: dto.reportsRequireFeeClearance }
+          : {}),
         ...(dto.admissionNoFormat !== undefined
           ? { admissionNoFormat: dto.admissionNoFormat.trim() }
           : {}),
@@ -239,6 +244,7 @@ export class SchoolsService {
     );
     return {
       reportTemplate: school.reportTemplate,
+      reportsRequireFeeClearance: school.reportsRequireFeeClearance,
       admissionNoFormat: school.admissionNoFormat,
       admissionNoNext: school.admissionNoNext,
       // A worked example, so the school sees the shape it just chose.
@@ -264,6 +270,7 @@ export class SchoolsService {
       tier: s.tier,
       brandColor: s.brandColor,
       reportTemplate: s.reportTemplate,
+      reportsRequireFeeClearance: s.reportsRequireFeeClearance,
       hasLogo: !!s.logoUrl,
     };
   }

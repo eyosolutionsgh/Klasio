@@ -117,6 +117,12 @@ export const PERMISSIONS = [
     caution: 'Reduces what a family owes.',
   },
   {
+    code: 'fees.clearance',
+    label: 'Release a held report despite unpaid fees',
+    group: 'Finance',
+    caution: "Lets one family read results the school's fee policy is withholding.",
+  },
+  {
     code: 'fees.reverse',
     label: 'Reverse a ledger entry',
     group: 'Finance',
@@ -408,6 +414,7 @@ export const ROLE_PRESETS: RolePreset[] = [
       'fees.structure',
       'fees.invoice',
       'fees.concessions',
+      'fees.clearance',
       'fees.reverse',
       'fees.reconcile',
       'fees.deposit_submit',

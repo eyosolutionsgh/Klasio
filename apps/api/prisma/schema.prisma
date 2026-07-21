@@ -61,6 +61,13 @@ model School {
   smsSenderId String? // registered SMS sender ID (e.g. "BRIGHTON")
   smsCredits  Int      @default(0) // pay-as-you-go SMS units the school has bought
   reportTemplate ReportTemplate @default(GES)
+  /// Whether a family with an outstanding balance is held back from reading a published report.
+  ///
+  /// Near-universal practice in Ghanaian private schools ("no fees, no report card"), and off by
+  /// default because it is a policy a school chooses, not one the software should assume. It
+  /// withholds from the *family*; staff always see every report, and the school can clear an
+  /// individual child without clearing the policy (see FeeClearance).
+  reportsRequireFeeClearance Boolean @default(false)
   /// How the two halves of a subject mark are weighted. GES convention is 30/70, but schools
   /// differ and early years often run 100/0.
   sbaWeight  Int @default(30)
@@ -273,6 +280,8 @@ model Term {
   nextTermBegins DateTime?
   isCurrent      Boolean      @default(false)
 
+  feeClearances FeeClearance[]
+
   @@unique([academicYearId, name])
 }
 
@@ -409,6 +418,7 @@ model Student {
   attendance   AttendanceRecord[]
   scores       Score[]
   termReports  TermReport[]
+  feeClearances FeeClearance[]
   invoices     Invoice[]
   ledger       LedgerEntry[]
   documents      StudentDocument[]
@@ -684,6 +694,27 @@ model TermReport {
 
   @@unique([studentId, termId])
   @@index([schoolId, termId, classId])
+}
+
+/// One child let through the fee-clearance gate for one term, despite a balance.
+///
+/// The gate is a blunt policy and the exceptions are the entire reason it is workable: a family on
+/// an agreed payment plan, a scholarship still being processed, a bereavement. Recording the
+/// reason matters for the same reason it does on a scholarship — a clearance without a stated
+/// reason is a favour, not a decision, and the next bursar cannot tell them apart.
+model FeeClearance {
+  id          String   @id @default(cuid())
+  schoolId    String
+  studentId   String
+  student     Student  @relation(fields: [studentId], references: [id])
+  termId      String
+  term        Term     @relation(fields: [termId], references: [id])
+  reason      String
+  grantedById String
+  createdAt   DateTime @default(now())
+
+  @@unique([studentId, termId])
+  @@index([schoolId, termId])
 }
 
 // ── Fees: append-only ledger ─────────────────────────────────────────

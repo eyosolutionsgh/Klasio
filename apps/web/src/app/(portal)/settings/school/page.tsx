@@ -86,6 +86,7 @@ export default function SchoolSetupPage() {
   const [classes, setClasses] = useState<ClassRoom[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [template, setTemplate] = useState<'GES' | 'MODERN'>('GES');
+  const [feeGate, setFeeGate] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [idFormat, setIdFormat] = useState('{YYYY}-{####}');
   const [idNext, setIdNext] = useState('1');
@@ -113,6 +114,7 @@ export default function SchoolSetupPage() {
     if (meRes.ok) {
       const me = await meRes.json();
       if (me.school?.reportTemplate) setTemplate(me.school.reportTemplate);
+      setFeeGate(!!me.school?.reportsRequireFeeClearance);
       if (me.school?.admissionNoFormat) setIdFormat(me.school.admissionNoFormat);
       if (me.school?.admissionNoNext) setIdNext(String(me.school.admissionNoNext));
       setHeld(me.permissions ?? []);
@@ -359,6 +361,33 @@ export default function SchoolSetupPage() {
             { value: 'MODERN', label: 'Modern' },
           ]}
         />
+      </section>
+
+      <section className="card p-6 rise rise-2">
+        <h2 className="font-display text-xl">Releasing reports</h2>
+        <p className="text-xs text-oat mt-1">
+          Whether a family with unpaid fees may read a published terminal report. Off unless you
+          turn it on — this is your school&rsquo;s policy to set, not ours to assume.
+        </p>
+        <ChoiceCards
+          className="mt-4"
+          legend="Reports for families who owe fees"
+          name="reportsRequireFeeClearance"
+          value={feeGate ? 'HELD' : 'OPEN'}
+          onChange={async (v) => {
+            const on = v === 'HELD';
+            if (await send('settings', { reportsRequireFeeClearance: on }, 'PATCH')) setFeeGate(on);
+          }}
+          options={[
+            { value: 'OPEN', label: 'Always released' },
+            { value: 'HELD', label: 'Held until fees are cleared' },
+          ]}
+        />
+        <p className="text-[11px] text-oat mt-3">
+          Staff always see every report — this only affects the family and pupil portals and the
+          WhatsApp assistant. Your bursar can release any individual child from the fees screen,
+          for a stated reason, without changing this setting.
+        </p>
       </section>
 
       {/* Academic years & terms */}
