@@ -534,10 +534,21 @@ export class PickupService {
   }
 
   /** Tell the primary guardian their child has gone, and with whom. */
-  private async notifyRelease(
+  /**
+   * Text the primary guardian about a movement at the gate.
+   *
+   * Shared by both ends of the day so they cannot drift apart: BLOCKED custody is excluded here
+   * rather than at each call site, because an adult barred from collecting a child must not learn
+   * that child's movements from the morning either.
+   *
+   * `batchId` carries the log row's id, so a queued gate device replaying a check-in or a release
+   * it never saw acknowledged does not text the family a second time.
+   */
+  private async notifyGate(
     auth: AuthUser,
     studentId: string,
-    collectedBy: string,
+    kind: 'PICKUP_RELEASED' | 'DROP_OFF',
+    vars: Record<string, string>,
     logId: string,
   ) {
     const [student, school] = await Promise.all([
@@ -554,20 +565,23 @@ export class PickupService {
     ]);
     const phone = student.guardians[0]?.guardian.phone;
     if (!phone) return 0;
-    const at = new Date().toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' });
     const res = await this.sms.sendToPhones({
       schoolId: auth.schoolId,
       createdById: auth.sub,
       phones: [phone],
-      body: await renderMessage(this.db, auth.schoolId, 'PICKUP_RELEASED', {
+      body: await renderMessage(this.db, auth.schoolId, kind, {
         school: school.name,
         student: `${student.firstName} ${student.lastName}`,
-        collector: collectedBy,
-        time: at,
+        time: new Date().toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' }),
+        ...vars,
       }),
-      batchId: `PICKUP-${logId}`,
+      batchId: `${kind === 'DROP_OFF' ? 'CHECKIN' : 'PICKUP'}-${logId}`,
     });
     return res.sent;
+  }
+
+  private notifyRelease(auth: AuthUser, studentId: string, collectedBy: string, logId: string) {
+    return this.notifyGate(auth, studentId, 'PICKUP_RELEASED', { collector: collectedBy }, logId);
   }
 
   /** The day's releases — who left, with whom, and anything released against advice. */
@@ -673,11 +687,17 @@ export class PickupService {
       broughtBy: broughtBy ?? undefined,
       method,
     });
+    // The arrival text. Failing to reach the network must not fail the check-in: the child is
+    // already through the gate, and the log is the record that matters.
+    const notified = await this.notifyGate(auth, dto.studentId, 'DROP_OFF', {}, log.id).catch(
+      () => 0,
+    );
     return {
       id: log.id,
       student: `${student.firstName} ${student.lastName}`,
       broughtBy,
       checkedInAt: log.checkedInAt,
+      notified,
     };
   }
 

@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Injectable,
   Module,
@@ -17,9 +18,20 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { IsIn, IsOptional, IsString, MinLength } from 'class-validator';
 import { Prisma } from '@prisma/client';
+import { rm } from 'fs/promises';
+import { tmpdir } from 'os';
+import type { Readable } from 'stream';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
-import { DOCUMENT_TYPES, MAX_UPLOAD_BYTES, objectKey, storage } from '../common/storage';
+import { LicenceService } from '../licence/licence.service';
+import {
+  DOCUMENT_TYPES,
+  MAX_MEDIA_UPLOAD_BYTES,
+  MAX_UPLOAD_BYTES,
+  MEDIA_TYPES,
+  objectKey,
+  storage,
+} from '../common/storage';
 import { PageQuery, dateWindow, orderBy, pageArgs, toPage } from '../common/list-query';
 
 /**
@@ -76,28 +88,14 @@ const RESOURCE_TYPES = [
 ];
 
 /**
- * Video and audio (FEATURES.md §15) — a recorded lesson, a listening-comprehension track. Their
- * own list with their own size cap, because a document cap that fits a recorded lesson would
- * quietly let someone attach a 200MB "PDF".
+ * Minimal shape of a Multer upload — avoids depending on @types/multer.
+ *
+ * `path`, not `buffer`: this endpoint uses Multer's disk storage, because a lesson video at
+ * the media cap held in memory would be a fine way to take a school's whole box down. The
+ * temp file is streamed into object storage and removed in `upload`'s finally.
  */
-const MEDIA_TYPES = [
-  'video/mp4',
-  'video/webm',
-  'video/3gpp',
-  'audio/mpeg',
-  'audio/mp4',
-  'audio/ogg',
-  'audio/wav',
-  'audio/webm',
-  'audio/aac',
-  'audio/amr',
-];
-
-const MAX_MEDIA_BYTES = 200 * 1024 * 1024;
-
-/** Minimal shape of a Multer upload — avoids depending on @types/multer. */
 interface UploadedFileLike {
-  buffer: Buffer;
+  path: string;
   originalname: string;
   mimetype: string;
   size: number;
@@ -123,7 +121,10 @@ export interface ResourceScope {
 
 @Injectable()
 export class ResourcesService {
-  constructor(private db: PrismaService) {}
+  constructor(
+    private db: PrismaService,
+    private licence: LicenceService,
+  ) {}
 
   private shape(r: {
     id: string;
@@ -220,12 +221,24 @@ export class ResourcesService {
   }
 
   private assertUpload(file: UploadedFileLike | undefined) {
-    if (!file?.buffer) throw new BadRequestException('No file uploaded');
+    if (!file?.path) throw new BadRequestException('No file uploaded');
     const isMedia = MEDIA_TYPES.includes(file.mimetype);
     if (!isMedia && !RESOURCE_TYPES.includes(file.mimetype)) {
       throw new BadRequestException(`Unsupported file type ${file.mimetype}`);
     }
-    const cap = isMedia ? MAX_MEDIA_BYTES : MAX_UPLOAD_BYTES;
+    /**
+     * Asked of the licence, not the tier, for the same reason the guard is (common/auth.ts):
+     * `resources.media` is exactly the kind of single Advanced code a licence can grant a
+     * Medium school on top of its bundle.
+     */
+    if (isMedia && !this.licence.entitlements().includes('resources.media')) {
+      throw new ForbiddenException(
+        "Video and audio files are not included in your school's package",
+      );
+    }
+    // Media gets its own, far higher cap — a recorded lesson does not fit in 8MB, and it is
+    // streamed to storage rather than buffered, so the memory argument for 8MB does not apply.
+    const cap = isMedia ? MAX_MEDIA_UPLOAD_BYTES : MAX_UPLOAD_BYTES;
     if (file.size > cap) {
       throw new BadRequestException(
         `File is too large (max ${Math.round(cap / 1024 / 1024)}MB for ${
@@ -262,6 +275,16 @@ export class ResourcesService {
    * or realise it is the wrong file before any parent sees it.
    */
   async upload(auth: AuthUser, dto: UploadResourceDto, file: UploadedFileLike) {
+    try {
+      return await this.doUpload(auth, dto, file);
+    } finally {
+      // Multer wrote the temp file before we ever ran, so it is cleaned up whether the upload
+      // was stored, refused, or fell over.
+      if (file?.path) await rm(file.path, { force: true });
+    }
+  }
+
+  private async doUpload(auth: AuthUser, dto: UploadResourceDto, file: UploadedFileLike) {
     this.assertUpload(file);
     await this.assertTargets(auth, dto);
 
@@ -272,7 +295,7 @@ export class ResourcesService {
       dto.classId || dto.levelId || 'school',
       file.originalname,
     );
-    await storage().put(key, file.buffer, file.mimetype);
+    await storage().putFile(key, file.path, file.mimetype, file.size);
     const resource = await this.db.learningResource.create({
       data: {
         schoolId: auth.schoolId,
@@ -390,7 +413,8 @@ export class ResourcesService {
     });
     if (!resource) throw new NotFoundException('Resource not found');
 
-    const buffer = await storage().get(resource.key);
+    // A stream, not a buffer: a video at the media cap must not transit the heap per reader.
+    const stream = await storage().getStream(resource.key);
     // The catalog asks who opened what, and the counter is what the staff list shows.
     await this.db.resourceDownload.create({
       data: {
@@ -405,7 +429,22 @@ export class ResourcesService {
       where: { id: resource.id },
       data: { downloads: { increment: 1 } },
     });
-    return { buffer, resource };
+    return { stream, resource };
+  }
+
+  /** The StreamableFile every download route answers with — one shape for staff and portals. */
+  static asFile({
+    stream,
+    resource,
+  }: {
+    stream: Readable;
+    resource: { mimeType: string; filename: string; sizeBytes: number };
+  }): StreamableFile {
+    return new StreamableFile(stream, {
+      type: resource.mimeType,
+      length: resource.sizeBytes,
+      disposition: `attachment; filename="${resource.filename.replace(/"/g, '')}"`,
+    });
   }
 
   /** Who has opened one resource — the staff-side view of the download log. */
@@ -440,7 +479,14 @@ export class ResourcesController {
 
   @Post()
   @RequirePermission('resources.manage')
-  @UseInterceptors(FileInterceptor('file'))
+  /**
+   * Disk storage, not Multer's in-memory default: media uploads run to hundreds of megabytes.
+   * The `fileSize` limit is the outermost backstop — Multer aborts the request at the media cap
+   * (413) while the bytes are still arriving; the per-type caps are `assertUpload`'s job.
+   */
+  @UseInterceptors(
+    FileInterceptor('file', { dest: tmpdir(), limits: { fileSize: MAX_MEDIA_UPLOAD_BYTES } }),
+  )
   upload(
     @CurrentUser() user: AuthUser,
     @Body() dto: UploadResourceDto,
@@ -452,11 +498,9 @@ export class ResourcesController {
   @Get(':id/file')
   @RequirePermission('resources.view')
   async file(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    const { buffer, resource } = await this.svc.download(user.schoolId, id, { userId: user.sub });
-    return new StreamableFile(buffer, {
-      type: resource.mimeType,
-      disposition: `attachment; filename="${resource.filename.replace(/"/g, '')}"`,
-    });
+    return ResourcesService.asFile(
+      await this.svc.download(user.schoolId, id, { userId: user.sub }),
+    );
   }
 
   @Get(':id/downloads')

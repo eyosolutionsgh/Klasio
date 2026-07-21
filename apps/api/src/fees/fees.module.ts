@@ -6,6 +6,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
   Delete,
+  ForbiddenException,
   Get,
   Injectable,
   Module,
@@ -14,7 +15,9 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   StreamableFile,
+  UnauthorizedException,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -37,6 +40,13 @@ import { Type } from 'class-transformer';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { DOCUMENT_TYPES, MAX_UPLOAD_BYTES, objectKey, storage } from '../common/storage';
 
+/** Minimal shape of the raw-body request — avoids depending on @types/express. */
+interface RawRequest {
+  rawBody?: Buffer;
+  body?: unknown;
+  headers: Record<string, string | undefined>;
+}
+
 /** Minimal shape of a Multer upload — avoids depending on @types/multer. */
 interface UploadedFileLike {
   buffer: Buffer;
@@ -51,8 +61,16 @@ import { PrismaService, withTenant } from '../prisma/prisma.service';
 import { markSchedule, scheduleTotals } from '../common/installments';
 import { concessionsFor, rankSiblings } from '../common/concessions';
 import { SmsModule, SmsService } from '../sms/sms.module';
-import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
-import { receiptPdf, statementPdf } from '../common/pdf';
+import { IntegrationsModule, IntegrationsService } from '../integrations/integrations.module';
+import {
+  AuthUser,
+  CurrentUser,
+  Public,
+  RequireEntitlement,
+  RequirePermission,
+} from '../common/auth';
+import { verifyQstashSignature } from '../common/qstash';
+import { receiptPdf, statementPdf, tableReportPdf } from '../common/pdf';
 import { statementLines } from '../common/statement';
 import { toCsv, toXlsx, Cell } from '../common/export';
 import { balanceOf } from '../common/ledger';
@@ -139,6 +157,13 @@ class RecordPaymentDto {
 
 class ReverseDto {
   /** Required: an unexplained reversal is indistinguishable from someone hiding a payment. */
+  @IsString() @MinLength(4) reason: string;
+}
+
+class FeeClearanceDto {
+  @IsString() studentId: string;
+  @IsString() termId: string;
+  /** Same rule as a reversal or a scholarship: state why, or it is a favour rather than a decision. */
   @IsString() @MinLength(4) reason: string;
 }
 
@@ -254,6 +279,7 @@ export class FeesService {
   constructor(
     private db: PrismaService,
     private sms: SmsService,
+    private integrations: IntegrationsService,
   ) {}
 
   /**
@@ -743,6 +769,74 @@ export class FeesService {
    * comes from `overview()`, which sums the whole set and does not page — turning a page must not
    * be able to change what a school believes it is owed.
    */
+  /**
+   * Let one child's family read a held report despite the balance.
+   *
+   * The reason is required for the same reason a scholarship's is: an override without a stated
+   * reason is a favour, and the next bursar cannot tell a payment plan from a friendship.
+   */
+  async grantClearance(auth: AuthUser, dto: FeeClearanceDto) {
+    const [student, term] = await Promise.all([
+      this.db.student.findFirst({ where: { id: dto.studentId, schoolId: auth.schoolId } }),
+      this.db.term.findFirst({
+        where: { id: dto.termId, academicYear: { schoolId: auth.schoolId } },
+      }),
+    ]);
+    if (!student) throw new NotFoundException('Student not found');
+    if (!term) throw new NotFoundException('Term not found');
+
+    const row = await this.db.feeClearance.upsert({
+      where: { studentId_termId: { studentId: dto.studentId, termId: dto.termId } },
+      create: {
+        schoolId: auth.schoolId,
+        studentId: dto.studentId,
+        termId: dto.termId,
+        reason: dto.reason.trim(),
+        grantedById: auth.sub,
+      },
+      update: { reason: dto.reason.trim(), grantedById: auth.sub },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'fees.clearance.grant', 'Student', dto.studentId, {
+      termId: dto.termId,
+      reason: dto.reason.trim(),
+    });
+    return { id: row.id, granted: true };
+  }
+
+  /** Take a clearance back. Audited, because it re-closes a door that was opened deliberately. */
+  async revokeClearance(auth: AuthUser, studentId: string, termId: string) {
+    const existing = await this.db.feeClearance.findUnique({
+      where: { studentId_termId: { studentId, termId } },
+    });
+    if (!existing || existing.schoolId !== auth.schoolId) {
+      throw new NotFoundException('No clearance on file');
+    }
+    await this.db.feeClearance.delete({ where: { id: existing.id } });
+    await this.db.audit(auth.schoolId, auth.sub, 'fees.clearance.revoke', 'Student', studentId, {
+      termId,
+    });
+    return { revoked: true };
+  }
+
+  /** Who has been let through for a term, and why. */
+  async listClearances(auth: AuthUser, termId: string) {
+    const rows = await this.db.feeClearance.findMany({
+      where: { schoolId: auth.schoolId, termId },
+      include: {
+        student: { select: { id: true, firstName: true, lastName: true, admissionNo: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      studentId: r.studentId,
+      studentName: `${r.student.firstName} ${r.student.lastName}`,
+      admissionNo: r.student.admissionNo,
+      reason: r.reason,
+      createdAt: r.createdAt,
+    }));
+  }
+
   async listDefaulters(auth: AuthUser, q: ListDefaultersDto) {
     const all = await this.defaulters(auth, q.termId);
     const needle = q.q?.trim().toLowerCase();
@@ -919,6 +1013,28 @@ export class FeesService {
     if (format === 'csv') {
       return { buffer: toCsv(headers, rows), type: 'text/csv', filename: 'journal.csv' };
     }
+    if (format === 'pdf') {
+      // Paper, for the meeting. CSV is right for an accountant and no answer at all for a board.
+      const school = await this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } });
+      return {
+        buffer: await tableReportPdf({
+          school: {
+            name: school.name,
+            motto: school.motto,
+            address: school.address,
+            phone: school.phone,
+            brandColor: school.brandColor,
+          },
+          title: 'Double-entry journal',
+          subtitle: from || to ? `${from ?? 'the beginning'} to ${to ?? 'today'}` : null,
+          headers,
+          rows: rows as Array<Array<string | number>>,
+          numericColumns: [4, 5],
+        }),
+        type: 'application/pdf',
+        filename: 'journal.pdf',
+      };
+    }
     return {
       buffer: await toXlsx('Journal', headers, rows),
       type: XLSX_MIME,
@@ -938,6 +1054,27 @@ export class FeesService {
     ]);
     if (format === 'csv') {
       return { buffer: toCsv(headers, rows), type: 'text/csv', filename: 'defaulters.csv' };
+    }
+    if (format === 'pdf') {
+      const school = await this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } });
+      return {
+        buffer: await tableReportPdf({
+          school: {
+            name: school.name,
+            motto: school.motto,
+            address: school.address,
+            phone: school.phone,
+            brandColor: school.brandColor,
+          },
+          title: 'Outstanding fees',
+          subtitle: null,
+          headers,
+          rows: rows as Array<Array<string | number>>,
+          numericColumns: [4],
+        }),
+        type: 'application/pdf',
+        filename: 'defaulters.pdf',
+      };
     }
     return {
       buffer: await toXlsx('Defaulters', headers, rows),
@@ -1074,6 +1211,16 @@ export class FeesService {
   }
 
   /** Record a manual payment (cash/bank/momo recorded at office). Append-only + receipt. */
+  /**
+   * Tell the school's own systems, when it has asked to be told.
+   *
+   * Never allowed to fail the thing that triggered it: a school's accounting endpoint being down
+   * must not roll back a payment that was taken at the counter.
+   */
+  private notifyIntegrations(schoolId: string, event: string, payload: Record<string, unknown>) {
+    void this.integrations.dispatch(schoolId, event, payload).catch(() => undefined);
+  }
+
   async recordPayment(auth: AuthUser, dto: RecordPaymentDto) {
     const student = await this.db.student.findFirst({
       where: { id: dto.studentId, schoolId: auth.schoolId },
@@ -1115,6 +1262,14 @@ export class FeesService {
       amount: dto.amount,
       method: dto.method,
       reference: entry.reference,
+    });
+    this.notifyIntegrations(auth.schoolId, 'payment.recorded', {
+      studentId: dto.studentId,
+      admissionNo: student.admissionNo,
+      amount: dto.amount,
+      method: dto.method,
+      reference: entry.reference,
+      receiptNumber: receipt.number,
     });
     return {
       reference: entry.reference,
@@ -1236,6 +1391,20 @@ export class FeesService {
   }
 
   /**
+   * The one rule the permission grid cannot carry, and the reason `fees.deposit_submit` and
+   * `fees.deposits` are separate codes at all: whoever banked the money is never the person who
+   * says it arrived. Recording a deposit and confirming it are the two halves of the same
+   * fraud, so holding both permissions still does not let you close the loop on your own
+   * submission. Rejection is guarded too — quietly rejecting your own entry hides a payment
+   * just as well as confirming a fictitious one does.
+   */
+  private assertNotOwnDeposit(auth: AuthUser, deposit: { submittedById: string | null }) {
+    if (deposit.submittedById && deposit.submittedById === auth.sub) {
+      throw new ForbiddenException('Someone else must review a deposit you recorded');
+    }
+  }
+
+  /**
    * Confirm a deposit: this is the moment it becomes money. Appends the PAYMENT entry and
    * mints a receipt, keyed on the deposit's unique reference — LedgerEntry.reference is
    * unique, so a double confirmation credits the student exactly once.
@@ -1245,6 +1414,7 @@ export class FeesService {
       where: { id, schoolId: auth.schoolId },
     });
     if (!deposit) throw new NotFoundException('Deposit not found');
+    this.assertNotOwnDeposit(auth, deposit);
     if (deposit.status === 'REJECTED') {
       throw new BadRequestException('This deposit was rejected');
     }
@@ -1307,6 +1477,7 @@ export class FeesService {
       where: { id, schoolId: auth.schoolId },
     });
     if (!deposit) throw new NotFoundException('Deposit not found');
+    this.assertNotOwnDeposit(auth, deposit);
     if (deposit.status === 'CONFIRMED') {
       throw new BadRequestException(
         'This deposit is already in the ledger — post a reversal instead of rejecting it',
@@ -1876,6 +2047,28 @@ export class FeesController {
     return this.svc.listDefaulters(user, query);
   }
 
+  @Get('clearances')
+  @RequirePermission('fees.view')
+  clearances(@CurrentUser() user: AuthUser, @Query('termId') termId: string) {
+    return this.svc.listClearances(user, termId);
+  }
+
+  @Post('clearances')
+  @RequirePermission('fees.clearance')
+  grantClearance(@CurrentUser() user: AuthUser, @Body() dto: FeeClearanceDto) {
+    return this.svc.grantClearance(user, dto);
+  }
+
+  @Delete('clearances/:studentId/:termId')
+  @RequirePermission('fees.clearance')
+  revokeClearance(
+    @CurrentUser() user: AuthUser,
+    @Param('studentId') studentId: string,
+    @Param('termId') termId: string,
+  ) {
+    return this.svc.revokeClearance(user, studentId, termId);
+  }
+
   @Get('students/:id/statement.pdf')
   @RequirePermission('fees.view')
   async statement(@CurrentUser() user: AuthUser, @Param('id') id: string) {
@@ -2231,6 +2424,11 @@ export class RemindersQueue implements OnModuleInit, OnModuleDestroy {
    * every tick and did nothing, silently, in any deployment with REDIS_URL set. Scheduled fee
    * reminders looked configured and enabled in the UI and had never sent a single message.
    */
+  /** The tick itself, callable directly by the QStash callback route below — no BullMQ involved. */
+  async runNow() {
+    return this.tick();
+  }
+
   private async tick() {
     const now = new Date();
     const jobs = await this.db.system.scheduledJob.findMany({
@@ -2280,9 +2478,29 @@ export class RemindersQueue implements OnModuleInit, OnModuleDestroy {
   }
 }
 
+/**
+ * QStash's serverless alternative to `RemindersQueue`'s BullMQ worker (docs/10 §5) — a scheduled
+ * HTTP callback instead of a persistent listener, for deployments with no Redis. Active only when
+ * `QSTASH_CURRENT_SIGNING_KEY` is set; a deployment using BullMQ instead never calls this route.
+ */
+@Controller('fees/internal')
+export class FeesQstashController {
+  constructor(private queue: RemindersQueue) {}
+
+  @Post('qstash/reminders-tick')
+  @Public()
+  async qstashTick(@Req() req: RawRequest) {
+    const raw = (req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}))).toString('utf8');
+    const ok = await verifyQstashSignature(req.headers['upstash-signature'], raw);
+    if (!ok) throw new UnauthorizedException('Invalid QStash signature');
+    await this.queue.runNow();
+    return { ok: true };
+  }
+}
+
 @Module({
-  imports: [SmsModule],
-  controllers: [FeesController],
+  imports: [IntegrationsModule, SmsModule],
+  controllers: [FeesController, FeesQstashController],
   providers: [FeesService, RemindersQueue],
   exports: [FeesService],
 })

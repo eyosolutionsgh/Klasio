@@ -61,9 +61,12 @@ interface ReportRow {
   termId: string;
   term: string;
   year: string;
-  overallTotal: number;
+  /** Null when the school is holding this report over unpaid fees — absent, never zeroed. */
+  overallTotal: number | null;
   classPosition: number | null;
   classSize: number | null;
+  held?: boolean;
+  heldReason?: string | null;
 }
 interface Notice {
   id: string;
@@ -301,17 +304,34 @@ export default function FamilyPage() {
                         <p className="font-medium text-sm">
                           {r.term} · {r.year}
                         </p>
-                        <p className="text-[11px] text-oat tabular">
-                          Total {r.overallTotal.toFixed(1)}
-                          {r.classPosition && ` · position ${r.classPosition} of ${r.classSize}`}
-                        </p>
+                        {/*
+                          A held report is shown, not hidden — the family is meant to know it
+                          exists and what to do about it. Omitting the row would read as "the
+                          school never released my child's results".
+                        */}
+                        {r.held ? (
+                          <p className="text-[11px] text-clay max-w-prose">
+                            {r.heldReason ?? 'Held until the outstanding fees are settled.'}
+                          </p>
+                        ) : (
+                          <p className="text-[11px] text-oat tabular">
+                            Total {(r.overallTotal ?? 0).toFixed(1)}
+                            {r.classPosition && ` · position ${r.classPosition} of ${r.classSize}`}
+                          </p>
+                        )}
                       </div>
-                      <a
-                        href={`/api/family/guardian/wards/${wardId}/reports/${r.termId}/pdf`}
-                        className="inline-flex items-center justify-center min-h-11 text-[13px] font-medium text-forest border border-forest/40 rounded-full px-4 hover:bg-forest-mist transition"
-                      >
-                        Download PDF
-                      </a>
+                      {r.held ? (
+                        <span className="inline-flex items-center justify-center min-h-11 text-[13px] font-medium text-clay border border-clay/40 rounded-full px-4">
+                          Held
+                        </span>
+                      ) : (
+                        <a
+                          href={`/api/family/guardian/wards/${wardId}/reports/${r.termId}/pdf`}
+                          className="inline-flex items-center justify-center min-h-11 text-[13px] font-medium text-forest border border-forest/40 rounded-full px-4 hover:bg-forest-mist transition"
+                        >
+                          Download PDF
+                        </a>
+                      )}
                     </li>
                   ))}
                 </ul>

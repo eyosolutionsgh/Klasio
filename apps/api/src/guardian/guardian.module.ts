@@ -31,7 +31,8 @@ import { maskEmail } from '../common/mask';
 import { isOverLimit, pruneWindows, recordHit, RateWindow } from '../common/rate-window';
 import { reportCardPdf, ReportCardData } from '../common/pdf';
 import { balanceOf } from '../common/ledger';
-import { storage } from '../common/storage';
+import { clearanceVerdict } from '../common/fee-clearance';
+import { buildReportCard } from '../common/report-card';
 import { SmsModule, SmsService } from '../sms/sms.module';
 import { EmailModule, EmailService } from '../email/email.module';
 import { renderGuardianOtp } from '../common/email-templates';
@@ -637,6 +638,31 @@ export class GuardianService {
     };
   }
 
+  /**
+   * Is this family's report held back for unpaid fees?
+   *
+   * Answered once, here, so the list, the detail and the PDF cannot disagree — a report that is
+   * visible in the list and refused on download is worse than one that is plainly held.
+   */
+  private async clearance(auth: GuardianUser, studentId: string, termId: string) {
+    const [school, cleared, ledger] = await Promise.all([
+      this.db.school.findUniqueOrThrow({
+        where: { id: auth.schoolId },
+        select: { reportsRequireFeeClearance: true },
+      }),
+      this.db.feeClearance.findUnique({
+        where: { studentId_termId: { studentId, termId } },
+      }),
+      // Cumulative, never a single term's slice: what a family owes includes what it carried in.
+      this.db.ledgerEntry.findMany({ where: { studentId } }),
+    ]);
+    return clearanceVerdict({
+      policyOn: school.reportsRequireFeeClearance,
+      balance: balanceOf(ledger),
+      cleared: !!cleared,
+    });
+  }
+
   /** Only published reports are ever visible to a guardian. */
   async wardReports(auth: GuardianUser, studentId: string) {
     await this.ward(auth, studentId);
@@ -649,87 +675,64 @@ export class GuardianService {
       include: { academicYear: { select: { name: true } } },
     });
     const termById = new Map(terms.map((t) => [t.id, t]));
-    return reports.map((r) => ({
-      termId: r.termId,
-      term: termById.get(r.termId)?.name ?? '',
-      year: termById.get(r.termId)?.academicYear.name ?? '',
-      overallTotal: r.overallTotal,
-      classPosition: r.classPosition,
-      classSize: r.classSize,
-      publishedAt: r.publishedAt,
-    }));
-  }
 
-  private async publishedCard(auth: GuardianUser, studentId: string, termId: string) {
-    const student = await this.ward(auth, studentId);
-    const report = await this.db.termReport.findFirst({
-      where: { studentId, termId, schoolId: auth.schoolId, publishedAt: { not: null } },
-    });
-    if (!report) throw new NotFoundException('That report has not been published');
-
-    const [school, term, level] = await Promise.all([
-      this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } }),
-      this.db.term.findFirst({
-        where: { id: termId },
-        include: { academicYear: { select: { name: true } } },
+    /*
+      A held report is listed, not hidden. The family is meant to know the report exists and why
+      they cannot open it — that is the entire point of the policy, and silently omitting it would
+      read as "the school never published my child's results".
+    */
+    const [school, clearances, ledger] = await Promise.all([
+      this.db.school.findUniqueOrThrow({
+        where: { id: auth.schoolId },
+        select: { reportsRequireFeeClearance: true },
       }),
-      this.db.classRoom.findFirst({
-        where: { id: report.classId },
-        include: { level: { include: { gradingScheme: true } } },
-      }),
+      this.db.feeClearance.findMany({ where: { studentId }, select: { termId: true } }),
+      this.db.ledgerEntry.findMany({ where: { studentId } }),
     ]);
-    const scheme =
-      level?.level.gradingScheme ??
-      (await this.db.gradingScheme.findFirst({
-        where: { schoolId: auth.schoolId, kind: 'GES_CLASSIC' },
-      }));
-    return {
-      schemeKind: scheme?.kind ?? 'GES_CLASSIC',
-      template: school.reportTemplate,
-      school: {
-        name: school.name,
-        motto: school.motto,
-        address: school.address,
-        phone: school.phone,
-        // The parent's copy must be the same document as the school's. Without these it fell back
-        // to 30/70 and the default green, so a school on 40/60 printed "Class (40%)" while the
-        // parent downloaded "Class (30%)" over identical marks — and lost the crest.
-        brandColor: school.brandColor,
-        // Bytes, not the storage key — and a crest that cannot be read must not stop a parent
-        // getting the report card, so a failed fetch degrades to no logo.
-        logo: school.logoUrl
-          ? await storage()
-              .get(school.logoUrl)
-              .catch(() => null)
-          : null,
-      },
-      weights: {
-        sba: school.sbaWeight ?? 30,
-        exam: school.examWeight ?? 70,
-      },
-      student: {
-        name: `${student.firstName} ${student.lastName}`,
-        admissionNo: student.admissionNo,
-        className: student.classRoom?.name ?? null,
-      },
-      term: {
-        name: term?.name,
-        year: term?.academicYear.name,
-        nextTermBegins: term?.nextTermBegins ?? null,
-      },
-      lines: report.lines,
-      overallTotal: report.overallTotal,
-      classPosition: report.classPosition,
-      classSize: report.classSize,
-      attendance: { present: report.attendancePresent, total: report.attendanceTotal },
-      conduct: report.conduct,
-      interest: report.interest,
-      teacherRemark: report.teacherRemark,
-      headRemark: report.headRemark,
-    };
+    const clearedTerms = new Set(clearances.map((c) => c.termId));
+    const balance = balanceOf(ledger);
+
+    return reports.map((r) => {
+      const verdict = clearanceVerdict({
+        policyOn: school.reportsRequireFeeClearance,
+        balance,
+        cleared: clearedTerms.has(r.termId),
+      });
+      return {
+        termId: r.termId,
+        term: termById.get(r.termId)?.name ?? '',
+        year: termById.get(r.termId)?.academicYear.name ?? '',
+        // Withheld marks are absent, not zeroed: a nulled position is "not shown", a zero is a
+        // claim about the child. See student-detail-custody-redaction.
+        overallTotal: verdict.allowed ? r.overallTotal : null,
+        classPosition: verdict.allowed ? r.classPosition : null,
+        classSize: verdict.allowed ? r.classSize : null,
+        publishedAt: r.publishedAt,
+        held: !verdict.allowed,
+        heldReason: verdict.allowed ? null : verdict.reason,
+      };
+    });
   }
 
-  reportCard(auth: GuardianUser, studentId: string, termId: string) {
+  /**
+   * The card, assembled by the one shared builder — see common/report-card.ts for why this is not
+   * inlined here any more. This method's job is only deciding whether *this* reader may have it.
+   */
+  private async publishedCard(auth: GuardianUser, studentId: string, termId: string) {
+    await this.ward(auth, studentId);
+
+    // Checked on the detail and the PDF as well as the list, because a link that is merely not
+    // rendered is not a gate — the URL is guessable and the term id is on screen.
+    const verdict = await this.clearance(auth, studentId, termId);
+    if (!verdict.allowed) throw new ForbiddenException(verdict.reason);
+
+    const card = await buildReportCard(this.db, auth.schoolId, studentId, termId);
+    if (!card) throw new NotFoundException('That report has not been published');
+    return card;
+  }
+
+  /** The card as data, for the portal to render on screen. */
+  async reportCard(auth: GuardianUser, studentId: string, termId: string) {
     return this.publishedCard(auth, studentId, termId);
   }
 
@@ -739,8 +742,25 @@ export class GuardianService {
   }
 
   async announcements(auth: GuardianUser) {
+    const { classIds, levelIds } = await this.scope(auth);
+    const routeIds = await this.routeScope(auth);
     const notices = await this.db.announcement.findMany({
-      where: { schoolId: auth.schoolId, audience: { in: ['ALL', 'GUARDIANS'] } },
+      where: {
+        schoolId: auth.schoolId,
+        audience: { in: ['ALL', 'GUARDIANS'] },
+        /**
+         * A notice with no class, level or route is for the whole school; one with any of them
+         * is for those families only. This is what makes "one class" true of the notice board
+         * and not just of the text message — before it, every targeted broadcast was also posted
+         * to every family's board.
+         */
+        OR: [
+          { classId: null, levelId: null, routeId: null },
+          { classId: { in: classIds } },
+          { levelId: { in: levelIds } },
+          { routeId: { in: routeIds } },
+        ],
+      },
       orderBy: { publishedAt: 'desc' },
       take: 30,
     });
@@ -757,6 +777,20 @@ export class GuardianService {
    * here for the same reason as everywhere else: that guardian is not part of the child's
    * school life, so the child's class shelf is not theirs to read either.
    */
+  /** The bus routes the caller's own wards ride — the transport half of a notice's audience. */
+  private async routeScope(auth: GuardianUser): Promise<string[]> {
+    const riders = await this.db.transportRider.findMany({
+      where: {
+        student: {
+          schoolId: auth.schoolId,
+          guardians: { some: { guardianId: auth.sub, custodyFlag: { not: 'BLOCKED' } } },
+        },
+      },
+      select: { routeId: true },
+    });
+    return [...new Set(riders.map((r) => r.routeId))];
+  }
+
   private async scope(auth: GuardianUser): Promise<ResourceScope> {
     const links = await this.db.studentGuardian.findMany({
       where: {
@@ -927,11 +961,8 @@ export class GuardianPortalController {
 
   @Get('resources/:id/file')
   async resourceFile(@CurrentGuardian() g: GuardianUser, @Param('id') id: string) {
-    const { buffer, resource } = await this.svc.resourceFile(g, id);
-    return new StreamableFile(buffer, {
-      type: resource.mimeType,
-      disposition: `attachment; filename="${resource.filename.replace(/"/g, '')}"`,
-    });
+    // Streamed, not buffered — a shared lesson video must not transit the heap per reader.
+    return ResourcesService.asFile(await this.svc.resourceFile(g, id));
   }
 }
 

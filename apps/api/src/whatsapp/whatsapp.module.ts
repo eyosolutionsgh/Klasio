@@ -27,6 +27,9 @@ import {
 import { canReply, minutesLeft, windowFromInbound } from '../common/whatsapp-window';
 import { normalizeMsisdn } from '../common/phone';
 import { balanceOf } from '../common/ledger';
+import { buildReportCard } from '../common/report-card';
+import { reportCardPdf } from '../common/pdf';
+import { clearanceVerdict } from '../common/fee-clearance';
 import {
   WhatsAppIntent,
   classifyMessage,
@@ -53,6 +56,16 @@ class ReplyDto {
 export interface WhatsAppProvider {
   readonly kind: string;
   send(to: string, body: string): Promise<{ externalId?: string }>;
+  /**
+   * Send a file. FEATURES.md §4 promises report cards delivered over WhatsApp, and until now the
+   * provider could only send text, so the assistant pointed the parent at the portal instead.
+   */
+  sendDocument(
+    to: string,
+    file: Buffer,
+    filename: string,
+    caption: string,
+  ): Promise<{ externalId?: string }>;
 }
 
 /** Meta Cloud API. Only ever asked to send free-form replies inside an open window. */
@@ -86,6 +99,56 @@ class CloudApiProvider implements WhatsAppProvider {
     }
     return { externalId: data.messages?.[0]?.id };
   }
+
+  /**
+   * Two calls, because Meta will not take the bytes and the message together: upload to /media
+   * for an id, then send that id.
+   *
+   * Uploaded rather than linked. A link would have to be publicly fetchable by Meta, and the
+   * only URL that serves a report card is behind the family's own session — publishing one that
+   * is not would put a child's results on the open internet for whoever guessed the id.
+   */
+  async sendDocument(to: string, file: Buffer, filename: string, caption: string) {
+    const form = new FormData();
+    form.set('messaging_product', 'whatsapp');
+    form.set('type', 'application/pdf');
+    form.set('file', new Blob([file], { type: 'application/pdf' }), filename);
+
+    const upload = await fetch(`https://graph.facebook.com/v21.0/${this.phoneNumberId}/media`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.token}` },
+      body: form,
+    });
+    const uploaded = (await upload.json().catch(() => ({}))) as {
+      id?: string;
+      error?: { message?: string };
+    };
+    if (!upload.ok || !uploaded.id) {
+      throw new BadRequestException(uploaded.error?.message ?? 'WhatsApp would not take that file');
+    }
+
+    const res = await fetch(`https://graph.facebook.com/v21.0/${this.phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: to.replace('+', ''),
+        type: 'document',
+        document: { id: uploaded.id, filename, caption },
+      }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      messages?: { id: string }[];
+      error?: { message?: string };
+    };
+    if (!res.ok) {
+      throw new BadRequestException(data.error?.message ?? 'WhatsApp rejected that document');
+    }
+    return { externalId: data.messages?.[0]?.id };
+  }
 }
 
 /** Development stand-in. Logs instead of sending, and says so, so nobody mistakes it for live. */
@@ -94,6 +157,10 @@ class MockWhatsAppProvider implements WhatsAppProvider {
   async send(to: string, body: string) {
     console.log(`[whatsapp:mock] → ${to}: ${body.slice(0, 80)}`);
     return { externalId: `mock-${Date.now()}` };
+  }
+  async sendDocument(to: string, file: Buffer, filename: string) {
+    console.log(`[whatsapp:mock] → ${to}: [${filename}, ${file.length} bytes]`);
+    return { externalId: `mock-doc-${Date.now()}` };
   }
 }
 
@@ -213,6 +280,35 @@ export class WhatsAppService {
   // ── The assistant (FEATURES.md §12) ────────────────────────────────
 
   /** Send as the bot: no sentById, and the window rules hold exactly as for a human reply. */
+  /**
+   * Send a file into the open window, and record it like any other outbound message.
+   *
+   * The conversation log has to show that the report card went — "did the school ever send it?"
+   * is exactly the question the log exists to answer, and a document that left no row would make
+   * the transcript a lie by omission.
+   */
+  private async sendBotDocument(
+    conv: { id: string; phone: string; schoolId: string },
+    file: Buffer,
+    filename: string,
+    caption: string,
+  ) {
+    const sent = await this.provider.sendDocument(conv.phone, file, filename, caption);
+    await this.db.whatsAppMessage.create({
+      data: {
+        schoolId: conv.schoolId,
+        conversationId: conv.id,
+        direction: 'OUTBOUND',
+        body: `[${filename}] ${caption}`,
+        externalId: sent.externalId ?? null,
+      },
+    });
+    await this.db.whatsAppConversation.update({
+      where: { id: conv.id },
+      data: { lastOutboundAt: new Date() },
+    });
+  }
+
   private async sendBot(conv: { id: string; phone: string; schoolId: string }, body: string) {
     const sent = await this.provider.send(conv.phone, body);
     await this.db.whatsAppMessage.create({
@@ -357,7 +453,7 @@ export class WhatsAppService {
         await this.sendBot(conv, await this.balanceAnswer(schoolId, ward, school.currency));
         return;
       case 'RESULTS':
-        await this.sendBot(conv, await this.resultsAnswer(schoolId, ward));
+        await this.sendResults(conv, schoolId, ward);
         return;
       case 'ATTENDANCE':
         await this.sendBot(conv, await this.attendanceAnswer(schoolId, ward));
@@ -403,13 +499,77 @@ export class WhatsAppService {
     return `${headline}${recent ? `\n\nRecent activity:\n${recent}` : ''}\n\nThe full statement is in the family portal.`;
   }
 
+  /**
+   * The results reply: the summary in words, then the report card itself as a PDF.
+   *
+   * FEATURES.md §4 has promised "report cards delivered over WhatsApp" throughout; the assistant
+   * could only send text, so it quoted the total and pointed the parent at the portal — which is
+   * precisely the download-something-else step WhatsApp exists to avoid.
+   *
+   * The PDF is best-effort on top of the text. A parent who gets the summary and no attachment
+   * has still been answered; one who gets neither because the media upload failed has not.
+   */
+  private async sendResults(
+    conv: { id: string; phone: string; schoolId: string },
+    schoolId: string,
+    ward: { id: string; firstName: string },
+  ) {
+    const { text, termId } = await this.resultsAnswer(schoolId, ward);
+    await this.sendBot(conv, text);
+    if (!termId) return;
+
+    try {
+      const card = await buildReportCard(this.db, schoolId, ward.id, termId);
+      if (!card) return;
+      const pdf = await reportCardPdf(card);
+      await this.sendBotDocument(
+        conv,
+        pdf,
+        `${ward.firstName}-terminal-report.pdf`,
+        `${ward.firstName}'s terminal report`,
+      );
+    } catch {
+      // Already answered in words; the log records what did go out.
+    }
+  }
+
   private async resultsAnswer(schoolId: string, ward: { id: string; firstName: string }) {
     const report = await this.db.termReport.findFirst({
       where: { schoolId, studentId: ward.id, publishedAt: { not: null } },
       orderBy: { publishedAt: 'desc' },
     });
     if (!report) {
-      return `${ward.firstName}'s next terminal report hasn't been released yet. You'll get a text the moment it is published.`;
+      return {
+        text: `${ward.firstName}'s next terminal report hasn't been released yet. You'll get a text the moment it is published.`,
+        termId: null,
+      };
+    }
+    /*
+      The assistant is a third door onto the same report, so it obeys the same fee gate as the two
+      portals. Quoting the total here while the portal held it would have made the policy look
+      like a broken link rather than a decision — and would have handed over the mark anyway.
+    */
+    const [school, cleared, ledger] = await Promise.all([
+      this.db.school.findUniqueOrThrow({
+        where: { id: schoolId },
+        select: { reportsRequireFeeClearance: true },
+      }),
+      this.db.feeClearance.findUnique({
+        where: { studentId_termId: { studentId: ward.id, termId: report.termId } },
+      }),
+      this.db.ledgerEntry.findMany({ where: { studentId: ward.id } }),
+    ]);
+    const gate = clearanceVerdict({
+      policyOn: school.reportsRequireFeeClearance,
+      balance: balanceOf(ledger),
+      cleared: !!cleared,
+    });
+    if (!gate.allowed) {
+      // No termId, so no attachment: the gate has to hold the document as well as the figure.
+      return {
+        text: `${ward.firstName}'s terminal report is ready, but it is held until the fees are settled. ${gate.reason}`,
+        termId: null,
+      };
     }
     const term = await this.db.term.findUnique({
       where: { id: report.termId },
@@ -419,11 +579,13 @@ export class WhatsAppService {
       report.classPosition && report.classSize
         ? ` Position ${report.classPosition} of ${report.classSize}.`
         : '';
-    return (
-      `${ward.firstName}'s ${term?.name ?? 'terminal'} report (${term?.academicYear.name ?? ''}) is out: ` +
-      `overall total ${Number(report.overallTotal).toFixed(1)}.${position}\n\n` +
-      `Sign in to the family portal with this phone number to read and download it.`
-    );
+    return {
+      text:
+        `${ward.firstName}'s ${term?.name ?? 'terminal'} report (${term?.academicYear.name ?? ''}) is out: ` +
+        `overall total ${Number(report.overallTotal).toFixed(1)}.${position}\n\n` +
+        `The full report card is attached. You can also read it in the family portal.`,
+      termId: report.termId,
+    };
   }
 
   private async attendanceAnswer(schoolId: string, ward: { id: string; firstName: string }) {

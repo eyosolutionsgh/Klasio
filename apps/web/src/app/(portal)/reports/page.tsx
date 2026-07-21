@@ -7,6 +7,7 @@ import ReportActions from '@/components/ReportActions';
 import { apiQuery, listHref, one, type ListSearchParams, type Page } from '@/lib/list';
 
 interface ReportRow {
+  vettedAt?: string | null;
   studentId: string;
   name: string;
   admissionNo: string;
@@ -69,7 +70,7 @@ export default async function ReportsPage({
   }
 
   const qs = apiQuery(params, ['status'], { classId, termId });
-  const [reports, unpublished, broadsheet] = await Promise.all([
+  const [reports, unpublished, published, broadsheet] = await Promise.all([
     api<Page<ReportRow>>(`/assessment/reports?${qs}`),
     /**
      * How many reports in the whole class are still unreleased, not how many on this page.
@@ -79,6 +80,14 @@ export default async function ReportsPage({
      */
     api<Page<ReportRow>>(
       `/assessment/reports?classId=${classId}&termId=${termId}&status=UNPUBLISHED&perPage=1`,
+    ),
+    /**
+     * And how many families have already read one. Asked of the class rather than subtracted from
+     * `reports.total`, which is filtered by whatever the user has selected — deriving it would
+     * make the regeneration warning disappear simply because someone filtered to "unpublished".
+     */
+    api<Page<ReportRow>>(
+      `/assessment/reports?classId=${classId}&termId=${termId}&status=PUBLISHED&perPage=1`,
     ),
     showBroadsheet
       ? api<Broadsheet>(`/assessment/broadsheet?classId=${classId}&termId=${termId}`)
@@ -105,6 +114,14 @@ export default async function ReportsPage({
           termId={termId}
           total={reports.total}
           unpublishedCount={unpublished.total}
+          publishedCount={published.total}
+          /* Counted from the rows on screen only when the whole class fits; the badge is a
+             convenience, and over-counting it would claim a sign-off that never happened. */
+          vettedCount={
+            reports.total <= reports.rows.length
+              ? reports.rows.filter((r) => r.vettedAt).length
+              : 0
+          }
         />
         {/* A disclosure rather than an action, so it is a link and survives a refresh. */}
         <Link

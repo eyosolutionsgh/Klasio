@@ -22,11 +22,11 @@ const GES_BANDS = [
 
 // NaCCA proficiency (Standards-Based Curriculum): total → proficiency label.
 const NACCA_BANDS = [
-  { min: 80, max: 100, grade: 'AE', remark: 'Advanced — exceeding expectation' },
-  { min: 68, max: 79, grade: 'P', remark: 'Proficient — meeting expectation' },
-  { min: 54, max: 67, grade: 'AP', remark: 'Approaching expectation' },
+  { min: 80, max: 100, grade: 'HP', remark: 'Highly Proficient' },
+  { min: 68, max: 79, grade: 'P', remark: 'Proficient' },
+  { min: 54, max: 67, grade: 'AP', remark: 'Approaching Proficiency' },
   { min: 40, max: 53, grade: 'D', remark: 'Developing' },
-  { min: 0, max: 39, grade: 'B', remark: 'Beginning' },
+  { min: 0, max: 39, grade: 'E', remark: 'Emerging' },
 ];
 
 // Early-years observation scale (creche/nursery/KG): no exam weighting, no positions.

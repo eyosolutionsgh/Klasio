@@ -26,6 +26,7 @@ interface Summary {
 }
 interface Structure {
   years: { id: string; name: string; terms: { id: string; name: string }[] }[];
+  classes: { id: string; name: string; category: string }[];
 }
 
 /** PRE_SCHOOL → Pre school. The enum is an implementation detail, not something to file. */
@@ -48,6 +49,13 @@ export default async function ReturnsPage({
     y.terms.map((t) => ({ id: t.id, label: `${y.name} · ${t.name}` })),
   );
   const qs = `&termId=${summary.term.id}`;
+  /*
+    WAEC and CSSPS concern leaving classes only. Filtered on the level category rather than the
+    class name, since a school may call JHS 3 anything it likes.
+  */
+  const jhsClasses = (structure.classes ?? []).filter(
+    (c) => c.category === 'JHS' || c.category === 'SHS',
+  );
   const e = summary.enrolment;
 
   return (
@@ -80,6 +88,68 @@ export default async function ReturnsPage({
       <div className="mt-6 rise rise-2">
         <ReturnsFilters termId={summary.term.id} terms={terms} />
       </div>
+
+      {/*
+        The other bodies a school answers to. These are exports rather than integrations: none of
+        them publishes an API, and their templates are reissued most years — so the sheet carries
+        every field the body is known to want and somebody pastes it into this year's form.
+      */}
+      <section className="card p-6 mt-6 rise rise-2">
+        <h2 className="font-display text-xl">WAEC, CSSPS and the annual census</h2>
+        <p className="text-sm text-oat mt-1 max-w-prose">
+          Sheets built from your own records, for the returns that are not termly. Check the names
+          against birth certificates before submitting anything to WAEC — the candidate sheet marks
+          the ones nobody has checked.
+        </p>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <DownloadButton
+            path="/compliance/admission-register?format=xlsx"
+            filename="admission-register.xlsx"
+            label="Admission register"
+            variant="ghost"
+            tip="Every child ever admitted, in admission-number order — the register an inspection asks for"
+          />
+          <DownloadButton
+            path={`/compliance/emis/census?format=xlsx`}
+            filename="emis-census.xlsx"
+            label="EMIS census"
+            variant="ghost"
+            tip="Enrolment by class, sex and age, plus the staff list with NTC numbers and qualifications"
+          />
+        </div>
+
+        {jhsClasses.length > 0 && (
+          <div className="mt-5 border-t border-mist/60 pt-4">
+            <p className="text-xs uppercase tracking-widest text-oat">Per candidate class</p>
+            <ul className="mt-2 space-y-2">
+              {jhsClasses.map((c) => (
+                <li key={c.id} className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="w-28 font-medium">{c.name}</span>
+                  <DownloadButton
+                    path={`/compliance/waec/candidates?classId=${c.id}&format=xlsx`}
+                    filename={`waec-candidates-${c.name.replace(/\s+/g, '-')}.xlsx`}
+                    label="WAEC candidates"
+                    variant="ghost"
+                  />
+                  <DownloadButton
+                    path={`/compliance/waec/sba?classId=${c.id}&termId=${summary.term.id}&format=xlsx`}
+                    filename={`waec-sba-${c.name.replace(/\s+/g, '-')}.xlsx`}
+                    label="SBA marks"
+                    variant="ghost"
+                  />
+                  <DownloadButton
+                    path={`/compliance/cssps/export/${c.id}?format=xlsx`}
+                    filename={`cssps-choices-${c.name.replace(/\s+/g, '-')}.xlsx`}
+                    label="CSSPS choices"
+                    variant="ghost"
+                  />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </section>
 
       <div className="card p-6 mt-6 rise rise-2">
         <h2 className="font-display text-xl">{summary.school.name}</h2>

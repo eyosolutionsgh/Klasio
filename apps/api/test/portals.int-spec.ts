@@ -67,6 +67,78 @@ describe('family and student portals', () => {
     expect(theirs.body.student).toBeUndefined();
   });
 
+  /**
+   * A notice aimed at one class used to be texted to that class and then posted to the notice
+   * board every family in the school reads, so "one class" was true of only half the send. The
+   * board now carries the audience with it.
+   */
+  it('a notice for one class reaches that class and nobody else', async () => {
+    const mine = await db.studentGuardian.findFirstOrThrow({
+      where: {
+        custodyFlag: { not: 'BLOCKED' },
+        student: { schoolId, status: 'ACTIVE', classId: { not: null } },
+      },
+      include: { guardian: true, student: true },
+    });
+    const targetClassId = mine.student.classId as string;
+
+    // A guardian with no child in that class — the one who must not see it.
+    const other = await db.studentGuardian.findFirstOrThrow({
+      where: {
+        custodyFlag: { not: 'BLOCKED' },
+        student: { schoolId, status: 'ACTIVE', classId: { not: targetClassId } },
+        guardian: { id: { not: mine.guardianId } },
+      },
+      include: { guardian: true },
+    });
+
+    const marker = `Class-only notice ${Date.now()}`;
+    await db.announcement.create({
+      data: {
+        schoolId,
+        title: marker,
+        body: 'Bring a hat for the trip on Friday.',
+        audience: 'GUARDIANS',
+        classId: targetClassId,
+        createdById: (await db.user.findFirstOrThrow({ where: { schoolId } })).id,
+      },
+    });
+
+    const seen = await call<{ title: string }[]>(api.baseUrl, 'GET', '/guardian/notices', {
+      token: guardianToken(mine.guardian),
+    });
+    expect(seen.status).toBe(200);
+    expect(seen.body.map((n) => n.title)).toContain(marker);
+
+    const unseen = await call<{ title: string }[]>(api.baseUrl, 'GET', '/guardian/notices', {
+      token: guardianToken(other.guardian),
+    });
+    expect(unseen.status).toBe(200);
+    expect(unseen.body.map((n) => n.title)).not.toContain(marker);
+  });
+
+  it('a school-wide notice still reaches everybody', async () => {
+    const anyone = await db.studentGuardian.findFirstOrThrow({
+      where: { custodyFlag: { not: 'BLOCKED' }, student: { schoolId, status: 'ACTIVE' } },
+      include: { guardian: true },
+    });
+    const marker = `Whole-school notice ${Date.now()}`;
+    await db.announcement.create({
+      data: {
+        schoolId,
+        title: marker,
+        body: 'Term ends on the 23rd.',
+        audience: 'ALL',
+        createdById: (await db.user.findFirstOrThrow({ where: { schoolId } })).id,
+      },
+    });
+
+    const seen = await call<{ title: string }[]>(api.baseUrl, 'GET', '/guardian/notices', {
+      token: guardianToken(anyone.guardian),
+    });
+    expect(seen.body.map((n) => n.title)).toContain(marker);
+  });
+
   it('an unpublished report does not exist for the family', async () => {
     const report = await db.termReport.findFirst({ where: { schoolId } });
     if (!report) return; // seed always generates some, but stay honest

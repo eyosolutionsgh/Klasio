@@ -41,11 +41,21 @@ export default function DefaultersTable({
   currency,
   params,
   base = '/fees',
+  termId,
+  canClear = false,
 }: {
   rows: Defaulter[];
   currency: string;
   params: ListSearchParams;
   base?: string;
+  /** The term a fee clearance would apply to. */
+  termId?: string;
+  /**
+   * Whether to offer releasing a held report at all — true only when the school runs the
+   * "no fees, no report card" policy *and* this user may override it. Offering it to a school
+   * that does not withhold reports would be offering to undo something that never happened.
+   */
+  canClear?: boolean;
 }) {
   const router = useRouter();
   const [toast, setToast] = useState<string | null>(null);
@@ -56,6 +66,8 @@ export default function DefaultersTable({
   const [depositFor, setDepositFor] = useState<Defaulter | null>(null);
   const [proof, setProof] = useState<File | null>(null);
   const [payLink, setPayLink] = useState<{ student: string; url: string } | null>(null);
+  const [clearFor, setClearFor] = useState<Defaulter | null>(null);
+  const [clearReason, setClearReason] = useState('');
 
   const money = (n: number) =>
     `${currency} ${n.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -120,6 +132,27 @@ export default function DefaultersTable({
       `Deposit ${body.reference} recorded — awaiting bursar confirmation. Nothing has been credited yet.`,
     );
     setDepositFor(null);
+    refresh();
+  });
+
+  const grantClearance = useAsyncAction(async () => {
+    if (!clearFor || !termId) throw new Error('nothing to release');
+    setToast(null);
+    const res = await fetch('/api/proxy/fees/clearances', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId: clearFor.studentId, termId, reason: clearReason.trim() }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setToast(body.message ?? 'Could not release that report.');
+      throw new Error('clearance rejected');
+    }
+    // Says what changed and, as importantly, what did not.
+    setToast(
+      `${clearFor.name}'s report released. The balance of ${money(clearFor.balance)} still stands.`,
+    );
+    setClearFor(null);
     refresh();
   });
 
@@ -236,6 +269,21 @@ export default function DefaultersTable({
                     >
                       Record payment
                     </Button>
+                    {canClear && termId && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setClearFor(d);
+                          setClearReason('');
+                        }}
+                        data-tip="Let this family read their report despite the balance"
+                        className="tip"
+                      >
+                        Release report
+                      </Button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -347,6 +395,60 @@ export default function DefaultersTable({
                 failedLabel="Couldn't submit"
               >
                 Submit for confirmation
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Release a held report for one family, on the record */}
+      {clearFor && (
+        <div
+          className="fixed inset-0 z-50 bg-ink/40 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal
+        >
+          <form onSubmit={grantClearance.run} className="card w-full max-w-lg p-7 rise">
+            <h2 className="font-display text-2xl">Release {clearFor.name}&apos;s report</h2>
+            <p className="text-sm text-oat mt-1">
+              Their family owes {money(clearFor.balance)}. Releasing lets them read this
+              term&apos;s terminal report anyway, and changes nothing about what they owe.
+            </p>
+            <label className="block mt-5">
+              <span className="text-xs uppercase tracking-widest text-oat">Why</span>
+              <textarea
+                value={clearReason}
+                onChange={(e) => setClearReason(e.target.value)}
+                required
+                minLength={4}
+                rows={3}
+                placeholder="On an agreed payment plan until 30 September"
+                className="mt-1.5 w-full rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+              />
+              {/* The same rule as a scholarship: unexplained, it is a favour rather than a decision. */}
+              <span className="mt-1 block text-xs text-oat">
+                Kept on the record with your name against it, so the next bursar can tell a payment
+                plan from a favour.
+              </span>
+            </label>
+            <div className="flex gap-3 mt-6">
+              <Button
+                type="submit"
+                className="flex-1"
+                state={grantClearance.state}
+                pendingLabel="Releasing…"
+                doneLabel="Released!"
+                failedLabel="Couldn't release"
+              >
+                Release report
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className="flex-1"
+                onClick={() => setClearFor(null)}
+              >
+                Cancel
               </Button>
             </div>
           </form>

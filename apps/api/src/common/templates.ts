@@ -44,6 +44,16 @@ export const MESSAGE_TEMPLATES: Record<string, TemplateSpec> = {
     default: '{school}: {student} was collected by {collector} at {time}.',
     placeholders: ['school', 'student', 'collector', 'time'],
   },
+  /**
+   * The other half of the day. A parent who is told their child left at 15:42 but never told they
+   * arrived at 07:14 has been given the less reassuring of the two facts: "did they get there?"
+   * is the question a guardian actually carries around all morning.
+   */
+  DROP_OFF: {
+    label: 'Drop-off confirmation',
+    default: '{school}: {student} arrived at school at {time}.',
+    placeholders: ['school', 'student', 'time'],
+  },
 };
 
 export type MessageTemplateKind = keyof typeof MESSAGE_TEMPLATES;

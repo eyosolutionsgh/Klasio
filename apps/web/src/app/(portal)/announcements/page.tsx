@@ -40,10 +40,20 @@ const ROLES = [
   { id: 'STUDENTS', label: 'Students' },
 ] as const;
 
+/**
+ * The server has always resolved five audiences; this offered three, so "everyone on the Adenta
+ * bus" and "these nine parents" were reachable only by whoever was writing the request by hand.
+ *
+ * `ROUTE` is filtered out below when the school has no transport routes to pick from, rather than
+ * being hidden behind a tier check here — a school on the right package with no routes entered yet
+ * would otherwise be offered an audience that resolves to nobody.
+ */
 const SCOPES = [
   { value: 'ALL', label: 'Everyone' },
   { value: 'CLASS', label: 'One class' },
   { value: 'LEVEL', label: 'One level' },
+  { value: 'ROUTE', label: 'One bus route' },
+  { value: 'CUSTOM', label: 'A list I pick' },
 ] as const;
 
 type Scope = (typeof SCOPES)[number]['value'];
@@ -66,6 +76,10 @@ export default function AnnouncementsPage() {
   const [levels, setLevels] = useState<{ id: string; name: string }[]>([]);
   const [classId, setClassId] = useState('');
   const [levelId, setLevelId] = useState('');
+  const [routes, setRoutes] = useState<{ id: string; name: string }[]>([]);
+  const [routeId, setRouteId] = useState('');
+  /** Free text, one number per line or comma-separated — normalised server-side. */
+  const [recipients, setRecipients] = useState('');
   const [media, setMedia] = useState<{ id: string; filename: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<{ channel: string; ok: boolean; detail: string }[]>([]);
@@ -84,6 +98,15 @@ export default function AnnouncementsPage() {
         setClasses(d.classes ?? []);
         setLevels(d.levels ?? []);
       })
+      .catch(() => {});
+    /*
+      Transport is entitlement- and permission-gated, so this 403s for most schools. A failure
+      here means "no routes to offer", not an error worth showing: the audience simply is not
+      one this school has.
+    */
+    fetch('/api/proxy/transport/routes')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setRoutes(Array.isArray(d) ? d : (d?.rows ?? [])))
       .catch(() => {});
   }, [load]);
 
@@ -111,6 +134,16 @@ export default function AnnouncementsPage() {
         audienceScope: scope,
         classId: scope === 'CLASS' ? classId : undefined,
         levelId: scope === 'LEVEL' ? levelId : undefined,
+        routeId: scope === 'ROUTE' ? routeId : undefined,
+        // Split on anything that is not part of a number, so a pasted column, a comma-separated
+        // line and a WhatsApp-style list all arrive the same way.
+        recipients:
+          scope === 'CUSTOM'
+            ? recipients
+                .split(/[\s,;]+/)
+                .map((x) => x.trim())
+                .filter(Boolean)
+            : undefined,
         audienceRoles: roles,
         channels,
         mediaIds: media.map((m) => m.id),
@@ -216,7 +249,7 @@ export default function AnnouncementsPage() {
             name="scope"
             value={scope}
             onChange={setScope}
-            options={SCOPES}
+            options={SCOPES.filter((s) => s.value !== 'ROUTE' || routes.length > 0)}
           />
           <fieldset>
             <legend className="text-xs uppercase tracking-widest text-oat">Which portals</legend>
@@ -277,6 +310,54 @@ export default function AnnouncementsPage() {
                 </option>
               ))}
             </select>
+          </label>
+        )}
+
+        {scope === 'ROUTE' && (
+          <label className="block">
+            <span className="text-xs uppercase tracking-widest text-oat">Bus route</span>
+            <select
+              value={routeId}
+              onChange={(e) => setRouteId(e.target.value)}
+              required
+              className="mt-1.5 w-full rounded-lg border border-mist bg-white px-3 py-2 text-sm"
+            >
+              <option value="">Choose a route…</option>
+              {routes.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-xs text-oat">
+              Reaches the guardians of every child riding this route.
+            </span>
+          </label>
+        )}
+        {scope === 'CUSTOM' && (
+          <label className="block">
+            <span className="text-xs uppercase tracking-widest text-oat">Numbers</span>
+            <textarea
+              value={recipients}
+              onChange={(e) => setRecipients(e.target.value)}
+              required
+              rows={3}
+              placeholder="024 123 4567, 0201234567&#10;+233 27 765 4321"
+              className="mt-1.5 w-full rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand"
+            />
+            {/*
+              Said plainly rather than discovered: a picked list is a list of phone numbers, so
+              there is nobody to show a notice to and no address to email. Choosing it with the
+              other channels ticked would otherwise look like it had reached four places.
+            */}
+            <span className="mt-1 block text-xs text-oat">
+              {
+                recipients.split(/[\s,;]+/).filter(Boolean).length
+              }{' '}
+              number(s), one per line or comma-separated. A picked list goes by{' '}
+              <span className="text-ink">SMS only</span> — there is no portal account or email
+              address behind a bare number.
+            </span>
           </label>
         )}
 

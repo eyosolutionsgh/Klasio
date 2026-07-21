@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, useAsyncAction } from '@/components/Button';
+import PromotionReview from '@/components/PromotionReview';
 
 /**
  * Move a class up a year, or graduate it.
@@ -27,6 +28,7 @@ export default function PromoteClass({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [confirmingGraduation, setConfirmingGraduation] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
   const [toClassId, setToClassId] = useState('');
   const [error, setError] = useState<string | null>(null);
   /**
@@ -74,6 +76,18 @@ export default function PromoteClass({
 
   const promote = useAsyncAction(() => submit(false));
   const graduateClass = useAsyncAction(() => submit(true));
+
+  if (reviewing) {
+    return (
+      <PromotionReview
+        fromClassId={fromClassId}
+        onClose={() => {
+          setReviewing(false);
+          setOpen(false);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="card p-4">
@@ -145,6 +159,17 @@ export default function PromoteClass({
             failedLabel="Couldn't promote"
           >
             Promote
+          </Button>
+          {/*
+            The way out of "everyone does the same thing": one child repeating no longer means
+            promoting the class and then editing that child back.
+          */}
+          <Button
+            variant="secondary"
+            disabled={promote.state === 'pending'}
+            onClick={() => setReviewing(true)}
+          >
+            Review each child…
           </Button>
           {/* Muted, and ellipsised: it opens a question rather than doing the thing. */}
           <Button

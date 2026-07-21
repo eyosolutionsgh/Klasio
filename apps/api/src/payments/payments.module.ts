@@ -38,6 +38,7 @@ import { hasEntitlement } from '../common/entitlements';
 import { createHmac } from 'crypto';
 import { balanceOf } from '../common/ledger';
 import { nextInSequence, refNumber } from '../common/sequences';
+import { verifyQstashSignature } from '../common/qstash';
 
 class ConnectGatewayDto {
   @IsIn(['HUBTEL', 'PAYSTACK', 'FLUTTERWAVE']) provider: 'HUBTEL' | 'PAYSTACK' | 'FLUTTERWAVE';
@@ -886,6 +887,11 @@ export class PaymentsQueue implements OnModuleInit, OnModuleDestroy {
 
   private async process(name: string) {
     if (name !== 'requery') return;
+    return this.sweepOnce();
+  }
+
+  /** The sweep itself, callable directly by the QStash callback route below — no BullMQ involved. */
+  async sweepOnce() {
     const pending = await this.svc.pendingOlderThan(PENDING_OLDER_THAN_MIN);
     for (const { reference } of pending) {
       try {
@@ -912,8 +918,28 @@ export class PaymentsQueue implements OnModuleInit, OnModuleDestroy {
   }
 }
 
+/**
+ * QStash's serverless alternative to `PaymentsQueue`'s BullMQ worker (docs/10 §5) — a scheduled
+ * HTTP callback instead of a persistent listener, for deployments with no Redis. Active only when
+ * `QSTASH_CURRENT_SIGNING_KEY` is set; a deployment using BullMQ instead never calls this route,
+ * and QStash never calling it is exactly as harmless as the sweep being disabled today.
+ */
+@Controller('payments/internal')
+export class PaymentsQstashController {
+  constructor(private queue: PaymentsQueue) {}
+
+  @Post('qstash/sweep')
+  @Public()
+  async qstashSweep(@Req() req: RawRequest) {
+    const raw = (req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}))).toString('utf8');
+    const ok = await verifyQstashSignature(req.headers['upstash-signature'], raw);
+    if (!ok) throw new UnauthorizedException('Invalid QStash signature');
+    return this.queue.sweepOnce();
+  }
+}
+
 @Module({
-  controllers: [PaymentsController],
+  controllers: [PaymentsController, PaymentsQstashController],
   providers: [PaymentsService, PaymentsQueue],
   exports: [PaymentsService],
 })

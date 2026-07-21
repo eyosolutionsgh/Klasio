@@ -64,6 +64,90 @@ describe('gate check-in and delegates', () => {
     expect(rows[0].broughtBy).toBe('Kofi Mensah');
   });
 
+  /**
+   * The morning half of the gate's promise to a guardian. Release has always texted; arrival
+   * recorded the log row and said nothing, so the parent was told the less reassuring of the two
+   * facts and never the one they actually worry about.
+   */
+  it('texts the primary guardian that the child arrived, once per check-in', async () => {
+    const link = await db.studentGuardian.findFirstOrThrow({
+      where: {
+        isPrimary: true,
+        custodyFlag: { not: 'BLOCKED' },
+        student: { schoolId, status: 'ACTIVE' },
+      },
+      include: { guardian: true, student: true },
+    });
+    await db.checkInLog.deleteMany({ where: { studentId: link.studentId } });
+    await db.school.update({ where: { id: schoolId }, data: { smsCredits: 500 } });
+
+    const clientRef = `test-dropoff-sms-${Date.now()}`;
+    const res = await call<{ id: string; notified: number }>(api.baseUrl, 'POST', '/pickup/checkin', {
+      token,
+      body: { studentId: link.studentId, broughtBy: 'Akosua Boateng', clientRef },
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.notified).toBe(1);
+
+    const texts = await db.smsMessage.findMany({
+      where: { schoolId, batchId: `CHECKIN-${res.body.id}` },
+    });
+    expect(texts).toHaveLength(1);
+    expect(texts[0].body).toMatch(/arrived at school/i);
+    // The child's name has to be in it — a bare "your child arrived" is useless to a parent
+    // with three children at the school.
+    expect(texts[0].body).toContain(link.student.firstName);
+
+    // Replaying the queued check-in must not text the family twice.
+    const replay = await call<{ replayed: boolean }>(api.baseUrl, 'POST', '/pickup/checkin', {
+      token,
+      body: { studentId: link.studentId, broughtBy: 'Akosua Boateng', clientRef },
+    });
+    expect(replay.body.replayed).toBe(true);
+    const after = await db.smsMessage.count({
+      where: { schoolId, batchId: `CHECKIN-${res.body.id}` },
+    });
+    expect(after).toBe(1);
+  });
+
+  it('does not tell a BLOCKED guardian that the child arrived', async () => {
+    const blocked = await db.studentGuardian.findFirst({
+      where: {
+        custodyFlag: 'BLOCKED',
+        student: { schoolId, status: 'ACTIVE' },
+      },
+    });
+    if (!blocked) return; // The seed carries one; if it ever stops, this asserts nothing rather than lying.
+
+    // Make the blocked adult the only would-be recipient for this child.
+    await db.studentGuardian.updateMany({
+      where: { studentId: blocked.studentId },
+      data: { isPrimary: false },
+    });
+    await db.studentGuardian.update({
+      where: {
+        studentId_guardianId: {
+          studentId: blocked.studentId,
+          guardianId: blocked.guardianId,
+        },
+      },
+      data: { isPrimary: true, custodyFlag: 'BLOCKED' },
+    });
+    await db.checkInLog.deleteMany({ where: { studentId: blocked.studentId } });
+
+    const res = await call<{ id: string; notified: number }>(api.baseUrl, 'POST', '/pickup/checkin', {
+      token,
+      body: { studentId: blocked.studentId, clientRef: `test-blocked-${Date.now()}` },
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    // Barred from collecting means barred from tracking: no text, and the check-in still stands.
+    expect(res.body.notified).toBe(0);
+    const texts = await db.smsMessage.count({
+      where: { schoolId, batchId: `CHECKIN-${res.body.id}` },
+    });
+    expect(texts).toBe(0);
+  });
+
   it('refuses a second check-in for the same child on the same day', async () => {
     const res = await call<{ message: string }>(api.baseUrl, 'POST', '/pickup/checkin', {
       token,

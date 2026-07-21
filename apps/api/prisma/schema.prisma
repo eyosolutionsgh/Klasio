@@ -61,6 +61,13 @@ model School {
   smsSenderId String? // registered SMS sender ID (e.g. "BRIGHTON")
   smsCredits  Int      @default(0) // pay-as-you-go SMS units the school has bought
   reportTemplate ReportTemplate @default(GES)
+  /// Whether a family with an outstanding balance is held back from reading a published report.
+  ///
+  /// Near-universal practice in Ghanaian private schools ("no fees, no report card"), and off by
+  /// default because it is a policy a school chooses, not one the software should assume. It
+  /// withholds from the *family*; staff always see every report, and the school can clear an
+  /// individual child without clearing the policy (see FeeClearance).
+  reportsRequireFeeClearance Boolean @default(false)
   /// How the two halves of a subject mark are weighted. GES convention is 30/70, but schools
   /// differ and early years often run 100/0.
   sbaWeight  Int @default(30)
@@ -94,6 +101,12 @@ model User {
   school       School   @relation(fields: [schoolId], references: [id])
   name         String
   email        String   @unique
+  /// Teacher licence number from the National Teaching Council, and the qualification behind it.
+  /// NaSIA inspections ask for the staff list with these on it, and so does the annual census.
+  ntcNumber     String?
+  qualification String?
+  dutyTurns     DutyRoster[]
+  lessonNotes   LessonNote[]  @relation("LessonNoteTeacher")
   phone        String?
   passwordHash String
   /// Legacy coarse role. Retained because it still identifies the proprietor (OWNER always holds
@@ -258,7 +271,14 @@ model AcademicYear {
   startDate DateTime
   endDate   DateTime
   isCurrent Boolean  @default(false)
+  /// Set when the school formally closes the year, after every term in it is closed and the
+  /// promotion run has moved the children on. Distinct from `isCurrent`, which only says which
+  /// year the software is pointing at — a year can stop being current without ever being finished.
+  closedAt   DateTime?
+  closedById String?
   terms     Term[]
+  promotions PromotionRecord[]
+  mockSeries MockSeries[]
 
   @@unique([schoolId, name])
 }
@@ -272,6 +292,14 @@ model Term {
   endDate        DateTime
   nextTermBegins DateTime?
   isCurrent      Boolean      @default(false)
+  /// Set when the school closes the term: exams marked, reports vetted and published, returns
+  /// filed. A closed term stops accepting attendance, scores and report generation — its academic
+  /// record is settled history. Money is deliberately *not* frozen: arrears carry forward and a
+  /// parent may still pay last term's bill months later.
+  closedAt   DateTime?
+  closedById String?
+
+  feeClearances FeeClearance[]
 
   @@unique([academicYearId, name])
 }
@@ -361,6 +389,7 @@ model Subject {
   timetableSlots    TimetableSlot[]
   syllabusTopics    SyllabusTopic[]
   questionBanks     QuestionBank[]
+  mockResults       MockResult[]
 }
 
 // ── Students & guardians ─────────────────────────────────────────────
@@ -395,6 +424,10 @@ model Student {
   exitDate     DateTime? // set on transfer / withdrawal / graduation
   exitReason   String?
   medicalNotes String?
+  /// The child's name exactly as it appears on the birth certificate, when that differs from the
+  /// name the school uses day to day. WAEC prints certificates from what is registered and a
+  /// mismatch blocks a candidate outright — chronically, and always discovered too late.
+  certificateName String?
   /// Hash of the portal PIN the school issues. Null until a PIN is set; students without one
   /// simply cannot sign in, which is the right default for the youngest classes.
   portalPinHash String?
@@ -409,6 +442,12 @@ model Student {
   attendance   AttendanceRecord[]
   scores       Score[]
   termReports  TermReport[]
+  feeClearances FeeClearance[]
+  promotions   PromotionRecord[]
+  csspsChoices CsspsChoice[]
+  mockResults  MockResult[]
+  disciplineEntries DisciplineEntry[]
+  feedingRecords FeedingRecord[]
   invoices     Invoice[]
   ledger       LedgerEntry[]
   documents      StudentDocument[]
@@ -680,10 +719,299 @@ model TermReport {
   teacherRemark     String?
   headRemark        String?
   publishedAt       DateTime?
+  /// Set when the head has read the report and is content with it, before it is released.
+  ///
+  /// The order a Ghanaian school actually works in is generate → vet → publish, and the vetting is
+  /// the head reading every card. Without a state for it, "checked" lived in somebody's memory and
+  /// the only visible difference between a vetted report and an unread one was that a human had
+  /// scrolled past it.
+  vettedAt          DateTime?
+  vettedById        String?
   generatedAt       DateTime  @default(now())
 
   @@unique([studentId, termId])
   @@index([schoolId, termId, classId])
+}
+
+/// A mock examination series — "Mock 1", "District Mock", "Second Mock".
+///
+/// Deliberately not a Term. A JHS3 candidate sits three to six mocks in their final year, all
+/// inside one term, each producing a full set of subject marks and a BECE-style aggregate. Modelled
+/// as a term they would each need their own fee structure, register and report cards; modelled as
+/// assessment components they would be folded into the terminal report, which is exactly what a
+/// mock must not do. So they are their own thing, hanging off the year rather than the term.
+model MockSeries {
+  id             String       @id @default(cuid())
+  schoolId       String
+  academicYearId String
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  name           String
+  /// When it was sat. Null while it is still being set up.
+  sittingOn      DateTime?
+  /// The candidate class, when the series is for one class rather than a whole year group.
+  classId        String?
+  createdById    String
+  createdAt      DateTime     @default(now())
+  results        MockResult[]
+
+  @@unique([schoolId, academicYearId, name])
+  @@index([schoolId, academicYearId])
+}
+
+/// One candidate's mark in one subject in one mock. Out of 100: a mock is a whole paper, so there
+/// is no SBA half to weight against.
+model MockResult {
+  id        String     @id @default(cuid())
+  schoolId  String
+  seriesId  String
+  series    MockSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  studentId String
+  student   Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  subjectId String
+  subject   Subject    @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  total     Float
+  updatedAt DateTime   @updatedAt
+
+  @@unique([seriesId, studentId, subjectId])
+  @@index([schoolId, seriesId])
+}
+
+// ── The registers an inspection asks for ─────────────────────────────
+//
+// NaSIA licenses and inspects private schools, and the inspection is largely a request to see
+// books: the admission register, the attendance registers, the log book, the visitors book. Four
+// of those the software already held in some form. These are the ones it did not, and they are
+// the reason a school still keeps a shelf of ledgers next to a system that has everything else.
+
+enum LogBookKind {
+  GENERAL
+  VISIT
+  INCIDENT
+  ABSENCE
+  MAINTENANCE
+}
+
+/// The head's (or duty teacher's) daily record of anything worth remembering about a day.
+///
+/// Free-form on purpose. A log book entry is "the water went off at 11", "district officer called
+/// unannounced", "P4 window broken during break" — the value is that it is dated, attributed and
+/// unalterable, not that it is structured.
+model LogBookEntry {
+  id        String      @id @default(cuid())
+  schoolId  String
+  /// The day being recorded, which is not always the day it was written.
+  entryDate DateTime
+  kind      LogBookKind @default(GENERAL)
+  body      String
+  authorId  String
+  createdAt DateTime    @default(now())
+
+  @@index([schoolId, entryDate])
+}
+
+/// Who is on duty, and when. The duty teacher runs assembly, supervises break and closing, and
+/// writes the day into the log book — so the roster is what says whose entry is missing.
+model DutyRoster {
+  id        String   @id @default(cuid())
+  schoolId  String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Inclusive range; a duty turn is usually a week, occasionally a single day.
+  startDate DateTime
+  endDate   DateTime
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([schoolId, startDate])
+}
+
+enum VettingStatus {
+  SUBMITTED
+  APPROVED
+  RETURNED
+}
+
+/// A teacher's lesson notes or scheme of work, submitted for the head to vet.
+///
+/// Weekly, and universal in Ghanaian schools: the head reads and signs lesson notes before the
+/// week they cover. Modelled as a submission with a decision rather than a file store, because
+/// the workflow — submitted, seen, returned with a comment — is the part that lives on paper.
+model LessonNote {
+  id         String        @id @default(cuid())
+  schoolId   String
+  teacherId  String
+  teacher    User          @relation("LessonNoteTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  classId    String?
+  subjectId  String?
+  /// The week the notes cover, by its Monday.
+  weekOf     DateTime
+  title      String
+  body       String?
+  /// Optional attachment in object storage, for a school that types notes up elsewhere.
+  fileKey    String?
+  fileName   String?
+  status     VettingStatus @default(SUBMITTED)
+  vettedById String?
+  vettedAt   DateTime?
+  /// The head's comment. Required when returning — "redo it" without a reason is not vetting.
+  comment    String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@index([schoolId, weekOf])
+  @@index([schoolId, teacherId])
+}
+
+enum DisciplineOutcome {
+  RECORDED
+  WARNED
+  PARENT_INFORMED
+  SUSPENDED
+  RESOLVED
+}
+
+/// The discipline book, in the shape a school actually keeps it.
+///
+/// Corporal punishment is banned by GES, so this records what happened and what was done about
+/// it, never a sanction to be administered. The escalation trail matters more than the incident:
+/// "class teacher → section head → head" is how these are handled, and a parent asking why their
+/// child was suspended is asking to see that trail.
+model DisciplineEntry {
+  id           String            @id @default(cuid())
+  schoolId     String
+  studentId    String
+  student      Student           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  occurredOn   DateTime
+  description  String
+  actionTaken  String?
+  outcome      DisciplineOutcome @default(RECORDED)
+  /// Set when the school told the family, which is the fact most often disputed later.
+  guardianInformedAt DateTime?
+  recordedById String
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@index([schoolId, occurredOn])
+  @@index([schoolId, studentId])
+}
+
+/// The visitors book at the front desk — adults on the compound who are not collecting a child.
+///
+/// Deliberately separate from the gate log, which is about pupils. A safeguarding question after
+/// the fact ("who was in the building on Tuesday?") is answered by this book and by nothing else.
+model VisitorLog {
+  id           String    @id @default(cuid())
+  schoolId     String
+  name         String
+  phone        String?
+  organisation String?
+  purpose      String
+  /// Who they came to see, in the school's own words rather than a foreign key: visitors ask for
+  /// "the bursar" as often as for a person, and the record should say what was actually said.
+  toSee        String?
+  arrivedAt    DateTime  @default(now())
+  departedAt   DateTime?
+  badgeNo      String?
+  recordedById String
+
+  @@index([schoolId, arrivedAt])
+}
+
+/// A day's feeding money for one child.
+///
+/// Collected daily in cash at the majority of Ghanaian basic schools, and quite separate from the
+/// termly bill: the amount is small, it is taken at the classroom door, and it is reconciled the
+/// same afternoon. Modelling it as a fee item would put it on the child's ledger and make every
+/// unpaid lunch an arrear, which is not what a school means by it.
+model FeedingRecord {
+  id           String   @id @default(cuid())
+  schoolId     String
+  studentId    String
+  student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  onDate       DateTime
+  amount       Decimal  @db.Decimal(10, 2)
+  collectedById String
+  createdAt    DateTime @default(now())
+
+  /// One record per child per day: a second collection is a correction, not another lunch.
+  @@unique([studentId, onDate])
+  @@index([schoolId, onDate])
+}
+
+/// A BECE candidate's ranked choice of senior high school, for the CSSPS placement forms.
+///
+/// The choices are made *before* the exam and administered by the JHS, so the school is the one
+/// holding them — on paper, until now. 2026 raised the list from seven schools to eight and added
+/// category rules, which is exactly the kind of thing a paper form gets wrong quietly.
+model CsspsChoice {
+  id         String   @id @default(cuid())
+  schoolId   String
+  studentId  String
+  student    Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  /// 1 is the candidate's first choice.
+  rank       Int
+  schoolName String
+  programme  String?
+  /// A–D as published by CSSPS; kept as free text because the categories are reissued yearly.
+  category   String?
+  /// Boarding or day, which the placement rules treat differently.
+  residency  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([studentId, rank])
+  @@index([schoolId, studentId])
+}
+
+enum PromotionAction {
+  PROMOTED
+  REPEATED
+  GRADUATED
+}
+
+/// What happened to one child at the end of one academic year.
+///
+/// Repeating a year is a fact about a child's schooling that a parent will ask about years later,
+/// and before this it left no trace at all: promotion was an `updateMany` that moved a class, so
+/// a child held back was simply a child whose `classId` did not change. Absence of a change is
+/// not a record. This is what the cumulative record card reads to say "repeated Basic 4".
+model PromotionRecord {
+  id             String          @id @default(cuid())
+  schoolId       String
+  studentId      String
+  student        Student         @relation(fields: [studentId], references: [id])
+  academicYearId String
+  academicYear   AcademicYear    @relation(fields: [academicYearId], references: [id])
+  action         PromotionAction
+  fromClassId    String?
+  /// Null for a repeat (they stay) and for a graduation (they leave).
+  toClassId      String?
+  decidedById    String
+  createdAt      DateTime        @default(now())
+
+  @@unique([studentId, academicYearId])
+  @@index([schoolId, academicYearId])
+}
+
+/// One child let through the fee-clearance gate for one term, despite a balance.
+///
+/// The gate is a blunt policy and the exceptions are the entire reason it is workable: a family on
+/// an agreed payment plan, a scholarship still being processed, a bereavement. Recording the
+/// reason matters for the same reason it does on a scholarship — a clearance without a stated
+/// reason is a favour, not a decision, and the next bursar cannot tell them apart.
+model FeeClearance {
+  id          String   @id @default(cuid())
+  schoolId    String
+  studentId   String
+  student     Student  @relation(fields: [studentId], references: [id])
+  termId      String
+  term        Term     @relation(fields: [termId], references: [id])
+  reason      String
+  grantedById String
+  createdAt   DateTime @default(now())
+
+  @@unique([studentId, termId])
+  @@index([schoolId, termId])
 }
 
 // ── Fees: append-only ledger ─────────────────────────────────────────
@@ -911,6 +1239,13 @@ model Announcement {
   audience    String    @default("ALL")
   /// Set when this notice was emitted by a Broadcast rather than posted straight to the board.
   broadcastId String?
+  /// Who the notice is *for*, as opposed to `audience`, which is only which portal shows it.
+  /// All null means the whole school. A broadcast sent to one class used to text that class and
+  /// then post the same words to every family's notice board, so "one class" was never true of
+  /// more than half the send.
+  classId     String?
+  levelId     String?
+  routeId     String?
   createdById String
   publishedAt DateTime  @default(now())
 
@@ -1045,6 +1380,31 @@ model ApiKey {
   createdAt   DateTime  @default(now())
   lastUsedAt  DateTime?
   revokedAt   DateTime?
+
+  @@index([schoolId])
+}
+
+/// A school's own endpoint, told when something happens here.
+///
+/// The other half of "API access & webhooks": the read-only API lets another system ask, and this
+/// lets Klasio tell. A school with an accounting package wants to hear about a payment when it
+/// happens, not to poll every ten minutes for the rest of the term.
+model Webhook {
+  id          String    @id @default(cuid())
+  schoolId    String
+  url         String
+  /// Which events to send. Empty means every event, which is what most schools want.
+  events      String[]  @default([])
+  /// Signing secret, shown once. The receiver verifies the signature over the exact bytes sent,
+  /// the same rule the payment gateways' own webhooks are verified by.
+  secret      String
+  active      Boolean   @default(true)
+  createdById String
+  createdAt   DateTime  @default(now())
+  /// Last outcome, so a school can see a dead endpoint without reading logs it has no access to.
+  lastStatus  Int?
+  lastError   String?
+  lastSentAt  DateTime?
 
   @@index([schoolId])
 }
