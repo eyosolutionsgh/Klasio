@@ -156,6 +156,9 @@ export default function TimetablePage() {
           </a>{' '}
           <a href="/timetable/substitutions" className="text-brand underline underline-offset-2">
             Substitutions →
+          </a>{' '}
+          <a href="/timetable/draft" className="text-brand underline underline-offset-2">
+            Draft a week →
           </a>
         </p>
       </div>

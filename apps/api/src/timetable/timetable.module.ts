@@ -23,6 +23,9 @@ import {
   findPeriodOverlap,
   formatMinutes,
 } from '../common/timetable';
+import { draftTimetable, type DraftDemand } from '../common/timetable-draft';
+import { Type } from 'class-transformer';
+import { ValidateNested, IsArray, ArrayNotEmpty } from 'class-validator';
 
 /** Midnight to midnight, so a period is always a real time of day. */
 const MAX_MINUTE = 24 * 60;
@@ -58,6 +61,37 @@ class UpdateSlotDto {
   @IsOptional() @IsString() subjectId?: string | null;
   @IsOptional() @IsString() teacherId?: string | null;
   @IsOptional() @IsString() room?: string | null;
+}
+
+class DemandDto {
+  @IsString() subjectId: string;
+  @IsOptional() @IsString() teacherId?: string;
+  @IsInt() @Min(1) @Max(25) perWeek: number;
+}
+
+class DraftDto {
+  @IsString() classId: string;
+  @IsArray()
+  @ArrayNotEmpty()
+  @ValidateNested({ each: true })
+  @Type(() => DemandDto)
+  demands: DemandDto[];
+}
+
+class DraftSlotDto {
+  @IsString() periodId: string;
+  @IsInt() @Min(1) @Max(5) weekday: number;
+  @IsString() subjectId: string;
+  @IsOptional() @IsString() teacherId?: string;
+}
+
+class ApplyDraftDto {
+  @IsString() classId: string;
+  @IsArray()
+  @ArrayNotEmpty()
+  @ValidateNested({ each: true })
+  @Type(() => DraftSlotDto)
+  slots: DraftSlotDto[];
 }
 
 class CoverDto {
@@ -443,6 +477,96 @@ export class TimetableService {
     };
   }
 
+  // ── Drafting ───────────────────────────────────────────────────────
+
+  /**
+   * Propose a clash-free week for one class (FEATURES.md §6/§21). Pure computation over the
+   * whole school's existing slots — nothing is written; a person reviews and applies.
+   */
+  async draft(auth: AuthUser, dto: DraftDto) {
+    const cls = await this.db.classRoom.findFirst({
+      where: { id: dto.classId, schoolId: auth.schoolId },
+    });
+    if (!cls) throw new NotFoundException('Class not found');
+
+    // Refuse foreign ids before the solver ever sees them.
+    for (const d of dto.demands) {
+      await this.resolveSubjectAndTeacher(auth, {
+        subjectId: d.subjectId,
+        teacherId: d.teacherId,
+      });
+    }
+
+    const [periods, slots] = await Promise.all([
+      this.db.timetablePeriod.findMany({ where: { schoolId: auth.schoolId } }),
+      this.db.timetableSlot.findMany({
+        where: { schoolId: auth.schoolId },
+        select: { weekday: true, periodId: true, teacherId: true, classId: true },
+      }),
+    ]);
+    const demands: DraftDemand[] = dto.demands.map((d) => ({
+      subjectId: d.subjectId,
+      teacherId: d.teacherId ?? null,
+      perWeek: d.perWeek,
+    }));
+    const result = draftTimetable(dto.classId, demands, periods, slots);
+
+    // Names for the preview, so the client renders without a second round trip.
+    const [subjects, teachers] = await Promise.all([
+      this.db.subject.findMany({
+        where: { id: { in: demands.map((d) => d.subjectId) } },
+        select: { id: true, name: true },
+      }),
+      this.db.user.findMany({
+        where: { id: { in: demands.flatMap((d) => (d.teacherId ? [d.teacherId] : [])) } },
+        select: { id: true, name: true },
+      }),
+    ]);
+    const subjectName = new Map(subjects.map((s) => [s.id, s.name]));
+    const teacherName = new Map(teachers.map((t) => [t.id, t.name]));
+    return {
+      placed: result.placed.map((p) => ({
+        ...p,
+        subject: subjectName.get(p.subjectId) ?? p.subjectId,
+        teacher: p.teacherId ? (teacherName.get(p.teacherId) ?? null) : null,
+      })),
+      unplaced: result.unplaced.map((u) => ({
+        ...u,
+        subject: subjectName.get(u.subjectId) ?? u.subjectId,
+        teacher: u.teacherId ? (teacherName.get(u.teacherId) ?? null) : null,
+      })),
+    };
+  }
+
+  /**
+   * Apply a reviewed draft. Each placement goes through the same `assign` path as a hand-made
+   * one — same clash rules, same audit rows — so a draft gone stale since it was generated is
+   * refused where it clashes rather than silently overwriting anyone.
+   */
+  async applyDraft(auth: AuthUser, dto: ApplyDraftDto) {
+    let created = 0;
+    const refused: { weekday: number; periodId: string; message: string }[] = [];
+    for (const slot of dto.slots) {
+      try {
+        await this.assign(auth, {
+          classId: dto.classId,
+          periodId: slot.periodId,
+          weekday: slot.weekday,
+          subjectId: slot.subjectId,
+          teacherId: slot.teacherId,
+        });
+        created++;
+      } catch (e) {
+        refused.push({
+          weekday: slot.weekday,
+          periodId: slot.periodId,
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+    return { created, refused };
+  }
+
   // ── Substitutions ──────────────────────────────────────────────────
 
   /** Midnight of a date, and its timetable weekday (1–5), refusing weekends. */
@@ -700,6 +824,18 @@ export class TimetableController {
   @RequirePermission('timetable.manage')
   clearSlot(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.clearSlot(user, id);
+  }
+
+  @Post('draft')
+  @RequirePermission('timetable.manage')
+  draft(@CurrentUser() user: AuthUser, @Body() dto: DraftDto) {
+    return this.svc.draft(user, dto);
+  }
+
+  @Post('draft/apply')
+  @RequirePermission('timetable.manage')
+  applyDraft(@CurrentUser() user: AuthUser, @Body() dto: ApplyDraftDto) {
+    return this.svc.applyDraft(user, dto);
   }
 
   @Get('substitutions')
