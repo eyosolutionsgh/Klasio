@@ -23,6 +23,7 @@ import { HrModule } from './hr/hr.module';
 import { SyllabusModule } from './syllabus/syllabus.module';
 import { TransportModule } from './transport/transport.module';
 import { ExamsModule } from './exams/exams.module';
+import { AiModule } from './ai/ai.module';
 import { StudentPortalModule } from './student-portal/student-portal.module';
 import { ReconciliationModule } from './reconciliation/reconciliation.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
@@ -66,6 +67,7 @@ import { SetupModule } from './setup/setup.module';
     SyllabusModule,
     TransportModule,
     ExamsModule,
+    AiModule,
     StudentPortalModule,
     ReconciliationModule,
     WhatsAppModule,

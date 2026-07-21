@@ -36,6 +36,7 @@ import {
 } from '../common/whatsapp-intents';
 import { LicenceService } from '../licence/licence.service';
 import { SmsModule, SmsService } from '../sms/sms.module';
+import { AiModule, AiService } from '../ai/ai.module';
 
 /**
  * WhatsApp, strictly reply-only.
@@ -110,6 +111,7 @@ export class WhatsAppService {
     private db: PrismaService,
     private licence: LicenceService,
     private sms: SmsService,
+    private ai: AiService,
   ) {
     const { WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_TOKEN } = process.env;
     const configured = WHATSAPP_PHONE_NUMBER_ID && WHATSAPP_TOKEN;
@@ -295,6 +297,14 @@ export class WhatsAppService {
       }
     }
     if (!intent) intent = menuChoice(text) ?? classifyMessage(text);
+
+    // §21's layer: a parent's own words, understood — but only ONTO the set list, and only when
+    // the school's package includes it. The model chooses an intent or nothing; it never writes
+    // an answer, so it can never invent one.
+    if (intent === 'UNKNOWN' && this.licence.entitlements().includes('ai.chatbot')) {
+      const understood = await this.ai.classifyFreeText(text).catch(() => null);
+      if (understood) intent = understood as WhatsAppIntent;
+    }
 
     if (intent === 'HUMAN') {
       await this.setBotState(convId, { handedOff: true });
@@ -722,5 +732,9 @@ export class WhatsAppController {
   }
 }
 
-@Module({ imports: [SmsModule], controllers: [WhatsAppController], providers: [WhatsAppService] })
+@Module({
+  imports: [SmsModule, AiModule],
+  controllers: [WhatsAppController],
+  providers: [WhatsAppService],
+})
 export class WhatsAppModule {}

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Combobox from '@/components/Combobox';
 import { Button, useAsyncAction } from '@/components/Button';
 import { PlusIcon } from '@/components/icons';
+import AiQuestions from '@/components/AiQuestions';
 
 interface Bank {
   id: string;
@@ -322,6 +323,14 @@ export default function ExamsPage() {
                   </Button>
                 </div>
               </form>
+
+              <AiQuestions
+                bankId={bank.id}
+                onAdded={() => {
+                  loadQuestions();
+                  load();
+                }}
+              />
 
               <ol className="mt-4 space-y-2 list-decimal pl-5">
                 {questions.map((q) => (

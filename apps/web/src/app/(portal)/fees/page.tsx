@@ -1,5 +1,6 @@
 import { api, getMe, money as fmtMoney } from '@/lib/api';
 import DefaultersTable, { type Defaulter } from '@/components/DefaultersTable';
+import { DefaultRiskPanel } from '@/components/RiskPanels';
 import DepositQueue from '@/components/DepositQueue';
 import FeeFilters from '@/components/FeeFilters';
 import Pagination from '@/components/Pagination';
@@ -144,6 +145,10 @@ export default async function FeesPage({
             {f}
           </a>
         ))}
+      </div>
+
+      <div className="mt-6">
+        <DefaultRiskPanel />
       </div>
 
       <DepositQueue currency={cur} />

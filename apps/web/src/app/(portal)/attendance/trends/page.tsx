@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { AtRiskPanel } from '@/components/RiskPanels';
 import { api, getMe } from '@/lib/api';
 import Pagination from '@/components/Pagination';
 import SortHeader from '@/components/SortHeader';
@@ -209,6 +210,10 @@ export default async function AttendanceTrendsPage({
           label="children"
         />
       </section>
+
+      <div className="mt-6">
+        <AtRiskPanel />
+      </div>
     </div>
   );
 }
