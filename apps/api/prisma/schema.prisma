@@ -278,6 +278,7 @@ model AcademicYear {
   closedById String?
   terms     Term[]
   promotions PromotionRecord[]
+  mockSeries MockSeries[]
 
   @@unique([schoolId, name])
 }
@@ -388,6 +389,7 @@ model Subject {
   timetableSlots    TimetableSlot[]
   syllabusTopics    SyllabusTopic[]
   questionBanks     QuestionBank[]
+  mockResults       MockResult[]
 }
 
 // ── Students & guardians ─────────────────────────────────────────────
@@ -443,6 +445,7 @@ model Student {
   feeClearances FeeClearance[]
   promotions   PromotionRecord[]
   csspsChoices CsspsChoice[]
+  mockResults  MockResult[]
   disciplineEntries DisciplineEntry[]
   feedingRecords FeedingRecord[]
   invoices     Invoice[]
@@ -720,6 +723,49 @@ model TermReport {
 
   @@unique([studentId, termId])
   @@index([schoolId, termId, classId])
+}
+
+/// A mock examination series — "Mock 1", "District Mock", "Second Mock".
+///
+/// Deliberately not a Term. A JHS3 candidate sits three to six mocks in their final year, all
+/// inside one term, each producing a full set of subject marks and a BECE-style aggregate. Modelled
+/// as a term they would each need their own fee structure, register and report cards; modelled as
+/// assessment components they would be folded into the terminal report, which is exactly what a
+/// mock must not do. So they are their own thing, hanging off the year rather than the term.
+model MockSeries {
+  id             String       @id @default(cuid())
+  schoolId       String
+  academicYearId String
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  name           String
+  /// When it was sat. Null while it is still being set up.
+  sittingOn      DateTime?
+  /// The candidate class, when the series is for one class rather than a whole year group.
+  classId        String?
+  createdById    String
+  createdAt      DateTime     @default(now())
+  results        MockResult[]
+
+  @@unique([schoolId, academicYearId, name])
+  @@index([schoolId, academicYearId])
+}
+
+/// One candidate's mark in one subject in one mock. Out of 100: a mock is a whole paper, so there
+/// is no SBA half to weight against.
+model MockResult {
+  id        String     @id @default(cuid())
+  schoolId  String
+  seriesId  String
+  series    MockSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  studentId String
+  student   Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  subjectId String
+  subject   Subject    @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  total     Float
+  updatedAt DateTime   @updatedAt
+
+  @@unique([seriesId, studentId, subjectId])
+  @@index([schoolId, seriesId])
 }
 
 // ── The registers an inspection asks for ─────────────────────────────

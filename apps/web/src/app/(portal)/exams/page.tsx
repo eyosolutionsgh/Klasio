@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+
 import { useCallback, useEffect, useState } from 'react';
 import Combobox from '@/components/Combobox';
 import { Button, useAsyncAction } from '@/components/Button';
@@ -207,7 +209,13 @@ export default function ExamsPage() {
       <div>
         <div className="rise rise-1">
           <h1 className="font-display text-3xl">Examinations</h1>
-        </div>
+              <p className="text-sm text-oat mt-1.5">
+        <Link href="/exams/mocks" className="text-brand underline underline-offset-2">
+          Mock examinations →
+        </Link>{' '}
+        — the BECE rehearsals a candidate class sits, scored as BECE is.
+      </p>
+</div>
         <p className="card p-6 mt-6 text-sm text-oat rise rise-2">
           Computer-based tests are part of a higher package. Ask whoever manages your subscription
           about an upgrade.
