@@ -60,6 +60,7 @@ export const ENTITLEMENT_CATALOGUE: EntitlementSpec[] = [
   { code: 'hr.payroll', label: 'Staff payroll', tier: 'ADVANCED' },
   { code: 'hr.attendance', label: 'Staff attendance & leave', tier: 'ADVANCED' },
   { code: 'exams.cbt', label: 'Computer-based exams', tier: 'ADVANCED' },
+  { code: 'exams.analytics', label: 'BECE & WASSCE outlook', tier: 'ADVANCED' },
   { code: 'platform.api', label: 'API access', tier: 'ADVANCED' },
   { code: 'platform.multicampus', label: 'Multi-campus', tier: 'ADVANCED' },
   { code: 'branding.apps', label: 'Branded mobile apps', tier: 'ADVANCED' },
