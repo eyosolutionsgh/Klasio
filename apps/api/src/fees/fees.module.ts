@@ -6,6 +6,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
   Delete,
+  ForbiddenException,
   Get,
   Injectable,
   Module,
@@ -1252,6 +1253,20 @@ export class FeesService {
   }
 
   /**
+   * The one rule the permission grid cannot carry, and the reason `fees.deposit_submit` and
+   * `fees.deposits` are separate codes at all: whoever banked the money is never the person who
+   * says it arrived. Recording a deposit and confirming it are the two halves of the same
+   * fraud, so holding both permissions still does not let you close the loop on your own
+   * submission. Rejection is guarded too — quietly rejecting your own entry hides a payment
+   * just as well as confirming a fictitious one does.
+   */
+  private assertNotOwnDeposit(auth: AuthUser, deposit: { submittedById: string | null }) {
+    if (deposit.submittedById && deposit.submittedById === auth.sub) {
+      throw new ForbiddenException('Someone else must review a deposit you recorded');
+    }
+  }
+
+  /**
    * Confirm a deposit: this is the moment it becomes money. Appends the PAYMENT entry and
    * mints a receipt, keyed on the deposit's unique reference — LedgerEntry.reference is
    * unique, so a double confirmation credits the student exactly once.
@@ -1261,6 +1276,7 @@ export class FeesService {
       where: { id, schoolId: auth.schoolId },
     });
     if (!deposit) throw new NotFoundException('Deposit not found');
+    this.assertNotOwnDeposit(auth, deposit);
     if (deposit.status === 'REJECTED') {
       throw new BadRequestException('This deposit was rejected');
     }
@@ -1323,6 +1339,7 @@ export class FeesService {
       where: { id, schoolId: auth.schoolId },
     });
     if (!deposit) throw new NotFoundException('Deposit not found');
+    this.assertNotOwnDeposit(auth, deposit);
     if (deposit.status === 'CONFIRMED') {
       throw new BadRequestException(
         'This deposit is already in the ledger — post a reversal instead of rejecting it',
