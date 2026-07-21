@@ -32,7 +32,7 @@ import { isOverLimit, pruneWindows, recordHit, RateWindow } from '../common/rate
 import { reportCardPdf, ReportCardData } from '../common/pdf';
 import { balanceOf } from '../common/ledger';
 import { clearanceVerdict } from '../common/fee-clearance';
-import { storage } from '../common/storage';
+import { buildReportCard } from '../common/report-card';
 import { SmsModule, SmsService } from '../sms/sms.module';
 import { EmailModule, EmailService } from '../email/email.module';
 import { renderGuardianOtp } from '../common/email-templates';
@@ -714,81 +714,25 @@ export class GuardianService {
     });
   }
 
+  /**
+   * The card, assembled by the one shared builder — see common/report-card.ts for why this is not
+   * inlined here any more. This method's job is only deciding whether *this* reader may have it.
+   */
   private async publishedCard(auth: GuardianUser, studentId: string, termId: string) {
-    const student = await this.ward(auth, studentId);
-    const report = await this.db.termReport.findFirst({
-      where: { studentId, termId, schoolId: auth.schoolId, publishedAt: { not: null } },
-    });
-    if (!report) throw new NotFoundException('That report has not been published');
+    await this.ward(auth, studentId);
 
     // Checked on the detail and the PDF as well as the list, because a link that is merely not
     // rendered is not a gate — the URL is guessable and the term id is on screen.
     const verdict = await this.clearance(auth, studentId, termId);
     if (!verdict.allowed) throw new ForbiddenException(verdict.reason);
 
-    const [school, term, level] = await Promise.all([
-      this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } }),
-      this.db.term.findFirst({
-        where: { id: termId },
-        include: { academicYear: { select: { name: true } } },
-      }),
-      this.db.classRoom.findFirst({
-        where: { id: report.classId },
-        include: { level: { include: { gradingScheme: true } } },
-      }),
-    ]);
-    const scheme =
-      level?.level.gradingScheme ??
-      (await this.db.gradingScheme.findFirst({
-        where: { schoolId: auth.schoolId, kind: 'GES_CLASSIC' },
-      }));
-    return {
-      schemeKind: scheme?.kind ?? 'GES_CLASSIC',
-      template: school.reportTemplate,
-      school: {
-        name: school.name,
-        motto: school.motto,
-        address: school.address,
-        phone: school.phone,
-        // The parent's copy must be the same document as the school's. Without these it fell back
-        // to 30/70 and the default green, so a school on 40/60 printed "Class (40%)" while the
-        // parent downloaded "Class (30%)" over identical marks — and lost the crest.
-        brandColor: school.brandColor,
-        // Bytes, not the storage key — and a crest that cannot be read must not stop a parent
-        // getting the report card, so a failed fetch degrades to no logo.
-        logo: school.logoUrl
-          ? await storage()
-              .get(school.logoUrl)
-              .catch(() => null)
-          : null,
-      },
-      weights: {
-        sba: school.sbaWeight ?? 30,
-        exam: school.examWeight ?? 70,
-      },
-      student: {
-        name: `${student.firstName} ${student.lastName}`,
-        admissionNo: student.admissionNo,
-        className: student.classRoom?.name ?? null,
-      },
-      term: {
-        name: term?.name,
-        year: term?.academicYear.name,
-        nextTermBegins: term?.nextTermBegins ?? null,
-      },
-      lines: report.lines,
-      overallTotal: report.overallTotal,
-      classPosition: report.classPosition,
-      classSize: report.classSize,
-      attendance: { present: report.attendancePresent, total: report.attendanceTotal },
-      conduct: report.conduct,
-      interest: report.interest,
-      teacherRemark: report.teacherRemark,
-      headRemark: report.headRemark,
-    };
+    const card = await buildReportCard(this.db, auth.schoolId, studentId, termId);
+    if (!card) throw new NotFoundException('That report has not been published');
+    return card;
   }
 
-  reportCard(auth: GuardianUser, studentId: string, termId: string) {
+  /** The card as data, for the portal to render on screen. */
+  async reportCard(auth: GuardianUser, studentId: string, termId: string) {
     return this.publishedCard(auth, studentId, termId);
   }
 

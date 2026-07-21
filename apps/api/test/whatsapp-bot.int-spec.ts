@@ -8,7 +8,8 @@
 import { PrismaClient } from '@prisma/client';
 import { createHmac } from 'crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Api, ownerDb, seededSchool, startApi } from './setup/harness';
+import { Api, call, ownerDb, seededSchool, startApi } from './setup/harness';
+import { signToken } from '../src/common/auth';
 
 const SECRET = 'test-whatsapp-secret';
 
@@ -86,6 +87,62 @@ describe('whatsapp assistant', () => {
     }
     const answer = await lastBotReply(guardianPhone);
     expect(answer.body).toMatch(/balance is|fully paid/);
+  });
+
+  /**
+   * FEATURES.md §4 has promised report cards delivered over WhatsApp throughout. The provider
+   * could only send text, so the assistant quoted the total and pointed the parent back at the
+   * portal — the download-something-else step WhatsApp exists to avoid.
+   */
+  it('attaches the report card as a PDF when results are asked for', async () => {
+    // Provision a published report for this family's child.
+    const link = await db.studentGuardian.findFirstOrThrow({
+      where: {
+        guardian: { phone: guardianPhone },
+        student: { schoolId, status: 'ACTIVE', classId: { not: null } },
+      },
+      include: { student: true },
+    });
+    const term = await db.term.findFirstOrThrow({
+      where: { academicYear: { schoolId }, isCurrent: true },
+    });
+    const owner = await db.user.findFirstOrThrow({ where: { schoolId, role: 'OWNER' } });
+    const token = signToken({
+      sub: owner.id,
+      schoolId,
+      role: owner.role,
+      tier: 'ADVANCED',
+      name: owner.name,
+    });
+    await call(api.baseUrl, 'POST', '/assessment/reports/generate', {
+      token,
+      body: { classId: link.student.classId, termId: term.id, regeneratePublished: true },
+    });
+    await call(api.baseUrl, 'POST', '/assessment/reports/publish', {
+      token,
+      body: { classId: link.student.classId, termId: term.id, published: true },
+    });
+
+    await inbound(api, schoolId, guardianPhone, 'Did the results come out?');
+    let reply = await lastBotReply(guardianPhone);
+    if (reply.body.startsWith('Which child')) {
+      await inbound(api, schoolId, guardianPhone, '1');
+      reply = await lastBotReply(guardianPhone);
+    }
+
+    // The attachment is logged like any other outbound message: "did the school ever send it?"
+    // is exactly what the transcript exists to answer.
+    const conv = await db.whatsAppConversation.findFirstOrThrow({
+      where: { schoolId, phone: { contains: guardianPhone.slice(-9) } },
+    });
+    const outbound = await db.whatsAppMessage.findMany({
+      where: { conversationId: conv.id, direction: 'OUTBOUND' },
+      orderBy: { createdAt: 'desc' },
+      take: 4,
+    });
+    expect(outbound.some((m) => m.body.includes('terminal-report.pdf'))).toBe(true);
+    // And the words still say the report is attached rather than sending them to the portal.
+    expect(outbound.some((m) => /attached/i.test(m.body))).toBe(true);
   });
 
   it('never attaches a child to an unknown number', async () => {

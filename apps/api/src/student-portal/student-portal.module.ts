@@ -25,9 +25,9 @@ import { AuthUser, CurrentUser, Public, RequirePermission, jwtSecret } from '../
 import { CalendarModule, CalendarService } from '../calendar/calendar.module';
 import { ResourcesModule, ResourcesService, ResourceScope } from '../resources/resources.module';
 import { balanceOf } from '../common/ledger';
-import { reportCardPdf, ReportCardData } from '../common/pdf';
+import { reportCardPdf } from '../common/pdf';
 import { clearanceVerdict } from '../common/fee-clearance';
-import { storage } from '../common/storage';
+import { buildReportCard } from '../common/report-card';
 
 /** Wrong PINs before the account is barred, and for how long. */
 const PIN_MAX_ATTEMPTS = 5;
@@ -272,21 +272,16 @@ export class StudentPortalService {
    * guardian portal's publishedCard, scoped to the signed-in student — published only, because a
    * child must never see a report before the school releases it.
    */
+  /**
+   * The pupil's own published report, as the same A4 PDF their guardian downloads.
+   *
+   * Assembled by the shared builder (common/report-card.ts) so the two documents cannot drift:
+   * a parent and their child comparing downloads on results day must see the same thing.
+   */
   async reportCardPdf(auth: StudentUser, termId: string) {
-    const [student, report] = await Promise.all([
-      this.db.student.findUniqueOrThrow({
-        where: { id: auth.sub },
-        include: { classRoom: { select: { name: true } } },
-      }),
-      this.db.termReport.findFirst({
-        where: { studentId: auth.sub, termId, schoolId: auth.schoolId, publishedAt: { not: null } },
-      }),
-    ]);
-    if (!report) throw new NotFoundException('That report has not been published');
-
-    // Same gate as the list, for the same reason as in the guardian portal: a URL nobody rendered
-    // is still a URL, and the term id is on the screen the pupil just came from.
-    const [gateSchool, gateCleared, gateLedger] = await Promise.all([
+    // Same fee gate as the family portal — a child must not be the way around a policy their
+    // family is subject to — and checked here as well as on the list, since the URL is guessable.
+    const [school, cleared, ledger] = await Promise.all([
       this.db.school.findUniqueOrThrow({
         where: { id: auth.schoolId },
         select: { reportsRequireFeeClearance: true },
@@ -297,66 +292,15 @@ export class StudentPortalService {
       this.db.ledgerEntry.findMany({ where: { studentId: auth.sub } }),
     ]);
     const gate = clearanceVerdict({
-      policyOn: gateSchool.reportsRequireFeeClearance,
-      balance: balanceOf(gateLedger),
-      cleared: !!gateCleared,
+      policyOn: school.reportsRequireFeeClearance,
+      balance: balanceOf(ledger),
+      cleared: !!cleared,
     });
     if (!gate.allowed) throw new ForbiddenException(gate.reason);
 
-    const [school, term, level] = await Promise.all([
-      this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } }),
-      this.db.term.findFirst({
-        where: { id: termId },
-        include: { academicYear: { select: { name: true } } },
-      }),
-      this.db.classRoom.findFirst({
-        where: { id: report.classId },
-        include: { level: { include: { gradingScheme: true } } },
-      }),
-    ]);
-    const scheme =
-      level?.level.gradingScheme ??
-      (await this.db.gradingScheme.findFirst({
-        where: { schoolId: auth.schoolId, kind: 'GES_CLASSIC' },
-      }));
-
-    const card = {
-      schemeKind: scheme?.kind ?? 'GES_CLASSIC',
-      template: school.reportTemplate,
-      school: {
-        name: school.name,
-        motto: school.motto,
-        address: school.address,
-        phone: school.phone,
-        brandColor: school.brandColor,
-        logo: school.logoUrl
-          ? await storage()
-              .get(school.logoUrl)
-              .catch(() => null)
-          : null,
-      },
-      weights: { sba: school.sbaWeight ?? 30, exam: school.examWeight ?? 70 },
-      student: {
-        name: `${student.firstName} ${student.lastName}`,
-        admissionNo: student.admissionNo,
-        className: student.classRoom?.name ?? null,
-      },
-      term: {
-        name: term?.name,
-        year: term?.academicYear.name,
-        nextTermBegins: term?.nextTermBegins ?? null,
-      },
-      lines: report.lines,
-      overallTotal: report.overallTotal,
-      classPosition: report.classPosition,
-      classSize: report.classSize,
-      attendance: { present: report.attendancePresent, total: report.attendanceTotal },
-      conduct: report.conduct,
-      interest: report.interest,
-      teacherRemark: report.teacherRemark,
-      headRemark: report.headRemark,
-    };
-    return reportCardPdf(card as unknown as ReportCardData);
+    const card = await buildReportCard(this.db, auth.schoolId, auth.sub, termId);
+    if (!card) throw new NotFoundException('That report has not been published');
+    return reportCardPdf(card);
   }
 
   async notices(auth: StudentUser) {
