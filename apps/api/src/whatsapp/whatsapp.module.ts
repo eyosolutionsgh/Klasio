@@ -68,6 +68,19 @@ export interface WhatsAppProvider {
   ): Promise<{ externalId?: string }>;
 }
 
+/**
+ * Where the Cloud API lives. Configurable because Meta's Graph version is dated and a deployment
+ * may need to move off the pinned one — to pick up a newer API, or because an old version has
+ * been sunset — without waiting on a release. Defaults reproduce what was hardcoded here, so a
+ * deployment that sets neither is unaffected.
+ */
+const GRAPH_BASE = (process.env.WHATSAPP_BASE_URL || 'https://graph.facebook.com').replace(
+  /\/+$/,
+  '',
+);
+const GRAPH_VERSION = process.env.WHATSAPP_API_VERSION || 'v21.0';
+const GRAPH = `${GRAPH_BASE}/${GRAPH_VERSION}`;
+
 /** Meta Cloud API. Only ever asked to send free-form replies inside an open window. */
 class CloudApiProvider implements WhatsAppProvider {
   readonly kind = 'META';
@@ -77,7 +90,7 @@ class CloudApiProvider implements WhatsAppProvider {
   ) {}
 
   async send(to: string, body: string) {
-    const res = await fetch(`https://graph.facebook.com/v21.0/${this.phoneNumberId}/messages`, {
+    const res = await fetch(`${GRAPH}/${this.phoneNumberId}/messages`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.token}`,
@@ -114,7 +127,7 @@ class CloudApiProvider implements WhatsAppProvider {
     form.set('type', 'application/pdf');
     form.set('file', new Blob([new Uint8Array(file)], { type: 'application/pdf' }), filename);
 
-    const upload = await fetch(`https://graph.facebook.com/v21.0/${this.phoneNumberId}/media`, {
+    const upload = await fetch(`${GRAPH}/${this.phoneNumberId}/media`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${this.token}` },
       body: form,
@@ -127,7 +140,7 @@ class CloudApiProvider implements WhatsAppProvider {
       throw new BadRequestException(uploaded.error?.message ?? 'WhatsApp would not take that file');
     }
 
-    const res = await fetch(`https://graph.facebook.com/v21.0/${this.phoneNumberId}/messages`, {
+    const res = await fetch(`${GRAPH}/${this.phoneNumberId}/messages`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.token}`,
