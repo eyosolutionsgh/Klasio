@@ -101,7 +101,13 @@ export class NaloSmsProvider implements SmsProvider {
     url.searchParams.set('source', sender || this.cfg.source);
     url.searchParams.set('message', body);
     try {
-      const res = await fetch(url, { method: 'GET' });
+      // Cast through `unknown` rather than trust the ambient `Response` type: Vercel's build
+      // tooling resolves a narrower fetch/Response shape than local tsc does, and that mismatch
+      // alone was enough to fail the build over two methods this call never has trouble calling.
+      const res = (await fetch(url, { method: 'GET' })) as unknown as {
+        text(): Promise<string>;
+        status: number;
+      };
       const text = (await res.text()).trim();
       const ok = text.startsWith('1701');
       return ok ? { ok: true, ref: text } : { ok: false, error: text || `HTTP ${res.status}` };
