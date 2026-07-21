@@ -58,6 +58,7 @@ import { toCsv, toXlsx, Cell } from '../common/export';
 import { balanceOf } from '../common/ledger';
 import { nextInSequence, refNumber } from '../common/sequences';
 import { MESSAGE_TEMPLATES, listTemplates, renderMessage } from '../common/templates';
+import { journalLines, journalTotals } from '../common/journal';
 import { PageQuery, dateWindow, orderBy, pageArgs, toPage } from '../common/list-query';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -875,6 +876,53 @@ export class FeesService {
       buffer: await toXlsx('Ledger', headers, rows),
       type: XLSX_MIME,
       filename: 'ledger.xlsx',
+    };
+  }
+
+  /**
+   * The double-entry journal for the accountant (FEATURES.md §7): the append-only ledger
+   * projected into balanced debit/credit pairs over a small chart of accounts. A projection,
+   * never a second ledger — see common/journal.ts.
+   */
+  async journalExport(auth: AuthUser, format: string, from?: string, to?: string) {
+    const createdAt = dateWindow({ from, to } as PageQuery);
+    const entries = await this.db.ledgerEntry.findMany({
+      where: { schoolId: auth.schoolId, ...(createdAt ? { createdAt } : {}) },
+      include: { student: { select: { firstName: true, lastName: true } } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+    const lines = journalLines(
+      entries.map((e) => ({
+        id: e.id,
+        type: e.type,
+        amount: e.amount,
+        method: e.method,
+        reference: e.reference,
+        reversedId: e.reversedId,
+        createdAt: e.createdAt,
+        studentName: `${e.student.firstName} ${e.student.lastName}`,
+      })),
+    );
+    const totals = journalTotals(lines);
+    const headers = ['Date', 'Reference', 'Description', 'Account', 'Debit', 'Credit'];
+    const rows: Cell[][] = [
+      ...lines.map((l) => [
+        l.date.toISOString().slice(0, 10),
+        l.reference,
+        l.description,
+        l.account,
+        l.debit ?? '',
+        l.credit ?? '',
+      ]),
+      ['', '', 'TOTALS', '', totals.debits, totals.credits],
+    ];
+    if (format === 'csv') {
+      return { buffer: toCsv(headers, rows), type: 'text/csv', filename: 'journal.csv' };
+    }
+    return {
+      buffer: await toXlsx('Journal', headers, rows),
+      type: XLSX_MIME,
+      filename: 'journal.xlsx',
     };
   }
 
@@ -1834,6 +1882,22 @@ export class FeesController {
     const { buffer, filename } = await this.svc.statementPdf(user, id);
     return new StreamableFile(buffer, {
       type: 'application/pdf',
+      disposition: `attachment; filename="${filename}"`,
+    });
+  }
+
+  @Get('journal/export')
+  @RequirePermission('fees.view', 'fees.export')
+  @RequireEntitlement('platform.export')
+  async journalExport(
+    @CurrentUser() user: AuthUser,
+    @Query('format') format = 'xlsx',
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const { buffer, type, filename } = await this.svc.journalExport(user, format, from, to);
+    return new StreamableFile(buffer, {
+      type,
       disposition: `attachment; filename="${filename}"`,
     });
   }

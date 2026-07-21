@@ -669,13 +669,26 @@ export class StudentsService {
         status: true,
       },
     });
-    // The audit detail is read back by anyone with audit.view, so a medical note must not be
-    // copied into it verbatim — recording that it changed is enough.
+    // The forensic before/after (FEATURES.md §19) — but the audit detail is read back by anyone
+    // with audit.view, so a medical note is never copied in verbatim; that it changed is enough.
     const { medicalNotes, ...auditable } = dto;
-    await this.db.audit(auth.schoolId, auth.sub, 'student.update', 'Student', id, {
-      ...auditable,
-      ...(medicalNotes !== undefined ? { medicalNotes: '(changed)' } : {}),
-    });
+    const before: Record<string, unknown> = {};
+    for (const key of Object.keys(auditable)) {
+      before[key] = (existing as Record<string, unknown>)[key];
+    }
+    if (medicalNotes !== undefined) {
+      before.medicalNotes = existing.medicalNotes ? '(set)' : '(empty)';
+      (auditable as Record<string, unknown>).medicalNotes = '(changed)';
+    }
+    await this.db.auditChange(
+      auth.schoolId,
+      auth.sub,
+      'student.update',
+      'Student',
+      id,
+      before,
+      auditable as Record<string, unknown>,
+    );
     return student;
   }
 

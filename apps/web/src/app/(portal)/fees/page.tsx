@@ -145,6 +145,16 @@ export default async function FeesPage({
             {f}
           </a>
         ))}
+        <span className="text-oat ml-3">Double-entry journal:</span>
+        {(['csv', 'xlsx'] as const).map((f) => (
+          <a
+            key={`j-${f}`}
+            href={`/api/proxy/fees/journal/export?format=${f}`}
+            className="rounded-md border border-mist px-2 py-0.5 text-brand hover:bg-brand-mist transition uppercase"
+          >
+            {f}
+          </a>
+        ))}
       </div>
 
       <div className="mt-6">
