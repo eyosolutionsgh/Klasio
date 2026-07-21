@@ -36,6 +36,7 @@ import { CustomFieldsModule } from './customfields/customfields.module';
 import { RemarksModule } from './remarks/remarks.module';
 import { ReturnsModule } from './returns/returns.module';
 import { ComplianceModule } from './compliance/compliance.module';
+import { RegistersModule } from './registers/registers.module';
 import { RolesModule } from './roles/roles.module';
 import { LicenceModule } from './licence/licence.module';
 import { SetupModule } from './setup/setup.module';
@@ -82,6 +83,7 @@ import { SetupModule } from './setup/setup.module';
     RemarksModule,
     ReturnsModule,
     ComplianceModule,
+    RegistersModule,
     RolesModule,
   ],
   providers: [

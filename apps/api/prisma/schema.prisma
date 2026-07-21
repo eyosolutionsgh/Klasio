@@ -105,6 +105,8 @@ model User {
   /// NaSIA inspections ask for the staff list with these on it, and so does the annual census.
   ntcNumber     String?
   qualification String?
+  dutyTurns     DutyRoster[]
+  lessonNotes   LessonNote[]  @relation("LessonNoteTeacher")
   phone        String?
   passwordHash String
   /// Legacy coarse role. Retained because it still identifies the proprietor (OWNER always holds
@@ -441,6 +443,8 @@ model Student {
   feeClearances FeeClearance[]
   promotions   PromotionRecord[]
   csspsChoices CsspsChoice[]
+  disciplineEntries DisciplineEntry[]
+  feedingRecords FeedingRecord[]
   invoices     Invoice[]
   ledger       LedgerEntry[]
   documents      StudentDocument[]
@@ -716,6 +720,168 @@ model TermReport {
 
   @@unique([studentId, termId])
   @@index([schoolId, termId, classId])
+}
+
+// ── The registers an inspection asks for ─────────────────────────────
+//
+// NaSIA licenses and inspects private schools, and the inspection is largely a request to see
+// books: the admission register, the attendance registers, the log book, the visitors book. Four
+// of those the software already held in some form. These are the ones it did not, and they are
+// the reason a school still keeps a shelf of ledgers next to a system that has everything else.
+
+enum LogBookKind {
+  GENERAL
+  VISIT
+  INCIDENT
+  ABSENCE
+  MAINTENANCE
+}
+
+/// The head's (or duty teacher's) daily record of anything worth remembering about a day.
+///
+/// Free-form on purpose. A log book entry is "the water went off at 11", "district officer called
+/// unannounced", "P4 window broken during break" — the value is that it is dated, attributed and
+/// unalterable, not that it is structured.
+model LogBookEntry {
+  id        String      @id @default(cuid())
+  schoolId  String
+  /// The day being recorded, which is not always the day it was written.
+  entryDate DateTime
+  kind      LogBookKind @default(GENERAL)
+  body      String
+  authorId  String
+  createdAt DateTime    @default(now())
+
+  @@index([schoolId, entryDate])
+}
+
+/// Who is on duty, and when. The duty teacher runs assembly, supervises break and closing, and
+/// writes the day into the log book — so the roster is what says whose entry is missing.
+model DutyRoster {
+  id        String   @id @default(cuid())
+  schoolId  String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Inclusive range; a duty turn is usually a week, occasionally a single day.
+  startDate DateTime
+  endDate   DateTime
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([schoolId, startDate])
+}
+
+enum VettingStatus {
+  SUBMITTED
+  APPROVED
+  RETURNED
+}
+
+/// A teacher's lesson notes or scheme of work, submitted for the head to vet.
+///
+/// Weekly, and universal in Ghanaian schools: the head reads and signs lesson notes before the
+/// week they cover. Modelled as a submission with a decision rather than a file store, because
+/// the workflow — submitted, seen, returned with a comment — is the part that lives on paper.
+model LessonNote {
+  id         String        @id @default(cuid())
+  schoolId   String
+  teacherId  String
+  teacher    User          @relation("LessonNoteTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  classId    String?
+  subjectId  String?
+  /// The week the notes cover, by its Monday.
+  weekOf     DateTime
+  title      String
+  body       String?
+  /// Optional attachment in object storage, for a school that types notes up elsewhere.
+  fileKey    String?
+  fileName   String?
+  status     VettingStatus @default(SUBMITTED)
+  vettedById String?
+  vettedAt   DateTime?
+  /// The head's comment. Required when returning — "redo it" without a reason is not vetting.
+  comment    String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@index([schoolId, weekOf])
+  @@index([schoolId, teacherId])
+}
+
+enum DisciplineOutcome {
+  RECORDED
+  WARNED
+  PARENT_INFORMED
+  SUSPENDED
+  RESOLVED
+}
+
+/// The discipline book, in the shape a school actually keeps it.
+///
+/// Corporal punishment is banned by GES, so this records what happened and what was done about
+/// it, never a sanction to be administered. The escalation trail matters more than the incident:
+/// "class teacher → section head → head" is how these are handled, and a parent asking why their
+/// child was suspended is asking to see that trail.
+model DisciplineEntry {
+  id           String            @id @default(cuid())
+  schoolId     String
+  studentId    String
+  student      Student           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  occurredOn   DateTime
+  description  String
+  actionTaken  String?
+  outcome      DisciplineOutcome @default(RECORDED)
+  /// Set when the school told the family, which is the fact most often disputed later.
+  guardianInformedAt DateTime?
+  recordedById String
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@index([schoolId, occurredOn])
+  @@index([schoolId, studentId])
+}
+
+/// The visitors book at the front desk — adults on the compound who are not collecting a child.
+///
+/// Deliberately separate from the gate log, which is about pupils. A safeguarding question after
+/// the fact ("who was in the building on Tuesday?") is answered by this book and by nothing else.
+model VisitorLog {
+  id           String    @id @default(cuid())
+  schoolId     String
+  name         String
+  phone        String?
+  organisation String?
+  purpose      String
+  /// Who they came to see, in the school's own words rather than a foreign key: visitors ask for
+  /// "the bursar" as often as for a person, and the record should say what was actually said.
+  toSee        String?
+  arrivedAt    DateTime  @default(now())
+  departedAt   DateTime?
+  badgeNo      String?
+  recordedById String
+
+  @@index([schoolId, arrivedAt])
+}
+
+/// A day's feeding money for one child.
+///
+/// Collected daily in cash at the majority of Ghanaian basic schools, and quite separate from the
+/// termly bill: the amount is small, it is taken at the classroom door, and it is reconciled the
+/// same afternoon. Modelling it as a fee item would put it on the child's ledger and make every
+/// unpaid lunch an arrear, which is not what a school means by it.
+model FeedingRecord {
+  id           String   @id @default(cuid())
+  schoolId     String
+  studentId    String
+  student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  onDate       DateTime
+  amount       Decimal  @db.Decimal(10, 2)
+  collectedById String
+  createdAt    DateTime @default(now())
+
+  /// One record per child per day: a second collection is a correction, not another lunch.
+  @@unique([studentId, onDate])
+  @@index([schoolId, onDate])
 }
 
 /// A BECE candidate's ranked choice of senior high school, for the CSSPS placement forms.

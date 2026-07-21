@@ -96,6 +96,13 @@ const NAV: NavItem[] = [
     group: 'Academic',
   },
   {
+    href: '/registers',
+    label: 'Registers',
+    icon: 'M4 4h12a2 2 0 012 2v14a2 2 0 01-2 2H4V4zm2 2v14h10V6H6zm2 3h6v2H8V9zm0 4h6v2H8v-2zM19 4h1v18h-1V4z',
+    tip: 'Log book, duty roster, visitors, discipline and lesson notes',
+    group: 'Daily',
+  },
+  {
     href: '/fees',
     label: 'Fees',
     icon: 'M11.8 10.9c-2.3-.6-3-1.2-3-2.1 0-1.1 1-1.8 2.7-1.8 1.8 0 2.4.8 2.5 2h2.2c-.1-1.6-1.1-3.1-3-3.6V3.2h-3v2.2c-1.9.4-3.4 1.6-3.4 3.5 0 2.3 1.9 3.4 4.6 4 2.4.6 2.9 1.4 2.9 2.3 0 .7-.5 1.7-2.7 1.7-2 0-2.8-.9-3-2H6.4c.1 2 1.6 3.2 3.4 3.6v2.3h3v-2.2c1.9-.4 3.5-1.5 3.5-3.5 0-2.8-2.4-3.7-4.5-4.2z',

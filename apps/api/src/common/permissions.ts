@@ -36,7 +36,9 @@ export type PermissionGroup =
   | 'Safety'
   | 'Communication'
   | 'Staff & HR'
-  | 'Administration';
+  | 'Administration'
+  /** The books a NaSIA inspection asks to see, which used to live on a shelf. */
+  | 'Registers';
 
 export const PERMISSIONS = [
   // ── Students ──────────────────────────────────────────────────────
@@ -231,6 +233,28 @@ export const PERMISSIONS = [
     caution: 'Closing settles a term’s register and marks; reopening lets them change again.',
   },
   { code: 'school.branding', label: 'Change the logo and colours', group: 'Administration' },
+  // ── The registers ──
+  { code: 'registers.logbook', label: 'Write and read the log book', group: 'Registers' },
+  { code: 'registers.duty', label: 'Set the teacher-on-duty roster', group: 'Registers' },
+  {
+    code: 'registers.lesson_notes',
+    label: 'Submit lesson notes for vetting',
+    group: 'Registers',
+  },
+  {
+    code: 'registers.vet_notes',
+    label: 'Vet and return lesson notes',
+    group: 'Registers',
+    caution: 'Reviews other teachers’ work.',
+  },
+  {
+    code: 'registers.discipline',
+    label: 'Record and read discipline entries',
+    group: 'Registers',
+    caution: 'Sensitive: these follow a child through the school.',
+  },
+  { code: 'registers.visitors', label: 'Keep the visitors book', group: 'Registers' },
+  { code: 'registers.feeding', label: 'Collect and reconcile daily feeding money', group: 'Registers' },
   {
     code: 'records.configure',
     label: 'Set up custom fields and checklists',
@@ -296,6 +320,8 @@ const TEACHING_CORE = [
   'reports.view',
   'timetable.view',
   'resources.view',
+  // Submitting lesson notes for the head to vet is part of teaching, not an extra privilege.
+  'registers.lesson_notes',
 ];
 
 export const ROLE_PRESETS: RolePreset[] = [
@@ -339,6 +365,11 @@ export const ROLE_PRESETS: RolePreset[] = [
       // Closing the term is the head's act: they are the one who vets and signs every report,
       // which is the work that closing declares finished.
       'school.close_term',
+      'registers.logbook',
+      'registers.duty',
+      'registers.vet_notes',
+      'registers.discipline',
+      'registers.visitors',
       'records.configure',
       'users.view',
       'audit.view',
