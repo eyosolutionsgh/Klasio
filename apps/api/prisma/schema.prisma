@@ -307,12 +307,31 @@ model Level {
   concessionRules ConcessionRule[]
 }
 
+/// A physical site of one school (FEATURES.md §1: several campuses under one school). Classes
+/// belong to a campus; students derive theirs through their class. One school, one licence,
+/// one database — a campus is a label with an address, not a tenant.
+model Campus {
+  id        String   @id @default(cuid())
+  schoolId  String
+  name      String
+  address   String?
+  createdAt DateTime @default(now())
+
+  classes ClassRoom[]
+
+  @@unique([schoolId, name])
+}
+
 model ClassRoom {
   id            String    @id @default(cuid())
   schoolId      String
   school        School    @relation(fields: [schoolId], references: [id])
   levelId       String
   level         Level     @relation(fields: [levelId], references: [id])
+  /// Null means the school's single (or main) site. Deleting a campus frees its classes
+  /// rather than taking them down.
+  campusId      String?
+  campus        Campus?   @relation(fields: [campusId], references: [id], onDelete: SetNull)
   name          String
   classTeacherId String?
   students      Student[]

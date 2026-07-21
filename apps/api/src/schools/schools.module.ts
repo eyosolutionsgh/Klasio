@@ -50,7 +50,7 @@ function assertSlot(raw: string): BrandPhotoSlot {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { PrismaService } from '../prisma/prisma.service';
 import { checkTemplate, previewAdmissionNo } from '../common/admission-no';
-import { AuthUser, CurrentUser, RequirePermission } from '../common/auth';
+import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
 import { IMAGE_TYPES, MAX_UPLOAD_BYTES, objectKey, storage } from '../common/storage';
 
 const CATEGORIES = ['PRE_SCHOOL', 'PRIMARY', 'JHS', 'SHS'] as const;
@@ -127,6 +127,21 @@ class ClassDto {
   @IsString() levelId: string;
   @IsString() @MinLength(1) name: string;
   @IsOptional() @IsString() classTeacherId?: string;
+  /** Empty string clears it back to the main site. */
+  @IsOptional() @IsString() campusId?: string;
+}
+
+/** PATCH validates what PATCH sends — a partial. The full ClassDto would demand every field. */
+class UpdateClassDto {
+  @IsOptional() @IsString() levelId?: string;
+  @IsOptional() @IsString() @MinLength(1) name?: string;
+  @IsOptional() @IsString() classTeacherId?: string;
+  @IsOptional() @IsString() campusId?: string;
+}
+
+class CampusDto {
+  @IsString() @MinLength(2) name: string;
+  @IsOptional() @IsString() address?: string;
 }
 
 class SubjectDto {
@@ -144,7 +159,11 @@ export class SchoolsService {
       this.db.level.findMany({ where: { schoolId: auth.schoolId }, orderBy: { order: 'asc' } }),
       this.db.classRoom.findMany({
         where: { schoolId: auth.schoolId },
-        include: { level: true, _count: { select: { students: { where: { status: 'ACTIVE' } } } } },
+        include: {
+          level: true,
+          campus: { select: { name: true } },
+          _count: { select: { students: { where: { status: 'ACTIVE' } } } },
+        },
         orderBy: { level: { order: 'asc' } },
       }),
       this.db.subject.findMany({
@@ -165,6 +184,8 @@ export class SchoolsService {
         level: c.level.name,
         levelId: c.levelId,
         category: c.level.category,
+        campusId: c.campusId,
+        campus: c.campus?.name ?? null,
         studentCount: c._count.students,
       })),
       subjects,
@@ -560,6 +581,16 @@ export class SchoolsService {
     return { deleted: true };
   }
 
+  /** A campusId from the body is untrusted until found inside the caller's school. */
+  private async resolveCampus(auth: AuthUser, campusId?: string): Promise<string | null> {
+    if (!campusId) return null;
+    const campus = await this.db.campus.findFirst({
+      where: { id: campusId, schoolId: auth.schoolId },
+    });
+    if (!campus) throw new NotFoundException('Campus not found');
+    return campus.id;
+  }
+
   async createClass(auth: AuthUser, dto: ClassDto) {
     const level = await this.db.level.findFirst({
       where: { id: dto.levelId, schoolId: auth.schoolId },
@@ -571,6 +602,7 @@ export class SchoolsService {
         levelId: dto.levelId,
         name: dto.name,
         classTeacherId: dto.classTeacherId ?? null,
+        campusId: await this.resolveCampus(auth, dto.campusId),
       },
     });
     await this.db.audit(auth.schoolId, auth.sub, 'school.class.create', 'ClassRoom', cls.id, {
@@ -588,10 +620,62 @@ export class SchoolsService {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
         ...(dto.levelId !== undefined ? { levelId: dto.levelId } : {}),
         ...(dto.classTeacherId !== undefined ? { classTeacherId: dto.classTeacherId || null } : {}),
+        ...(dto.campusId !== undefined
+          ? { campusId: await this.resolveCampus(auth, dto.campusId || undefined) }
+          : {}),
       },
     });
     await this.db.audit(auth.schoolId, auth.sub, 'school.class.update', 'ClassRoom', id, dto);
     return cls;
+  }
+
+  // ── Campuses ───────────────────────────────────────────────────────
+
+  async campuses(auth: AuthUser) {
+    const rows = await this.db.campus.findMany({
+      where: { schoolId: auth.schoolId },
+      include: { _count: { select: { classes: true } } },
+      orderBy: { name: 'asc' },
+    });
+    return rows.map((c) => ({
+      id: c.id,
+      name: c.name,
+      address: c.address,
+      classCount: c._count.classes,
+    }));
+  }
+
+  async createCampus(auth: AuthUser, dto: CampusDto) {
+    const campus = await this.db.campus.create({
+      data: { schoolId: auth.schoolId, name: dto.name.trim(), address: dto.address?.trim() },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'school.campus.create', 'Campus', campus.id, {
+      name: dto.name,
+    });
+    return campus;
+  }
+
+  async updateCampus(auth: AuthUser, id: string, dto: Partial<CampusDto>) {
+    const existing = await this.db.campus.findFirst({ where: { id, schoolId: auth.schoolId } });
+    if (!existing) throw new NotFoundException('Campus not found');
+    return this.db.campus.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+        ...(dto.address !== undefined ? { address: dto.address?.trim() || null } : {}),
+      },
+    });
+  }
+
+  async deleteCampus(auth: AuthUser, id: string) {
+    const existing = await this.db.campus.findFirst({ where: { id, schoolId: auth.schoolId } });
+    if (!existing) throw new NotFoundException('Campus not found');
+    // Classes fall back to the main site (SetNull) — a campus is a label, not a container.
+    await this.db.campus.delete({ where: { id } });
+    await this.db.audit(auth.schoolId, auth.sub, 'school.campus.delete', 'Campus', id, {
+      name: existing.name,
+    });
+    return { deleted: true };
   }
 
   async deleteClass(auth: AuthUser, id: string) {
@@ -749,6 +833,36 @@ export class SchoolsController {
     return this.svc.deleteLevel(user, id);
   }
 
+  @Get('campuses')
+  campuses(@CurrentUser() user: AuthUser) {
+    return this.svc.campuses(user);
+  }
+
+  @Post('campuses')
+  @RequirePermission('school.settings')
+  @RequireEntitlement('platform.multicampus')
+  createCampus(@CurrentUser() user: AuthUser, @Body() dto: CampusDto) {
+    return this.svc.createCampus(user, dto);
+  }
+
+  @Patch('campuses/:id')
+  @RequirePermission('school.settings')
+  @RequireEntitlement('platform.multicampus')
+  updateCampus(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: Partial<CampusDto>,
+  ) {
+    return this.svc.updateCampus(user, id, dto);
+  }
+
+  @Delete('campuses/:id')
+  @RequirePermission('school.settings')
+  @RequireEntitlement('platform.multicampus')
+  deleteCampus(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.deleteCampus(user, id);
+  }
+
   @Post('classes')
   @RequirePermission('school.settings')
   createClass(@CurrentUser() user: AuthUser, @Body() dto: ClassDto) {
@@ -757,7 +871,7 @@ export class SchoolsController {
 
   @Patch('classes/:id')
   @RequirePermission('school.settings')
-  updateClass(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ClassDto) {
+  updateClass(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateClassDto) {
     return this.svc.updateClass(user, id, dto);
   }
 

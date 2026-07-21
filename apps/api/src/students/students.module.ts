@@ -70,6 +70,8 @@ interface UploadedFileLike {
  */
 class ListStudentsDto extends PageQuery {
   @IsOptional() @IsString() classId?: string;
+  /** Students derive their campus through their class. */
+  @IsOptional() @IsString() campusId?: string;
   @IsOptional() @IsString() q?: string;
   @IsOptional() @IsEnum(StudentStatus) status?: StudentStatus;
   @IsOptional() @IsEnum(Gender) gender?: Gender;
@@ -170,6 +172,7 @@ export class StudentsService {
       schoolId: auth.schoolId,
       status: q.status ?? 'ACTIVE',
       ...(q.classId ? { classId: q.classId } : {}),
+      ...(q.campusId ? { classRoom: { campusId: q.campusId } } : {}),
       ...(q.gender ? { gender: q.gender } : {}),
       // The window filters when the child joined the roll, which is what an admissions officer
       // means by "students added this term" — not their birthday.

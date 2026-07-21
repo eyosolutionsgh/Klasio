@@ -134,6 +134,7 @@ async function main() {
     await db.syllabusCoverage.deleteMany({ where: { schoolId: sid } });
     await db.syllabusTopic.deleteMany({ where: { schoolId: sid } });
     await db.subject.deleteMany({ where: { schoolId: sid } });
+    await db.campus.deleteMany({ where: { schoolId: sid } });
     await db.classRoom.deleteMany({ where: { schoolId: sid } });
     await db.level.deleteMany({ where: { schoolId: sid } });
     await db.gradingScheme.deleteMany({ where: { schoolId: sid } });
