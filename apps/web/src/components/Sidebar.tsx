@@ -88,6 +88,14 @@ const NAV: NavItem[] = [
     group: 'Academic',
   },
   {
+    href: '/exams',
+    label: 'Examinations',
+    icon: 'M9 2a1 1 0 00-1 1v1H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-2V3a1 1 0 00-1-1H9zm1 2h4v2h-4V4zM7 9h10v2H7V9zm0 4h10v2H7v-2zm0 4h6v2H7v-2z',
+    tip: 'Question banks and computer-based tests',
+    needs: 'exams.cbt',
+    group: 'Academic',
+  },
+  {
     href: '/fees',
     label: 'Fees',
     icon: 'M11.8 10.9c-2.3-.6-3-1.2-3-2.1 0-1.1 1-1.8 2.7-1.8 1.8 0 2.4.8 2.5 2h2.2c-.1-1.6-1.1-3.1-3-3.6V3.2h-3v2.2c-1.9.4-3.4 1.6-3.4 3.5 0 2.3 1.9 3.4 4.6 4 2.4.6 2.9 1.4 2.9 2.3 0 .7-.5 1.7-2.7 1.7-2 0-2.8-.9-3-2H6.4c.1 2 1.6 3.2 3.4 3.6v2.3h3v-2.2c1.9-.4 3.5-1.5 3.5-3.5 0-2.8-2.4-3.7-4.5-4.2z',

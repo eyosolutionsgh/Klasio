@@ -297,6 +297,7 @@ model Level {
   classes         ClassRoom[]
   components      AssessmentComponent[]
   syllabusTopics  SyllabusTopic[]
+  questionBanks   QuestionBank[]
 
   @@unique([schoolId, name])
 
@@ -359,6 +360,7 @@ model Subject {
   learningResources LearningResource[]
   timetableSlots    TimetableSlot[]
   syllabusTopics    SyllabusTopic[]
+  questionBanks     QuestionBank[]
 }
 
 // ── Students & guardians ─────────────────────────────────────────────
@@ -419,6 +421,7 @@ model Student {
   dismissalRequests DismissalRequest[]
   transportRider  TransportRider?
   transportScans  TransportScan[]
+  cbtAttempts     CbtAttempt[]
 
   @@unique([schoolId, admissionNo])
   @@index([schoolId, classId])
@@ -1023,6 +1026,87 @@ model ReleaseLog {
   @@unique([schoolId, clientRef])
   @@index([schoolId, releasedAt])
   @@index([studentId])
+}
+
+// ── Computer-based tests (FEATURES.md §5, exams.cbt) ─────────────────
+
+/// A bank of multiple-choice questions for one subject at one level.
+model QuestionBank {
+  id        String   @id @default(cuid())
+  schoolId  String
+  subjectId String
+  subject   Subject  @relation(fields: [subjectId], references: [id])
+  levelId   String
+  level     Level    @relation(fields: [levelId], references: [id])
+  name      String
+  createdAt DateTime @default(now())
+
+  questions Question[]
+  exams     CbtExam[]
+
+  @@index([schoolId, subjectId, levelId])
+}
+
+model Question {
+  id           String       @id @default(cuid())
+  schoolId     String
+  bankId       String
+  bank         QuestionBank @relation(fields: [bankId], references: [id], onDelete: Cascade)
+  text         String
+  /// The choices in order; correctIndex points into this list.
+  options      String[]
+  correctIndex Int
+  explanation  String?
+  createdAt    DateTime     @default(now())
+
+  @@index([schoolId, bankId])
+}
+
+enum CbtExamStatus {
+  DRAFT
+  OPEN
+  CLOSED
+}
+
+/// A sitting composed from a bank for one class: mock BECE papers, class tests. Auto-marked.
+model CbtExam {
+  id              String        @id @default(cuid())
+  schoolId        String
+  title           String
+  bankId          String
+  bank            QuestionBank  @relation(fields: [bankId], references: [id])
+  classId         String
+  durationMinutes Int
+  /// How many of the bank's questions each sitting uses (the first N by creation order, so
+  /// every candidate answers the same paper).
+  questionCount   Int
+  status          CbtExamStatus @default(DRAFT)
+  /// Optional gradebook destination: on posting, each score lands as this component's mark.
+  componentId     String?
+  createdById     String
+  createdAt       DateTime      @default(now())
+
+  attempts CbtAttempt[]
+
+  @@index([schoolId, classId])
+}
+
+/// One pupil's sitting. `answers` maps questionId → chosen option index; marking is on submit.
+model CbtAttempt {
+  id          String    @id @default(cuid())
+  schoolId    String
+  examId      String
+  exam        CbtExam   @relation(fields: [examId], references: [id], onDelete: Cascade)
+  studentId   String
+  student     Student   @relation(fields: [studentId], references: [id])
+  startedAt   DateTime  @default(now())
+  submittedAt DateTime?
+  answers     Json?
+  score       Int?
+  total       Int?
+
+  @@unique([examId, studentId])
+  @@index([schoolId, examId])
 }
 
 // ── Payroll (FEATURES.md §17, hr.payroll) ───────────────────────────

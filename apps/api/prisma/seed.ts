@@ -133,6 +133,10 @@ async function main() {
     // Sign-in codes reference guardians — clear them before the guardians themselves.
     await db.guardianOtp.deleteMany({ where: { schoolId: sid } });
     await db.guardian.deleteMany({ where: { schoolId: sid } });
+    await db.cbtAttempt.deleteMany({ where: { schoolId: sid } });
+    await db.cbtExam.deleteMany({ where: { schoolId: sid } });
+    await db.question.deleteMany({ where: { schoolId: sid } });
+    await db.questionBank.deleteMany({ where: { schoolId: sid } });
     await db.student.deleteMany({ where: { schoolId: sid } });
     await db.syllabusCoverage.deleteMany({ where: { schoolId: sid } });
     await db.syllabusTopic.deleteMany({ where: { schoolId: sid } });

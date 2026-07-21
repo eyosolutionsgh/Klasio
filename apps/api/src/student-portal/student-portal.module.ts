@@ -441,7 +441,7 @@ export class StudentPinController {
   imports: [CalendarModule, ResourcesModule],
   controllers: [StudentPortalController, StudentPinController],
   providers: [StudentPortalService, StudentGuard],
-  exports: [StudentPortalService],
+  exports: [StudentPortalService, StudentGuard],
 })
 export class StudentPortalModule {}
 

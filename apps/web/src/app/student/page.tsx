@@ -144,6 +144,19 @@ export default function StudentPage() {
         </section>
 
         <section className="card p-6">
+          <h2 className="font-display text-xl">My tests</h2>
+          <p className="text-sm text-oat mt-1.5">
+            Computer-based tests your teachers have set.{' '}
+            <a
+              href="/student/exams"
+              className="text-forest font-medium underline underline-offset-2"
+            >
+              Open my tests →
+            </a>
+          </p>
+        </section>
+
+        <section className="card p-6">
           <h2 className="font-display text-xl">My results</h2>
           {me.reports.length === 0 ? (
             <p className="text-sm text-oat mt-2">
