@@ -205,6 +205,12 @@ export const PERMISSIONS = [
     group: 'Staff & HR',
     caution: 'Nobody can decide their own request, whatever they hold.',
   },
+  {
+    code: 'hr.payroll',
+    label: 'Run payroll and see salaries',
+    group: 'Staff & HR',
+    caution: "Every colleague's salary. The heaviest permission in the building.",
+  },
 
   // ── Administration ────────────────────────────────────────────────
   {
@@ -408,6 +414,7 @@ export const ROLE_PRESETS: RolePreset[] = [
       'fees.deposits',
       'fees.gateways',
       'fees.export',
+      'hr.payroll',
       'comms.sms',
       'comms.reminders',
       'audit.view',

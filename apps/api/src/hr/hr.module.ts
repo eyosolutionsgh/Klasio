@@ -19,9 +19,23 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { IsDateString, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsDateString,
+  IsIn,
+  IsNumber,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
+import { StreamableFile } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
+import { computePay } from '../common/payroll';
+import { payslipPdf } from '../common/pdf';
+import { storage } from '../common/storage';
+import { Cell, toCsv } from '../common/export';
 
 const STAFF_STATUSES = ['PRESENT', 'ABSENT', 'LATE', 'EXCUSED'] as const;
 const LEAVE_KINDS = ['ANNUAL', 'SICK', 'MATERNITY', 'CASUAL', 'STUDY', 'OTHER'] as const;
@@ -293,9 +307,360 @@ export class HrController {
   }
 }
 
+// ── Payroll ──────────────────────────────────────────────────────────
+
+class PayProfileDto {
+  @IsString() userId: string;
+  @IsNumber() @Min(0) basicSalary: number;
+  @IsOptional() @IsNumber() @Min(0) allowances?: number;
+  @IsOptional() @IsNumber() @Min(0) deductions?: number;
+  @IsOptional() @IsIn(['BANK', 'MOMO']) payoutMethod?: 'BANK' | 'MOMO';
+  @IsOptional() @IsString() @MaxLength(60) payoutAccount?: string;
+  @IsOptional() @IsString() @MaxLength(120) payoutName?: string;
+}
+
+class CreateRunDto {
+  /** Calendar month, as YYYY-MM. */
+  @IsString() period: string;
+}
+
+@Injectable()
+export class PayrollService {
+  constructor(private db: PrismaService) {}
+
+  /** Everyone payable, with their profile where one exists — the setup screen's list. */
+  async profiles(auth: AuthUser) {
+    const staff = await this.db.user.findMany({
+      where: { schoolId: auth.schoolId, active: true, role: { not: 'GUARDIAN' } },
+      select: {
+        id: true,
+        name: true,
+        staffRole: { select: { name: true } },
+        payProfile: true,
+      },
+      orderBy: { name: 'asc' },
+    });
+    return staff.map((s) => ({
+      userId: s.id,
+      name: s.name,
+      roleName: s.staffRole?.name ?? null,
+      profile: s.payProfile
+        ? {
+            basicSalary: Number(s.payProfile.basicSalary),
+            allowances: Number(s.payProfile.allowances),
+            deductions: Number(s.payProfile.deductions),
+            payoutMethod: s.payProfile.payoutMethod,
+            payoutAccount: s.payProfile.payoutAccount,
+            payoutName: s.payProfile.payoutName,
+          }
+        : null,
+    }));
+  }
+
+  async saveProfile(auth: AuthUser, dto: PayProfileDto) {
+    const user = await this.db.user.findFirst({
+      where: { id: dto.userId, schoolId: auth.schoolId, role: { not: 'GUARDIAN' } },
+    });
+    if (!user) throw new NotFoundException('Staff member not found');
+    await this.db.staffPayProfile.upsert({
+      where: { userId: dto.userId },
+      create: {
+        schoolId: auth.schoolId,
+        userId: dto.userId,
+        basicSalary: dto.basicSalary,
+        allowances: dto.allowances ?? 0,
+        deductions: dto.deductions ?? 0,
+        payoutMethod: dto.payoutMethod ?? 'BANK',
+        payoutAccount: dto.payoutAccount,
+        payoutName: dto.payoutName,
+      },
+      update: {
+        basicSalary: dto.basicSalary,
+        allowances: dto.allowances ?? 0,
+        deductions: dto.deductions ?? 0,
+        payoutMethod: dto.payoutMethod ?? 'BANK',
+        payoutAccount: dto.payoutAccount ?? null,
+        payoutName: dto.payoutName ?? null,
+      },
+    });
+    // The figure itself stays out of the audit detail — the trail says who changed whose pay,
+    // not what everyone earns.
+    await this.db.audit(auth.schoolId, auth.sub, 'hr.payroll.profile', 'User', dto.userId);
+    return { ok: true };
+  }
+
+  /** Compute one month for everyone with a profile. Snapshot on the line, DRAFT until approved. */
+  async createRun(auth: AuthUser, dto: CreateRunDto) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(dto.period)) {
+      throw new BadRequestException('The period must look like 2026-07');
+    }
+    const existing = await this.db.payRun.findUnique({
+      where: { schoolId_period: { schoolId: auth.schoolId, period: dto.period } },
+    });
+    if (existing) {
+      if (existing.status === 'APPROVED') {
+        throw new BadRequestException('That month is approved and cannot be recomputed');
+      }
+      // Recomputing a draft replaces it — the run only becomes history at approval.
+      await this.db.payRun.delete({ where: { id: existing.id } });
+    }
+
+    const profiles = await this.db.staffPayProfile.findMany({
+      where: { schoolId: auth.schoolId, user: { active: true } },
+      include: { user: { select: { name: true, staffRole: { select: { name: true } } } } },
+    });
+    if (profiles.length === 0) {
+      throw new BadRequestException('Nobody has a pay profile yet — set salaries first');
+    }
+
+    const run = await this.db.payRun.create({
+      data: {
+        schoolId: auth.schoolId,
+        period: dto.period,
+        createdById: auth.sub,
+        lines: {
+          create: profiles.map((p) => {
+            const line = computePay({
+              basic: Number(p.basicSalary),
+              allowances: Number(p.allowances),
+              otherDeductions: Number(p.deductions),
+            });
+            return {
+              schoolId: auth.schoolId,
+              userId: p.userId,
+              staffName: p.user.name,
+              roleName: p.user.staffRole?.name ?? null,
+              basic: line.basic,
+              allowances: line.allowances,
+              gross: line.gross,
+              ssnitEmployee: line.ssnitEmployee,
+              taxable: line.taxable,
+              paye: line.paye,
+              otherDeductions: line.otherDeductions,
+              net: line.net,
+              ssnitEmployer: line.ssnitEmployer,
+              payoutMethod: p.payoutMethod,
+              payoutAccount: p.payoutAccount,
+              payoutName: p.payoutName ?? p.user.name,
+            };
+          }),
+        },
+      },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'hr.payroll.run', 'PayRun', run.id, {
+      period: dto.period,
+      staff: profiles.length,
+    });
+    return this.run(auth, run.id);
+  }
+
+  async runs(auth: AuthUser) {
+    const rows = await this.db.payRun.findMany({
+      where: { schoolId: auth.schoolId },
+      include: {
+        lines: { select: { net: true, paye: true, ssnitEmployee: true, ssnitEmployer: true } },
+      },
+      orderBy: { period: 'desc' },
+      take: 24,
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      period: r.period,
+      status: r.status,
+      staff: r.lines.length,
+      totalNet: r.lines.reduce((s, l) => s + Number(l.net), 0),
+      totalPaye: r.lines.reduce((s, l) => s + Number(l.paye), 0),
+      totalSsnit: r.lines.reduce(
+        (s, l) => s + Number(l.ssnitEmployee) + Number(l.ssnitEmployer),
+        0,
+      ),
+    }));
+  }
+
+  async run(auth: AuthUser, id: string) {
+    const run = await this.db.payRun.findFirst({
+      where: { id, schoolId: auth.schoolId },
+      include: { lines: { orderBy: { staffName: 'asc' } } },
+    });
+    if (!run) throw new NotFoundException('Pay run not found');
+    return {
+      id: run.id,
+      period: run.period,
+      status: run.status,
+      lines: run.lines.map((l) => ({
+        userId: l.userId,
+        staffName: l.staffName,
+        roleName: l.roleName,
+        basic: Number(l.basic),
+        allowances: Number(l.allowances),
+        gross: Number(l.gross),
+        ssnitEmployee: Number(l.ssnitEmployee),
+        paye: Number(l.paye),
+        otherDeductions: Number(l.otherDeductions),
+        net: Number(l.net),
+        ssnitEmployer: Number(l.ssnitEmployer),
+        payoutMethod: l.payoutMethod,
+      })),
+    };
+  }
+
+  async approveRun(auth: AuthUser, id: string) {
+    const run = await this.db.payRun.findFirst({ where: { id, schoolId: auth.schoolId } });
+    if (!run) throw new NotFoundException('Pay run not found');
+    if (run.status === 'APPROVED') throw new BadRequestException('Already approved');
+    await this.db.payRun.update({
+      where: { id },
+      data: { status: 'APPROVED', approvedById: auth.sub, approvedAt: new Date() },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'hr.payroll.approve', 'PayRun', id, {
+      period: run.period,
+    });
+    return { ok: true };
+  }
+
+  async payslip(auth: AuthUser, runId: string, userId: string) {
+    const line = await this.db.payRunLine.findFirst({
+      where: { payRunId: runId, userId, schoolId: auth.schoolId },
+      include: { payRun: { select: { period: true } } },
+    });
+    if (!line) throw new NotFoundException('No payslip for that person in that month');
+    const school = await this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } });
+    const buffer = await payslipPdf({
+      school: {
+        name: school.name,
+        motto: school.motto,
+        address: school.address,
+        phone: school.phone,
+        brandColor: school.brandColor,
+        logo: school.logoUrl
+          ? await storage()
+              .get(school.logoUrl)
+              .catch(() => null)
+          : null,
+      },
+      period: line.payRun.period,
+      staffName: line.staffName,
+      roleName: line.roleName,
+      figures: {
+        basic: Number(line.basic),
+        allowances: Number(line.allowances),
+        gross: Number(line.gross),
+        ssnitEmployee: Number(line.ssnitEmployee),
+        taxable: Number(line.taxable),
+        paye: Number(line.paye),
+        otherDeductions: Number(line.otherDeductions),
+        net: Number(line.net),
+        ssnitEmployer: Number(line.ssnitEmployer),
+      },
+    });
+    return {
+      buffer,
+      filename: `payslip-${line.payRun.period}-${line.staffName.replace(/\s+/g, '-')}.pdf`,
+    };
+  }
+
+  /** The file the bank (or MoMo bulk-pay) takes: name, account, amount, for one method. */
+  async payoutFile(auth: AuthUser, runId: string, method: 'BANK' | 'MOMO') {
+    const run = await this.db.payRun.findFirst({
+      where: { id: runId, schoolId: auth.schoolId },
+      include: { lines: { where: { payoutMethod: method }, orderBy: { staffName: 'asc' } } },
+    });
+    if (!run) throw new NotFoundException('Pay run not found');
+    const headers = [
+      'Name',
+      method === 'BANK' ? 'Account Number' : 'MoMo Number',
+      'Amount',
+      'Narration',
+    ];
+    const rows: Cell[][] = run.lines.map((l) => [
+      l.payoutName ?? l.staffName,
+      l.payoutAccount ?? '',
+      Number(l.net),
+      `Salary ${run.period}`,
+    ]);
+    return {
+      buffer: toCsv(headers, rows),
+      filename: `payout-${method.toLowerCase()}-${run.period}.csv`,
+    };
+  }
+}
+
+@Controller('payroll')
+@RequireEntitlement('hr.payroll')
+export class PayrollController {
+  constructor(private svc: PayrollService) {}
+
+  @Get('profiles')
+  @RequirePermission('hr.payroll')
+  profiles(@CurrentUser() user: AuthUser) {
+    return this.svc.profiles(user);
+  }
+
+  @Post('profiles')
+  @RequirePermission('hr.payroll')
+  saveProfile(@CurrentUser() user: AuthUser, @Body() dto: PayProfileDto) {
+    return this.svc.saveProfile(user, dto);
+  }
+
+  @Get('runs')
+  @RequirePermission('hr.payroll')
+  runs(@CurrentUser() user: AuthUser) {
+    return this.svc.runs(user);
+  }
+
+  @Post('runs')
+  @RequirePermission('hr.payroll')
+  createRun(@CurrentUser() user: AuthUser, @Body() dto: CreateRunDto) {
+    return this.svc.createRun(user, dto);
+  }
+
+  @Get('runs/:id')
+  @RequirePermission('hr.payroll')
+  run(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.run(user, id);
+  }
+
+  @Post('runs/:id/approve')
+  @RequirePermission('hr.payroll')
+  approve(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.approveRun(user, id);
+  }
+
+  @Get('runs/:id/payslips/:userId')
+  @RequirePermission('hr.payroll')
+  async payslip(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+  ) {
+    const { buffer, filename } = await this.svc.payslip(user, id, userId);
+    return new StreamableFile(buffer, {
+      type: 'application/pdf',
+      disposition: `attachment; filename="${filename}"`,
+    });
+  }
+
+  @Get('runs/:id/payout')
+  @RequirePermission('hr.payroll')
+  async payout(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('method') method = 'BANK',
+  ) {
+    if (method !== 'BANK' && method !== 'MOMO') {
+      throw new BadRequestException('method must be BANK or MOMO');
+    }
+    const { buffer, filename } = await this.svc.payoutFile(user, id, method);
+    return new StreamableFile(buffer, {
+      type: 'text/csv',
+      disposition: `attachment; filename="${filename}"`,
+    });
+  }
+}
+
 @Module({
-  controllers: [HrController],
-  providers: [HrService],
+  controllers: [HrController, PayrollController],
+  providers: [HrService, PayrollService],
   exports: [HrService],
 })
 export class HrModule {}

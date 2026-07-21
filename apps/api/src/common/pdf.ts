@@ -500,6 +500,92 @@ export function receiptPdf(r: ReceiptData): Promise<Buffer> {
   return toBuffer(doc);
 }
 
+export interface PayslipData {
+  school: DocSchool;
+  period: string;
+  staffName: string;
+  roleName: string | null;
+  figures: {
+    basic: number;
+    allowances: number;
+    gross: number;
+    ssnitEmployee: number;
+    taxable: number;
+    paye: number;
+    otherDeductions: number;
+    net: number;
+    ssnitEmployer: number;
+  };
+}
+
+/** One month's payslip on A5 — basic through to net, with the employer's SSNIT shown apart. */
+export function payslipPdf(p: PayslipData): Promise<Buffer> {
+  const doc = new PDFDocument({ size: 'A5', margin: 36 });
+  const left = doc.page.margins.left;
+  const width = doc.page.width - left - doc.page.margins.right;
+  const money = (n: number) =>
+    `GHS ${n.toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const BRAND = brandOf(p.school);
+
+  if (drawCrest(doc, p.school, left + width / 2 - 14, doc.y, 28)) doc.y += 32;
+  doc
+    .fillColor(BRAND)
+    .font('Helvetica-Bold')
+    .fontSize(14)
+    .text(p.school.name, left, doc.y, { width, align: 'center' });
+  doc
+    .fillColor(INK)
+    .font('Helvetica-Bold')
+    .fontSize(11)
+    .text(`PAYSLIP — ${p.period}`, { width, align: 'center' });
+  doc.moveDown(0.6);
+  doc.font('Helvetica').fontSize(10).fillColor(INK).text(p.staffName, left);
+  if (p.roleName) doc.fillColor(OAT).fontSize(9).text(p.roleName, left);
+  doc.moveDown(0.6);
+
+  const f = p.figures;
+  const rows: [string, string][] = [
+    ['Basic salary', money(f.basic)],
+    ['Allowances', money(f.allowances)],
+    ['Gross pay', money(f.gross)],
+    ['SSNIT (5.5%)', `− ${money(f.ssnitEmployee)}`],
+    ['Taxable income', money(f.taxable)],
+    ['PAYE', `− ${money(f.paye)}`],
+    ...(f.otherDeductions > 0
+      ? ([['Other deductions', `− ${money(f.otherDeductions)}`]] as [string, string][])
+      : []),
+  ];
+  doc.font('Helvetica').fontSize(10);
+  for (const [label, value] of rows) {
+    const y = doc.y;
+    doc.fillColor(OAT).text(label, left, y, { width: width - 110 });
+    doc.fillColor(INK).text(value, left + width - 110, y, { width: 110, align: 'right' });
+    doc.moveDown(0.35);
+  }
+  doc.moveDown(0.3);
+  doc
+    .moveTo(left, doc.y)
+    .lineTo(left + width, doc.y)
+    .strokeColor(MIST)
+    .stroke();
+  doc.moveDown(0.4);
+  const yNet = doc.y;
+  doc.font('Helvetica-Bold').fontSize(12).fillColor(INK).text('Net pay', left, yNet);
+  doc.text(money(f.net), left + width - 130, yNet, { width: 130, align: 'right' });
+  doc
+    .moveDown(1)
+    .font('Helvetica')
+    .fontSize(8)
+    .fillColor(OAT)
+    .text(
+      `Employer SSNIT contribution (13%): ${money(f.ssnitEmployer)} — paid by the school on top of gross, never deducted.`,
+      left,
+      undefined,
+      { width },
+    );
+  return toBuffer(doc);
+}
+
 export interface StatementRow {
   date: string | Date;
   label: string;

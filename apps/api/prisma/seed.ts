@@ -147,6 +147,8 @@ async function main() {
     await db.auditLog.deleteMany({ where: { schoolId: sid } });
     await db.staffAttendanceRecord.deleteMany({ where: { schoolId: sid } });
     await db.leaveRequest.deleteMany({ where: { schoolId: sid } });
+    await db.payRun.deleteMany({ where: { schoolId: sid } });
+    await db.staffPayProfile.deleteMany({ where: { schoolId: sid } });
     await db.user.deleteMany({ where: { schoolId: sid } });
     await db.school.delete({ where: { id: sid } });
   }
