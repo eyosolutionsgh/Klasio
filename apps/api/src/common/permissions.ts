@@ -35,6 +35,7 @@ export type PermissionGroup =
   | 'Finance'
   | 'Safety'
   | 'Communication'
+  | 'Staff & HR'
   | 'Administration';
 
 export const PERMISSIONS = [
