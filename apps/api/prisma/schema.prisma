@@ -1029,6 +1029,26 @@ model ReleaseLog {
   @@index([studentId])
 }
 
+// ── External integrations (FEATURES.md §18, platform.api) ────────────
+
+/// A key another system presents to read this school's data. Stored as a SHA-256 hash — a
+/// leaked database yields no working keys — and read-only by design: outside systems observe
+/// Klasio; they never write a mark or a ledger row.
+model ApiKey {
+  id          String    @id @default(cuid())
+  schoolId    String
+  name        String
+  keyHash     String    @unique
+  /// First 8 characters of the key, for recognising it in the list. Never enough to use.
+  prefix      String
+  createdById String
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+
+  @@index([schoolId])
+}
+
 // ── Computer-based tests (FEATURES.md §5, exams.cbt) ─────────────────
 
 /// A bank of multiple-choice questions for one subject at one level.
