@@ -28,8 +28,9 @@ export default async function StaffAttendancePage() {
     );
   }
 
-  const canMark = me.permissions.includes('hr.attendance') || me.user.role === 'OWNER';
-  const canDecide = me.permissions.includes('hr.leave') || me.user.role === 'OWNER';
+  const perms = me.permissions ?? [];
+  const canMark = perms.includes('hr.attendance') || me.user.role === 'OWNER';
+  const canDecide = perms.includes('hr.leave') || me.user.role === 'OWNER';
 
   return (
     <div>
