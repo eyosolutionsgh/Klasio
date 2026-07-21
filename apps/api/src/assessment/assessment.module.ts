@@ -36,6 +36,7 @@ import { storage } from '../common/storage';
 import { SmsModule, SmsService } from '../sms/sms.module';
 import { weighSubject } from '../common/weighting';
 import { PrismaService } from '../prisma/prisma.service';
+import { closedTermMessage, termAcceptsWrites } from '../common/term-lifecycle';
 import { isStaleReplay, parseRecordedAt } from '../common/replay';
 import { hasEntitlement } from '../common/entitlements';
 import {
@@ -413,7 +414,25 @@ export class AssessmentService {
     };
   }
 
+  /**
+   * Refuse a write aimed at a term the school has closed.
+   *
+   * Shared by marks entry and report generation, and checked in the service rather than the
+   * controller because the offline queue replays into these same methods: a column of marks
+   * queued the day before the term closed must be refused with a reason the teacher can read,
+   * not applied silently three weeks after the reports went home.
+   */
+  private async assertTermOpen(auth: AuthUser, termId: string) {
+    const term = await this.db.term.findFirst({
+      where: { id: termId, academicYear: { schoolId: auth.schoolId } },
+      select: { id: true, name: true, closedAt: true },
+    });
+    if (!term) throw new NotFoundException('Term not found');
+    if (!termAcceptsWrites(term)) throw new BadRequestException(closedTermMessage(term));
+  }
+
   async saveScores(auth: AuthUser, dto: SaveScoresDto) {
+    await this.assertTermOpen(auth, dto.termId);
     const components = await this.components(auth);
     const compById = new Map(components.map((c) => [c.id, c]));
 
@@ -677,6 +696,9 @@ export class AssessmentService {
 
   /** Compute and persist terminal reports for a class+term. */
   async generateReports(auth: AuthUser, dto: GenerateReportsDto) {
+    // Publishing a finished report stays open after close — releasing is not editing — but
+    // recomputing one from marks is exactly the thing a closed term settles.
+    await this.assertTermOpen(auth, dto.termId);
     const { students, earlyYears, gradeFor, perStudent, subjectRanks, overall, overallRank } =
       await this.computeClassResults(auth, dto.classId, dto.termId);
 

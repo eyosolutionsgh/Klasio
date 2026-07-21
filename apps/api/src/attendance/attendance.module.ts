@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Injectable, Module, Post, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Injectable,
+  Module,
+  Post,
+  Query,
+} from '@nestjs/common';
 import {
   IsArray,
   IsDateString,
@@ -11,6 +20,7 @@ import { Type } from 'class-transformer';
 import { AttendanceStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { isStaleReplay, parseRecordedAt } from '../common/replay';
+import { closedTermMessage, termAcceptsWrites } from '../common/term-lifecycle';
 import { hasEntitlement } from '../common/entitlements';
 import { SmsModule, SmsService } from '../sms/sms.module';
 import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
@@ -90,6 +100,23 @@ export class AttendanceService {
     return term?.id ?? null;
   }
 
+  /**
+   * The current term, and whether it still takes marks.
+   *
+   * A closed term's register is settled history — see common/term-lifecycle.ts. Checked here
+   * rather than at the controller because the offline queue replays into this same method, and a
+   * register queued before the close must be refused with a reason a teacher can read rather
+   * than silently applied weeks later.
+   */
+  private async openTerm(schoolId: string) {
+    const term = await this.db.term.findFirst({
+      where: { isCurrent: true, academicYear: { schoolId, isCurrent: true } },
+    });
+    if (!term) return null;
+    if (!termAcceptsWrites(term)) throw new BadRequestException(closedTermMessage(term));
+    return term;
+  }
+
   async roster(auth: AuthUser, classId: string, date: string) {
     const day = new Date(date);
     const [students, existing] = await Promise.all([
@@ -111,8 +138,9 @@ export class AttendanceService {
   }
 
   async mark(auth: AuthUser, dto: MarkAttendanceDto) {
-    const termId = await this.currentTermId(auth.schoolId);
-    if (!termId) throw new Error('No current term configured');
+    const term = await this.openTerm(auth.schoolId);
+    if (!term) throw new BadRequestException('No current term configured');
+    const termId = term.id;
     const day = new Date(dto.date);
     const recordedAt = parseRecordedAt(dto.recordedAt);
 

@@ -224,6 +224,12 @@ export const PERMISSIONS = [
     label: 'Change school details and structure',
     group: 'Administration',
   },
+  {
+    code: 'school.close_term',
+    label: 'Close and reopen terms and academic years',
+    group: 'Administration',
+    caution: 'Closing settles a term’s register and marks; reopening lets them change again.',
+  },
   { code: 'school.branding', label: 'Change the logo and colours', group: 'Administration' },
   {
     code: 'records.configure',
@@ -330,6 +336,9 @@ export const ROLE_PRESETS: RolePreset[] = [
       'comms.whatsapp',
       'calendar.manage',
       'school.settings',
+      // Closing the term is the head's act: they are the one who vets and signs every report,
+      // which is the work that closing declares finished.
+      'school.close_term',
       'records.configure',
       'users.view',
       'audit.view',

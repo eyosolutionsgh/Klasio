@@ -5,6 +5,7 @@ import { Button, useAsyncAction } from '@/components/Button';
 import { ChoiceCards } from '@/components/ChoiceCards';
 import CampusSettings from '@/components/CampusSettings';
 import ApiKeysSettings from '@/components/ApiKeysSettings';
+import TermLifecycle from '@/components/TermLifecycle';
 import { CalendarIcon, PlusIcon, SaveIcon } from '@/components/icons';
 
 interface Term {
@@ -14,6 +15,7 @@ interface Term {
   endDate: string;
   nextTermBegins: string | null;
   isCurrent: boolean;
+  closedAt: string | null;
 }
 interface Year {
   id: string;
@@ -21,6 +23,7 @@ interface Year {
   startDate: string;
   endDate: string;
   isCurrent: boolean;
+  closedAt: string | null;
   terms: Term[];
 }
 interface Level {
@@ -94,6 +97,9 @@ export default function SchoolSetupPage() {
 
   // Every write on this page — creating, correcting and removing — is `school.settings`.
   const canSettings = held.includes('school.settings');
+  // Closing settles a term's academic record, so it is its own permission rather than part of
+  // ordinary school setup.
+  const canClose = held.includes('school.close_term');
 
   /** The one term, level or class currently being corrected. Only ever one at a time. */
   const [editTerm, setEditTerm] = useState<Term | null>(null);
@@ -402,9 +408,34 @@ export default function SchoolSetupPage() {
                   Current
                 </span>
               )}
+              {y.closedAt && (
+                <span className="ml-2 text-[10px] uppercase tracking-wider bg-mist text-oat rounded-full px-2 py-0.5">
+                  Closed
+                </span>
+              )}
               <span className="text-oat font-normal text-xs ml-2">
                 {fmt(y.startDate)} – {fmt(y.endDate)}
               </span>
+              {/*
+                A year is exactly its terms, so the API refuses to close one while any term inside
+                it is still open — and says which. Reopening asks for a reason, like a term does.
+              */}
+              {canClose && (
+                <button
+                  onClick={async () => {
+                    if (y.closedAt) {
+                      const reason = window.prompt(`Why reopen ${y.name}?`)?.trim();
+                      if (!reason || reason.length < 4) return;
+                      await send(`years/${y.id}/reopen`, { reason });
+                    } else {
+                      await send(`years/${y.id}/close`);
+                    }
+                  }}
+                  className="ml-3 text-[12px] font-medium text-brand hover:underline underline-offset-2"
+                >
+                  {y.closedAt ? 'Reopen year' : 'Close year'}
+                </button>
+              )}
             </p>
             <ul className="mt-2 space-y-1">
               {y.terms.map((t) =>
@@ -512,6 +543,19 @@ export default function SchoolSetupPage() {
                       >
                         Change dates
                       </button>
+                    )}
+                    {canClose && (
+                      <TermLifecycle
+                        termId={t.id}
+                        termName={t.name}
+                        closedAt={t.closedAt}
+                        yearClosed={!!y.closedAt}
+                        /* Only open terms are worth offering as the next current one. */
+                        nextTerms={y.terms
+                          .filter((x) => x.id !== t.id && !x.closedAt)
+                          .map((x) => ({ id: x.id, name: x.name }))}
+                        onDone={load}
+                      />
                     )}
                   </li>
                 ),

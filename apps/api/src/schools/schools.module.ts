@@ -111,6 +111,19 @@ class UpdateTermDto {
   @IsOptional() @IsDateString() nextTermBegins?: string;
 }
 
+class CloseTermDto {
+  /**
+   * The term to make current in the same act. Optional, because the last term of a year has no
+   * successor until the school has created next year's.
+   */
+  @IsOptional() @IsString() openTermId?: string;
+}
+
+class ReopenTermDto {
+  /** Required, for the same reason a ledger reversal's is: history is being reopened. */
+  @IsString() @MinLength(4) reason: string;
+}
+
 class LevelDto {
   @IsString() @MinLength(1) name: string;
   @IsIn(CATEGORIES) category: LevelCategory;
@@ -505,6 +518,168 @@ export class SchoolsService {
    * flags are cleared in the same transaction — a half-applied switch would make "current term"
    * ambiguous for invoicing, attendance and reports.
    */
+  /**
+   * What is still outstanding before this term can sensibly be closed.
+   *
+   * Advisory, not a gate. A school closing Term 2 in October because nobody remembered to do it
+   * in April must still be able to; refusing on an unmarked register from six months ago would
+   * make the feature unusable in exactly the situation it exists for. So this reports, the
+   * confirmation shows it, and the head decides.
+   */
+  async termChecklist(auth: AuthUser, termId: string) {
+    const term = await this.db.term.findFirst({
+      where: { id: termId, academicYear: { schoolId: auth.schoolId } },
+    });
+    if (!term) throw new NotFoundException('Term not found');
+
+    const [reportsTotal, reportsUnpublished, classesWithStudents] = await Promise.all([
+      this.db.termReport.count({ where: { schoolId: auth.schoolId, termId } }),
+      this.db.termReport.count({
+        where: { schoolId: auth.schoolId, termId, publishedAt: null },
+      }),
+      this.db.classRoom.count({
+        where: { schoolId: auth.schoolId, students: { some: { status: 'ACTIVE' } } },
+      }),
+    ]);
+
+    return {
+      termId,
+      name: term.name,
+      closedAt: term.closedAt,
+      reportsTotal,
+      reportsUnpublished,
+      /** Classes carrying pupils but no generated report — the commonest thing to have missed. */
+      classesWithoutReports: Math.max(
+        0,
+        classesWithStudents -
+          (
+            await this.db.termReport.groupBy({
+              by: ['classId'],
+              where: { schoolId: auth.schoolId, termId },
+            })
+          ).length,
+      ),
+    };
+  }
+
+  /**
+   * Close a term. The academic record for it becomes settled history.
+   *
+   * Optionally opens the next one in the same act, because "close Term 1 and start Term 2" is one
+   * decision a head makes on one afternoon, and splitting it across two screens is how a school
+   * ends up with every term closed and none current.
+   */
+  async closeTerm(auth: AuthUser, termId: string, dto: CloseTermDto) {
+    const term = await this.db.term.findFirst({
+      where: { id: termId, academicYear: { schoolId: auth.schoolId } },
+      include: { academicYear: true },
+    });
+    if (!term) throw new NotFoundException('Term not found');
+    if (term.closedAt) throw new BadRequestException(`${term.name} is already closed`);
+
+    await this.db.term.update({
+      where: { id: termId },
+      data: { closedAt: new Date(), closedById: auth.sub },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'school.term.close', 'Term', termId, {
+      term: term.name,
+      year: term.academicYear.name,
+    });
+
+    let currentTerm: string | null = null;
+    if (dto.openTermId) {
+      const next = await this.db.term.findFirst({
+        where: { id: dto.openTermId, academicYear: { schoolId: auth.schoolId } },
+      });
+      if (!next) throw new NotFoundException('The term to open does not exist');
+      if (next.closedAt) {
+        throw new BadRequestException(`${next.name} is closed — reopen it before making it current`);
+      }
+      await this.setCurrentTerm(auth, dto.openTermId);
+      currentTerm = next.name;
+    }
+    return { closed: term.name, currentTerm };
+  }
+
+  /**
+   * Reopen a closed term.
+   *
+   * Kept possible, and kept awkward. Schools close terms early, discover a marking error in
+   * September, and need the door open again — refusing outright would mean the only fix is
+   * database access. It demands a reason for the same reason a ledger reversal does: the audit
+   * row is the only thing that later distinguishes a correction from someone rewriting history.
+   */
+  async reopenTerm(auth: AuthUser, termId: string, dto: ReopenTermDto) {
+    const term = await this.db.term.findFirst({
+      where: { id: termId, academicYear: { schoolId: auth.schoolId } },
+      include: { academicYear: true },
+    });
+    if (!term) throw new NotFoundException('Term not found');
+    if (!term.closedAt) throw new BadRequestException(`${term.name} is already open`);
+    if (term.academicYear.closedAt) {
+      throw new BadRequestException(
+        `${term.academicYear.name} is closed — reopen the year before reopening a term inside it`,
+      );
+    }
+
+    await this.db.term.update({
+      where: { id: termId },
+      data: { closedAt: null, closedById: null },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'school.term.reopen', 'Term', termId, {
+      term: term.name,
+      reason: dto.reason.trim(),
+    });
+    return { reopened: term.name };
+  }
+
+  /**
+   * Close an academic year. Every term inside it has to be closed first — a year is exactly its
+   * terms, and a "closed" year with a term still taking marks would be a claim that is not true.
+   */
+  async closeYear(auth: AuthUser, yearId: string) {
+    const year = await this.db.academicYear.findFirst({
+      where: { id: yearId, schoolId: auth.schoolId },
+      include: { terms: true },
+    });
+    if (!year) throw new NotFoundException('Academic year not found');
+    if (year.closedAt) throw new BadRequestException(`${year.name} is already closed`);
+
+    const open = year.terms.filter((t) => !t.closedAt);
+    if (open.length > 0) {
+      throw new BadRequestException(
+        `Close ${open.map((t) => t.name).join(', ')} before closing ${year.name}.`,
+      );
+    }
+
+    await this.db.academicYear.update({
+      where: { id: yearId },
+      data: { closedAt: new Date(), closedById: auth.sub },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'school.year.close', 'AcademicYear', yearId, {
+      year: year.name,
+    });
+    return { closed: year.name };
+  }
+
+  async reopenYear(auth: AuthUser, yearId: string, dto: ReopenTermDto) {
+    const year = await this.db.academicYear.findFirst({
+      where: { id: yearId, schoolId: auth.schoolId },
+    });
+    if (!year) throw new NotFoundException('Academic year not found');
+    if (!year.closedAt) throw new BadRequestException(`${year.name} is already open`);
+
+    await this.db.academicYear.update({
+      where: { id: yearId },
+      data: { closedAt: null, closedById: null },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'school.year.reopen', 'AcademicYear', yearId, {
+      year: year.name,
+      reason: dto.reason.trim(),
+    });
+    return { reopened: year.name };
+  }
+
   async setCurrentTerm(auth: AuthUser, termId: string) {
     const term = await this.db.term.findFirst({
       where: { id: termId, academicYear: { schoolId: auth.schoolId } },
@@ -820,6 +995,36 @@ export class SchoolsController {
   @RequirePermission('school.settings')
   setCurrent(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.setCurrentTerm(user, id);
+  }
+
+  @Get('terms/:id/checklist')
+  @RequirePermission('school.settings')
+  termChecklist(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.termChecklist(user, id);
+  }
+
+  @Post('terms/:id/close')
+  @RequirePermission('school.close_term')
+  closeTerm(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: CloseTermDto) {
+    return this.svc.closeTerm(user, id, dto);
+  }
+
+  @Post('terms/:id/reopen')
+  @RequirePermission('school.close_term')
+  reopenTerm(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ReopenTermDto) {
+    return this.svc.reopenTerm(user, id, dto);
+  }
+
+  @Post('years/:id/close')
+  @RequirePermission('school.close_term')
+  closeYear(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.closeYear(user, id);
+  }
+
+  @Post('years/:id/reopen')
+  @RequirePermission('school.close_term')
+  reopenYear(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ReopenTermDto) {
+    return this.svc.reopenYear(user, id, dto);
   }
 
   @Post('levels')

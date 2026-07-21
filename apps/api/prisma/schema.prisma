@@ -265,6 +265,11 @@ model AcademicYear {
   startDate DateTime
   endDate   DateTime
   isCurrent Boolean  @default(false)
+  /// Set when the school formally closes the year, after every term in it is closed and the
+  /// promotion run has moved the children on. Distinct from `isCurrent`, which only says which
+  /// year the software is pointing at — a year can stop being current without ever being finished.
+  closedAt   DateTime?
+  closedById String?
   terms     Term[]
 
   @@unique([schoolId, name])
@@ -279,6 +284,12 @@ model Term {
   endDate        DateTime
   nextTermBegins DateTime?
   isCurrent      Boolean      @default(false)
+  /// Set when the school closes the term: exams marked, reports vetted and published, returns
+  /// filed. A closed term stops accepting attendance, scores and report generation — its academic
+  /// record is settled history. Money is deliberately *not* frozen: arrears carry forward and a
+  /// parent may still pay last term's bill months later.
+  closedAt   DateTime?
+  closedById String?
 
   feeClearances FeeClearance[]
 
