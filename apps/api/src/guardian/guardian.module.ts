@@ -739,8 +739,25 @@ export class GuardianService {
   }
 
   async announcements(auth: GuardianUser) {
+    const { classIds, levelIds } = await this.scope(auth);
+    const routeIds = await this.routeScope(auth);
     const notices = await this.db.announcement.findMany({
-      where: { schoolId: auth.schoolId, audience: { in: ['ALL', 'GUARDIANS'] } },
+      where: {
+        schoolId: auth.schoolId,
+        audience: { in: ['ALL', 'GUARDIANS'] },
+        /**
+         * A notice with no class, level or route is for the whole school; one with any of them
+         * is for those families only. This is what makes "one class" true of the notice board
+         * and not just of the text message — before it, every targeted broadcast was also posted
+         * to every family's board.
+         */
+        OR: [
+          { classId: null, levelId: null, routeId: null },
+          { classId: { in: classIds } },
+          { levelId: { in: levelIds } },
+          { routeId: { in: routeIds } },
+        ],
+      },
       orderBy: { publishedAt: 'desc' },
       take: 30,
     });
@@ -757,6 +774,20 @@ export class GuardianService {
    * here for the same reason as everywhere else: that guardian is not part of the child's
    * school life, so the child's class shelf is not theirs to read either.
    */
+  /** The bus routes the caller's own wards ride — the transport half of a notice's audience. */
+  private async routeScope(auth: GuardianUser): Promise<string[]> {
+    const riders = await this.db.transportRider.findMany({
+      where: {
+        student: {
+          schoolId: auth.schoolId,
+          guardians: { some: { guardianId: auth.sub, custodyFlag: { not: 'BLOCKED' } } },
+        },
+      },
+      select: { routeId: true },
+    });
+    return [...new Set(riders.map((r) => r.routeId))];
+  }
+
   private async scope(auth: GuardianUser): Promise<ResourceScope> {
     const links = await this.db.studentGuardian.findMany({
       where: {

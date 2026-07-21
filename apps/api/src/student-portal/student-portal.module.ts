@@ -317,8 +317,23 @@ export class StudentPortalService {
   }
 
   async notices(auth: StudentUser) {
+    const { classIds, levelIds } = await this.scope(auth);
+    const riders = await this.db.transportRider.findMany({
+      where: { studentId: auth.sub, student: { schoolId: auth.schoolId } },
+      select: { routeId: true },
+    });
     const notices = await this.db.announcement.findMany({
-      where: { schoolId: auth.schoolId, audience: { in: ['ALL', 'STUDENTS'] } },
+      where: {
+        schoolId: auth.schoolId,
+        audience: { in: ['ALL', 'STUDENTS'] },
+        // Same rule as the guardian board: no class, level or route means the whole school.
+        OR: [
+          { classId: null, levelId: null, routeId: null },
+          { classId: { in: classIds } },
+          { levelId: { in: levelIds } },
+          { routeId: { in: riders.map((r) => r.routeId) } },
+        ],
+      },
       orderBy: { publishedAt: 'desc' },
       take: 10,
     });

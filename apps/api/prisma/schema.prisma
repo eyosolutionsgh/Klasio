@@ -911,6 +911,13 @@ model Announcement {
   audience    String    @default("ALL")
   /// Set when this notice was emitted by a Broadcast rather than posted straight to the board.
   broadcastId String?
+  /// Who the notice is *for*, as opposed to `audience`, which is only which portal shows it.
+  /// All null means the whole school. A broadcast sent to one class used to text that class and
+  /// then post the same words to every family's notice board, so "one class" was never true of
+  /// more than half the send.
+  classId     String?
+  levelId     String?
+  routeId     String?
   createdById String
   publishedAt DateTime  @default(now())
 

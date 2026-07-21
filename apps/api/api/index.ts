@@ -1,8 +1,7 @@
 import 'reflect-metadata';
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type { IncomingMessage, ServerResponse } from 'http';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
-import serverlessExpress from '@codegenie/serverless-express';
 import { AppModule } from '../src/app.module';
 import { jwtSecret } from '../src/common/auth';
 
@@ -11,15 +10,19 @@ import { jwtSecret } from '../src/common/auth';
  * `app.listen()`) is untouched and stays the entrypoint everywhere else — this file exists
  * because a Vercel Function is request-scoped and cannot hold an open listener.
  *
+ * A Vercel Node Function is invoked as a plain `(req, res)` handler — the exact shape an Express
+ * app already is — so no Lambda-style event/context adapter is needed here, just the app's own
+ * HTTP handler passed straight through.
+ *
  * The Nest app is built once and cached at module scope, so it survives across invocations of
  * the same warm Function instance instead of re-bootstrapping (and re-running onModuleInit,
  * including the licence service's timers) on every request.
  */
-type ServerlessHandler = (req: VercelRequest, res: VercelResponse) => Promise<void> | void;
+type HttpHandler = (req: IncomingMessage, res: ServerResponse) => void;
 
-let cachedHandler: ServerlessHandler | undefined;
+let cachedHandler: HttpHandler | undefined;
 
-async function bootstrapServer(): Promise<ServerlessHandler> {
+async function bootstrapServer(): Promise<HttpHandler> {
   jwtSecret();
   const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'log'],
@@ -28,10 +31,10 @@ async function bootstrapServer(): Promise<ServerlessHandler> {
   app.enableCors({ origin: true, credentials: true });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   await app.init();
-  return serverlessExpress({ app: app.getHttpAdapter().getInstance() });
+  return app.getHttpAdapter().getInstance();
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: IncomingMessage, res: ServerResponse) {
   if (!cachedHandler) cachedHandler = await bootstrapServer();
-  return cachedHandler(req, res);
+  cachedHandler(req, res);
 }

@@ -271,6 +271,20 @@ export class BroadcastsService {
     if (dto.channels.includes('SOCIAL') && !auth.permissions?.includes('comms.social')) {
       throw new BadRequestException('You do not have permission to post to social accounts');
     }
+    /**
+     * A picked list is a list of phone numbers and nothing else — there is no portal account
+     * behind one, and no address to email. Silently doing nothing on those channels is how a
+     * targeted message ("please see the bursar about your balance") ended up on the notice board
+     * every family reads, so this refuses instead of half-sending.
+     */
+    if (dto.audienceScope === 'CUSTOM') {
+      const impossible = dto.channels.filter((c) => c !== 'SMS');
+      if (impossible.length > 0) {
+        throw new BadRequestException(
+          `A picked list can only be reached by SMS — there is no portal account or email address behind a phone number. Remove ${impossible.join(', ').toLowerCase()}.`,
+        );
+      }
+    }
 
     // The unique constraint is the real guard; this only turns the second click into the first
     // broadcast rather than a 500.
@@ -432,6 +446,11 @@ export class BroadcastsService {
             title: dto.title.trim(),
             body: dto.body.trim(),
             audience: this.announcementAudience(dto.audienceRoles),
+            // Carried onto the notice, so the portals can show it to the families it was meant
+            // for. Without these a "Basic 4 trip on Friday" reached every family in the school.
+            classId: dto.audienceScope === 'CLASS' ? dto.classId : null,
+            levelId: dto.audienceScope === 'LEVEL' ? dto.levelId : null,
+            routeId: dto.audienceScope === 'ROUTE' ? dto.routeId : null,
             broadcastId,
             createdById: auth.sub,
           },
