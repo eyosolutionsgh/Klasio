@@ -927,11 +927,8 @@ export class GuardianPortalController {
 
   @Get('resources/:id/file')
   async resourceFile(@CurrentGuardian() g: GuardianUser, @Param('id') id: string) {
-    const { buffer, resource } = await this.svc.resourceFile(g, id);
-    return new StreamableFile(buffer, {
-      type: resource.mimeType,
-      disposition: `attachment; filename="${resource.filename.replace(/"/g, '')}"`,
-    });
+    // Streamed, not buffered — a shared lesson video must not transit the heap per reader.
+    return ResourcesService.asFile(await this.svc.resourceFile(g, id));
   }
 }
 

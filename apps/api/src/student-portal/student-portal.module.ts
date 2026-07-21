@@ -411,11 +411,8 @@ export class StudentPortalController {
   @UseGuards(StudentGuard)
   @Get('resources/:id/file')
   async resourceFile(@CurrentStudent() s: StudentUser, @Param('id') id: string) {
-    const { buffer, resource } = await this.svc.resourceFile(s, id);
-    return new StreamableFile(buffer, {
-      type: resource.mimeType,
-      disposition: `attachment; filename="${resource.filename.replace(/"/g, '')}"`,
-    });
+    // Streamed, not buffered — a shared lesson video must not transit the heap per reader.
+    return ResourcesService.asFile(await this.svc.resourceFile(s, id));
   }
 }
 
