@@ -1702,6 +1702,9 @@ model WhatsAppConversation {
   windowExpiresAt DateTime?
   lastInboundAt   DateTime?
   lastOutboundAt  DateTime?
+  /// The assistant's little memory: `{ pending?: intent, handedOff?: true }`. `handedOff`
+  /// silences the bot for the rest of the window — a person asked for a person.
+  botState        Json?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
