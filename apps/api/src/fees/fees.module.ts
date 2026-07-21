@@ -14,7 +14,9 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   StreamableFile,
+  UnauthorizedException,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -37,6 +39,13 @@ import { Type } from 'class-transformer';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { DOCUMENT_TYPES, MAX_UPLOAD_BYTES, objectKey, storage } from '../common/storage';
 
+/** Minimal shape of the raw-body request — avoids depending on @types/express. */
+interface RawRequest {
+  rawBody?: Buffer;
+  body?: unknown;
+  headers: Record<string, string | undefined>;
+}
+
 /** Minimal shape of a Multer upload — avoids depending on @types/multer. */
 interface UploadedFileLike {
   buffer: Buffer;
@@ -51,7 +60,14 @@ import { PrismaService, withTenant } from '../prisma/prisma.service';
 import { markSchedule, scheduleTotals } from '../common/installments';
 import { concessionsFor, rankSiblings } from '../common/concessions';
 import { SmsModule, SmsService } from '../sms/sms.module';
-import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
+import {
+  AuthUser,
+  CurrentUser,
+  Public,
+  RequireEntitlement,
+  RequirePermission,
+} from '../common/auth';
+import { verifyQstashSignature } from '../common/qstash';
 import { receiptPdf, statementPdf } from '../common/pdf';
 import { statementLines } from '../common/statement';
 import { toCsv, toXlsx, Cell } from '../common/export';
@@ -2231,6 +2247,11 @@ export class RemindersQueue implements OnModuleInit, OnModuleDestroy {
    * every tick and did nothing, silently, in any deployment with REDIS_URL set. Scheduled fee
    * reminders looked configured and enabled in the UI and had never sent a single message.
    */
+  /** The tick itself, callable directly by the QStash callback route below — no BullMQ involved. */
+  async runNow() {
+    return this.tick();
+  }
+
   private async tick() {
     const now = new Date();
     const jobs = await this.db.system.scheduledJob.findMany({
@@ -2280,9 +2301,29 @@ export class RemindersQueue implements OnModuleInit, OnModuleDestroy {
   }
 }
 
+/**
+ * QStash's serverless alternative to `RemindersQueue`'s BullMQ worker (docs/10 §5) — a scheduled
+ * HTTP callback instead of a persistent listener, for deployments with no Redis. Active only when
+ * `QSTASH_CURRENT_SIGNING_KEY` is set; a deployment using BullMQ instead never calls this route.
+ */
+@Controller('fees/internal')
+export class FeesQstashController {
+  constructor(private queue: RemindersQueue) {}
+
+  @Post('qstash/reminders-tick')
+  @Public()
+  async qstashTick(@Req() req: RawRequest) {
+    const raw = (req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}))).toString('utf8');
+    const ok = await verifyQstashSignature(req.headers['upstash-signature'], raw);
+    if (!ok) throw new UnauthorizedException('Invalid QStash signature');
+    await this.queue.runNow();
+    return { ok: true };
+  }
+}
+
 @Module({
   imports: [SmsModule],
-  controllers: [FeesController],
+  controllers: [FeesController, FeesQstashController],
   providers: [FeesService, RemindersQueue],
   exports: [FeesService],
 })

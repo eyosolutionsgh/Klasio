@@ -6,7 +6,7 @@ Durations are working estimates for a small focused team; refine during sprint p
 
 ## Phase 0 — Foundations (~3–4 weeks)
 
-- Monorepo scaffold (pnpm workspaces): `api`, `web`, `mobile`, `scanner`, `bot`, `packages/shared`
+- Monorepo scaffold (pnpm workspaces): `api`, `web`, `bot`, `packages/shared` — no `mobile` or `scanner` workspace, per [03-architecture.md](03-architecture.md) §3.9
 - Husky + lint-staged + commitlint, CI pipeline, migration-discipline checks (see 06)
 - Auth (email/phone + OTP), RBAC, tenant model + Postgres RLS, audit log
 - Entitlement engine + license-file verification (Ed25519) — built early because everything gates on it
@@ -32,8 +32,9 @@ Durations are working estimates for a small focused team; refine during sprint p
 - Online payments: Hubtel + Paystack adapters, MoMo push, hosted checkout, webhooks, idempotent application
 - Reconciliation suite: auto-match, settlement import, exception queue
 - Discounts/scholarships/installment plans; automated reminder schedules
-- **Pickup/drop-off safety v1**: authorized lists, QR/PIN + photo verification, scanner app (local queue-and-replay offline), release log, guardian notifications, dismissal-change requests, printed-card path
+- **Pickup/drop-off safety v1**: authorized lists, QR/PIN + photo verification, gate screen in the staff web app (browser QR scanning, local queue-and-replay offline), release log, guardian notifications, dismissal-change requests, printed-card path
 - WhatsApp notifications (templates via 360dialog): reminders, receipts, absence alerts, results links
+- **WhatsApp guardian chatbot — structured flows** (balance, mini-statement, results, attendance, report absence, request dismissal change, handoff). Pulled forward from Phase 3 and down to Basic: with no parent app (§3.9) this is the parent channel, not a top-tier extra, and it has to exist before pilots judge whether parents are actually reached
 - Learning resources module (document upload/access — the LMS placeholder)
 - Admissions v1 (online application, pipeline, admission letters); remark banks; custom fields; event calendar
 - Timetable builder v1; GES termly returns export; ID cards
@@ -46,19 +47,19 @@ Durations are working estimates for a small focused team; refine during sprint p
 - AI gateway (metering, redaction, approval workflows)
 - **AI remark writer** for terminal reports (highest leverage, lowest risk — human approves)
 - **AI script capture** (photo → scores OCR pipeline)
-- **WhatsApp guardian chatbot**: structured flows (balance, statement, results, absence, pickup change) → AI NLU fallback
+- **WhatsApp chatbot — AI NLU layer** on top of the Phase 2 structured flows (free-text questions, local-language friendly phrasing); Advanced, because inference costs per message
 - AI fee-default risk scoring; insights dashboard with natural-language queries
 - Transport module: routes, manifests, boarding scans, live GPS, transport billing
 - Payroll (SSNIT + GRA PAYE), staff attendance/leave
 - CBT/mock exams v1 (BECE/WASSCE banks); USSD balance/payment
-- Guardian mobile app (branded builds); car line management; emergency broadcast
+- Car line management; emergency broadcast _(guardian mobile app struck — see [03-architecture.md](03-architecture.md) §3.9)_
 - AI attendance-risk insights; dismissal analytics
 
 **Exit:** Advanced tier launches with its core (AI suite, chatbot, transport, payroll, analytics). Remaining Advanced catalog items — multi-campus, API access & webhooks, AI timetable generation, substitution management, accounting exports/double-entry mini-ledger — land in Phase 5 before public launch.
 
 ## Phase 4 — Offline & standalone hardening (~6–8 weeks, overlaps Phase 3)
 
-- Per-device offline: PowerSync integration for marks/attendance/scanner
+- Per-device offline: PowerSync integration for marks/attendance/gate releases
 - School-server sync agent (op-log replay, exception queue)
 - LAN-box fleet tooling: image build, controlled updates, health beacon, encrypted backup shipping
 - License lifecycle ops: issuance portal (internal), renewal flow, grace handling

@@ -33,8 +33,8 @@ a row count closes permanently after one use.
 - **Core API** (modular monolith to start — modules: sis, attendance, assessment, billing, payments, safety, comms, resources, hr, platform). Modulith boundaries let us extract services later without a premature microservice tax.
 - **Postgres** — single source of truth. Multi-tenant SaaS: shared DB, `school_id` on every row + Postgres Row-Level Security; standalone: same schema, single tenant. Identical migrations everywhere (see [06-engineering-practices.md](06-engineering-practices.md)).
 - **Web app** — staff/admin portal (responsive; teachers use it on phones).
-- **Guardian PWA + branded mobile app** — read portal, payments, pickup management.
-- **Scanner app** — gate staff pickup/drop-off verification; offline-first by design.
+- **Guardian portal (PWA)** — read portal, payments, dismissal requests. Installable to a home screen, but never an app-store download; see §3.9.
+- **Gate screen** — pickup/drop-off verification, inside the staff web app. Offline-first, and it scans QR codes with the browser's own barcode API rather than a bundled decoder, so a cheap Android handset on school wifi is the whole hardware requirement.
 - **Worker/queue** — invoices, notifications, report generation, webhook processing, sync.
 - **Integration adapters** — payment gateways (Hubtel, Paystack, Flutterwave), SMS (Arkesel/Hubtel), WhatsApp Cloud API (via 360dialog as BSP partner, one WABA number per school or shared vendor number), USSD aggregator.
 - **AI service** — a thin internal gateway that wraps LLM/OCR providers; all AI calls flow through it (prompt templates, tenant data grounding, PII redaction, usage metering, human-approval workflow). Cloud-only feature: offline installs queue AI jobs for when connectivity returns (AI never blocks core workflows).
@@ -105,7 +105,7 @@ mid-term — a bad failure mode for a school product, and weak leverage besides,
 school's. The licence payload still carries a `studentCap` field, always minted as `null`, purely so
 a server predating this change accepts a licence issued today; nothing reads it.
 
-## 3.6 WhatsApp chatbot architecture (Advanced)
+## 3.6 WhatsApp chatbot architecture (all tiers)
 
 ```
 Guardian WhatsApp ──► BSP (360dialog) webhook ──► Bot service
@@ -116,6 +116,14 @@ Guardian WhatsApp ──► BSP (360dialog) webhook ──► Bot service
   ├─ structured flows first (buttons/lists); AI NLU fallback (Advanced)
   └─ replies inside 24h service window = free; pushes = utility templates
 ```
+
+**Tier (decision).** The structured flows are **Basic and above**. They were Advanced-only while a
+branded parent app was also planned; with that app struck (§3.9), WhatsApp *is* the parent channel,
+and gating it behind the top tier would leave a Basic school's parents with a web page and nothing
+else — which fails principle 4 for exactly the schools least able to pay their way out of it. Only
+the **AI free-text layer** stays Advanced: structured buttons answer the common questions at no
+marginal cost, while natural-language answering carries a per-message inference bill that has to be
+priced somewhere.
 
 - Opt-in captured on the enrollment form (paper + digital), per Meta policy.
 - Cost model: parent-initiated ≈ $0; school pushes ~ $0.0046/delivered (utility, Rest-of-Africa rate). Ghana bulk SMS (~GHS 0.03–0.05 ≈ $0.002–0.003) is usually _cheaper_ per message — WhatsApp wins on richness (PDFs, buttons, free replies), not raw price. SMS remains the fallback for non-WhatsApp guardians.
@@ -133,3 +141,49 @@ Guardian WhatsApp ──► BSP (360dialog) webhook ──► Bot service
 
 - Ghana first, architected for: multi-currency (GHS/NGN/KES/XOF/USD), country packs (grading schemes, statutory payroll, report formats, gateways, SMS providers) as pluggable configuration, i18n scaffolding (English now; French for francophone West Africa on the roadmap), timezone/term-calendar flexibility.
 - **Data residency:** SaaS hosted in-region (AWS af-south-1 Cape Town or equivalent) for latency and Act 843 posture; residency documented per country pack as expansion requires.
+
+## 3.9 No native apps (decision)
+
+**Decision: the product ships no mobile app — not for parents, not for gate staff.** Superseded the
+earlier plan for a branded guardian app and a React Native scanner app; both are struck from
+[02-feature-catalog.md](02-feature-catalog.md), [04-tech-stack.md](04-tech-stack.md) and
+[05-roadmap.md](05-roadmap.md).
+
+**For parents, an app is a tax we cannot ask them to pay.** The phone already holds their bank, their
+network operator, their government, and whatever else demanded installation. A school app competes
+for storage against those, and it puts an install between a parent and their child's fee balance —
+where the parents most likely to abandon that install are exactly the ones a fee reminder is aimed
+at. The channel is therefore **WhatsApp first** (§3.6), with the guardian PWA behind it for anything
+that wants a bigger screen. Both work on a phone that will never see the Play Store.
+
+**The frequency argument does not hold, and we should not lean on it.** An earlier draft of this
+section claimed a school app would be opened a handful of times a term. That is wrong: pickup and
+drop-off are daily, twice daily, every school day, and absence reporting is frequent enough to sit
+alongside them. Daily use is the *strongest* case for a native app, and if the argument rested on
+"nobody would open it" the decision would be indefensible. It rests on something else — **WhatsApp
+already serves the daily interactions with no install at all.** A parent reports an absence at 7am
+and changes a pickup arrangement at 2pm in the same thread where they checked a balance last week.
+An app would have to beat that, not merely match it, to justify what it costs the parent.
+
+**For gate staff, the app is simply redundant.** The gate screen already scans QR codes through the
+browser's `BarcodeDetector`, queues releases offline, and runs on the cheap Android handset the
+school already owns. A separate binary would add an install, an update channel and a second offline
+queue to reason about, in exchange for nothing the browser is not already doing. Where
+`BarcodeDetector` is missing (iOS Safari, older Android), typed-code entry is the path, and printed
+pickup cards carry the code in text for exactly that reason.
+
+**What this costs us, stated honestly:** no push notifications to a parent's lock screen — SMS and
+WhatsApp carry that instead; no app-store presence as a credibility signal to schools that expect
+one; and no home-screen icon unless the parent pins the PWA themselves. We accept all three. The
+first is covered, the second is a sales conversation rather than a product gap, and the third
+matters less than the install it avoids.
+
+**Consequences.** The chatbot stops being an Advanced luxury and becomes the parent channel for
+every tier (§3.6) — a Basic school whose parents have no self-service is a Basic school that fails
+principle 4. The monorepo carries no `mobile` or `scanner` workspace. React Native leaves the stack,
+which also removes the "two languages once mobile arrives" objection that shaped
+[04-tech-stack.md](04-tech-stack.md) §4.2.
+
+**Reversal condition:** if pilot data shows parents asking for an app unprompted, or a competitor's
+app demonstrably wins deals we lose, revisit — but reversal means an app that earns its install, not
+a wrapper around the PWA.

@@ -12,7 +12,7 @@
 | Queue/cache                | **BullMQ + Redis**                                                                  | Invoicing runs, notification fan-out, webhook retries, sync jobs                                                               |
 | Web (staff portal)         | **Next.js + React + TypeScript**                                                    | SSR for slow connections, PWA-capable, mature ecosystem                                                                        |
 | UI foundation              | **Tailwind CSS + Radix primitives** + custom design system                          | Full control to build a unique, non-template look (see [07-ux-guidelines.md](07-ux-guidelines.md))                             |
-| Guardian app + scanner app | **React Native (Expo)**                                                             | Shared TS models; offline SQLite; camera/QR scanning; OTA updates                                                              |
+| Guardian portal + gate screen | **Next.js PWA (no native app)**                                                  | Struck React Native — see [03-architecture.md](03-architecture.md) §3.9. Guardians reach the school over WhatsApp and a pinnable web page; the gate scans QR through the browser's `BarcodeDetector`. Nothing to install, nothing in an app store, one language in the stack |
 | Offline sync               | **PowerSync Open Edition** (per-device) + custom op-log agent (school-server↔cloud) | Server-authoritative replay; self-hostable; FSL-licensed                                                                       |
 | WhatsApp                   | **WhatsApp Cloud API via 360dialog** (ISV partner tier)                             | No per-message markup; one number per school; official BSP                                                                     |
 | SMS                        | Arkesel / Hubtel SMS adapters                                                       | Ghana-local rates, sender-ID support                                                                                           |
@@ -23,7 +23,7 @@
 
 ## 4.2 Why not the alternatives
 
-- **Laravel/PHP** — biggest hiring pool in West Africa and fine for a cloud-only CRUD product, but offline-first (client SQLite sync, op-log replay) and a long-running bot/queue layer fight the framework; two languages once mobile apps arrive.
+- **Laravel/PHP** — biggest hiring pool in West Africa and fine for a cloud-only CRUD product, but offline-first (client SQLite sync, op-log replay) and a long-running bot/queue layer fight the framework. (The old "two languages once mobile arrives" objection no longer applies — there is no mobile app — but the offline and queue arguments stand on their own.)
 - **Django/Python** — excellent admin/reporting, but same offline-ecosystem gap; Python stays in our stack anyway inside the AI service if needed.
 - **Microservices from day one** — operational overkill for a small team and impossible to ship as a simple standalone box. The modulith + Docker Compose gives us the standalone story for free.
 
