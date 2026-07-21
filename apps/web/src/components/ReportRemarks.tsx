@@ -93,6 +93,52 @@ function RemarkPicker({
 }
 
 /**
+ * §21's remark help: a draft from the child's own numbers, dropped into the editable field.
+ * The teacher edits and saves — or ignores it. Failure is a sentence, never a broken form,
+ * because a school without an AI key still writes remarks the ordinary way.
+ */
+function AiDraftButton({
+  studentId,
+  termId,
+  kind,
+  onDraft,
+}: {
+  studentId: string;
+  termId: string;
+  kind: 'TEACHER' | 'HEAD';
+  onDraft: (text: string) => void;
+}) {
+  const [note, setNote] = useState<string | null>(null);
+  const draft = useAsyncAction(async () => {
+    setNote(null);
+    const res = await fetch('/api/proxy/ai/remarks/draft', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentId, termId, kind }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setNote(d.message ?? 'AI is not available on this server.');
+      throw new Error('rejected');
+    }
+    onDraft(d.draft);
+  });
+  return (
+    <span className="inline-flex items-center gap-2 ml-3">
+      <button
+        type="button"
+        onClick={draft.run}
+        disabled={draft.state === 'pending'}
+        className="text-[11.5px] text-brand hover:underline underline-offset-2 disabled:opacity-50"
+      >
+        {draft.state === 'pending' ? 'Drafting…' : 'Draft with AI'}
+      </button>
+      {note && <span className="text-[11px] text-oat">{note}</span>}
+    </span>
+  );
+}
+
+/**
  * Inline editing of the human parts of a terminal report. The head teacher's remark is only
  * offered to HEAD/OWNER — the API enforces the same rule, this just avoids showing a field
  * the user cannot save.
@@ -191,6 +237,12 @@ export default function ReportRemarks({
           />
         </label>
         <RemarkPicker kind="TEACHER" score={score} onPick={setTeacherRemark} />
+        <AiDraftButton
+          studentId={studentId}
+          termId={termId}
+          kind="TEACHER"
+          onDraft={setTeacherRemark}
+        />
       </div>
       <div className="text-[13px] mt-3">
         <label className="block">
@@ -207,6 +259,14 @@ export default function ReportRemarks({
           />
         </label>
         {isHead && <RemarkPicker kind="HEAD" score={score} onPick={setHeadRemark} />}
+        {isHead && (
+          <AiDraftButton
+            studentId={studentId}
+            termId={termId}
+            kind="HEAD"
+            onDraft={setHeadRemark}
+          />
+        )}
       </div>
       <div className="flex items-center gap-3 mt-4">
         <Button onClick={save.run} state={save.state} icon={<SaveIcon />}>

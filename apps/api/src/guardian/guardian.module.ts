@@ -15,7 +15,7 @@ import {
   UseGuards,
   createParamDecorator,
 } from '@nestjs/common';
-import { Body, Req } from '@nestjs/common';
+import { Body, Delete, Req } from '@nestjs/common';
 import { IsIn, IsOptional, IsString, MinLength } from 'class-validator';
 import * as jwt from 'jsonwebtoken';
 import { createHash, randomInt, timingSafeEqual } from 'crypto';
@@ -26,6 +26,7 @@ import { CalendarModule, CalendarService } from '../calendar/calendar.module';
 import { ResourcesModule, ResourcesService, ResourceScope } from '../resources/resources.module';
 import { Public, jwtSecret } from '../common/auth';
 import { maskMsisdn, normalizeMsisdn } from '../common/phone';
+import { LicenceService } from '../licence/licence.service';
 import { maskEmail } from '../common/mask';
 import { isOverLimit, pruneWindows, recordHit, RateWindow } from '../common/rate-window';
 import { reportCardPdf, ReportCardData } from '../common/pdf';
@@ -137,6 +138,7 @@ export class GuardianService {
     private resources: ResourcesService,
     private sms: SmsService,
     private email: EmailService,
+    private licence: LicenceService,
   ) {}
 
   /**
@@ -476,6 +478,84 @@ export class GuardianService {
     return { id: req.id, status: req.status };
   }
 
+  // ── Car line ───────────────────────────────────────────────────────
+
+  /**
+   * Guardian routes bypass the staff guard, so the entitlement is asked here. NotFound rather
+   * than Forbidden: to a family on a package without the car line, the feature does not exist.
+   */
+  private assertCarLine() {
+    if (!this.licence.entitlements().includes('safety.carline')) {
+      throw new NotFoundException('The car line is not available');
+    }
+  }
+
+  private carLineDayStart() {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+
+  /** "I am outside" — one live entry per guardian per day; announcing twice returns the first. */
+  async announceArrival(auth: GuardianUser) {
+    this.assertCarLine();
+    const existing = await this.db.carLineEntry.findFirst({
+      where: {
+        guardianId: auth.sub,
+        schoolId: auth.schoolId,
+        status: { in: ['WAITING', 'CALLED'] },
+        announcedAt: { gte: this.carLineDayStart() },
+      },
+    });
+    if (!existing) {
+      await this.db.carLineEntry.create({
+        data: { schoolId: auth.schoolId, guardianId: auth.sub },
+      });
+      await this.db.audit(auth.schoolId, auth.sub, 'carline.announce', 'Guardian', auth.sub);
+    }
+    return this.myCarLine(auth);
+  }
+
+  /** Where the family stands in the queue right now. */
+  async myCarLine(auth: GuardianUser) {
+    this.assertCarLine();
+    const entry = await this.db.carLineEntry.findFirst({
+      where: {
+        guardianId: auth.sub,
+        schoolId: auth.schoolId,
+        announcedAt: { gte: this.carLineDayStart() },
+        status: { in: ['WAITING', 'CALLED'] },
+      },
+    });
+    if (!entry) return { entry: null, position: null };
+    const ahead = await this.db.carLineEntry.count({
+      where: {
+        schoolId: auth.schoolId,
+        status: 'WAITING',
+        announcedAt: { gte: this.carLineDayStart(), lt: entry.announcedAt },
+      },
+    });
+    return {
+      entry: { id: entry.id, status: entry.status, announcedAt: entry.announcedAt },
+      position: entry.status === 'CALLED' ? 0 : ahead + 1,
+    };
+  }
+
+  /** Changed plans — leave the queue rather than being a phantom the staff wait on. */
+  async cancelArrival(auth: GuardianUser) {
+    this.assertCarLine();
+    await this.db.carLineEntry.updateMany({
+      where: {
+        guardianId: auth.sub,
+        schoolId: auth.schoolId,
+        status: 'WAITING',
+        announcedAt: { gte: this.carLineDayStart() },
+      },
+      data: { status: 'CANCELLED', doneAt: new Date() },
+    });
+    return { ok: true };
+  }
+
   async myDismissalRequests(auth: GuardianUser) {
     const requests = await this.db.dismissalRequest.findMany({
       where: { guardianId: auth.sub, schoolId: auth.schoolId },
@@ -782,6 +862,21 @@ export class GuardianPortalController {
     @Body() body: { forDate: string; details: string },
   ) {
     return this.svc.requestDismissalChange(g, studentId, body.forDate, body.details);
+  }
+
+  @Post('carline')
+  announceArrival(@CurrentGuardian() g: GuardianUser) {
+    return this.svc.announceArrival(g);
+  }
+
+  @Get('carline')
+  myCarLine(@CurrentGuardian() g: GuardianUser) {
+    return this.svc.myCarLine(g);
+  }
+
+  @Delete('carline')
+  cancelArrival(@CurrentGuardian() g: GuardianUser) {
+    return this.svc.cancelArrival(g);
   }
 
   @Get('dismissal-requests')

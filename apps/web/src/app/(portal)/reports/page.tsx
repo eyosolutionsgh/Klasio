@@ -91,7 +91,10 @@ export default async function ReportsPage({
         <h1 className="font-display text-3xl">Terminal reports</h1>
         <p className="text-sm text-oat mt-1.5">
           Computes SBA (30%) + exam (70%), GES grades, subject and class positions from saved
-          scores.
+          scores.{' '}
+          <Link href="/reports/outlook" className="text-brand underline underline-offset-2">
+            BECE &amp; WASSCE outlook →
+          </Link>
         </p>
       </div>
 

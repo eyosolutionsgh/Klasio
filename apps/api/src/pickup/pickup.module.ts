@@ -22,6 +22,7 @@ import * as bcrypt from 'bcryptjs';
 import { randomBytes, randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
+import { renderMessage } from '../common/templates';
 import { SmsModule, SmsService } from '../sms/sms.module';
 import {
   assessCollector,
@@ -31,6 +32,7 @@ import {
   type CollectorKind,
 } from '../common/pickup';
 import { pickupCardPdf } from '../common/pdf';
+import { collectorHistory, waitStats } from '../common/dismissal-analytics';
 import { objectKey, storage } from '../common/storage';
 
 const BCRYPT_ROUNDS = 10;
@@ -60,6 +62,18 @@ class ReleaseDto extends VerifyDto {
    * Present when the release was queued offline and is being replayed. Without it a dropped
    * response would make the device retry and log the same child leaving twice.
    */
+  @IsOptional() @IsString() clientRef?: string;
+}
+
+class CheckInDto {
+  @IsString() studentId: string;
+  /** Optional identification of who brought the child (QR scan or named at the gate). */
+  @IsOptional() @IsString() token?: string;
+  @IsOptional() @IsString() collectorId?: string;
+  @IsOptional() @IsIn(['GUARDIAN', 'DELEGATE']) collectorKind?: CollectorKind;
+  /** Free-text name when the person is not on file — a neighbour, an older sibling. */
+  @IsOptional() @IsString() broughtBy?: string;
+  /** Idempotency key from the gate device; see ReleaseDto.clientRef. */
   @IsOptional() @IsString() clientRef?: string;
 }
 
@@ -163,6 +177,7 @@ export class PickupService {
         relationship: d.relationship,
         expiresAt: d.expiresAt,
         hasCard: !!d.credential && !d.credential.revokedAt,
+        hasPhoto: !!d.photoUrl,
         verdict,
         message: verdictMessage(verdict),
       };
@@ -173,6 +188,22 @@ export class PickupService {
 
   async addDelegate(auth: AuthUser, studentId: string, dto: DelegateDto) {
     await this.ownStudent(auth, studentId);
+    // "Just this term" is how these arrangements really work, so a delegate added without a
+    // date expires with the current term rather than standing forever. With no term configured
+    // yet, ninety days keeps the default finite.
+    let expiresAt: Date;
+    if (dto.expiresAt) {
+      expiresAt = new Date(dto.expiresAt);
+    } else {
+      const term = await this.db.term.findFirst({
+        where: { isCurrent: true, academicYear: { schoolId: auth.schoolId, isCurrent: true } },
+        select: { endDate: true },
+      });
+      expiresAt =
+        term && term.endDate > new Date()
+          ? term.endDate
+          : new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+    }
     const delegate = await this.db.pickupDelegate.create({
       data: {
         schoolId: auth.schoolId,
@@ -180,15 +211,16 @@ export class PickupService {
         name: dto.name,
         phone: dto.phone,
         relationship: dto.relationship,
-        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+        expiresAt,
         createdById: auth.sub,
       },
     });
     await this.db.audit(auth.schoolId, auth.sub, 'pickup.delegate.add', 'Student', studentId, {
       name: dto.name,
       relationship: dto.relationship,
+      expiresAt: expiresAt.toISOString(),
     });
-    return { id: delegate.id };
+    return { id: delegate.id, expiresAt };
   }
 
   async removeDelegate(auth: AuthUser, id: string) {
@@ -427,8 +459,7 @@ export class PickupService {
       },
       name: d.name,
       phone: d.phone,
-      // Delegates have no stored photo; the gate falls back to QR or PIN alone for them.
-      hasPhoto: false,
+      hasPhoto: !!d.photoUrl,
     };
   }
 
@@ -528,7 +559,12 @@ export class PickupService {
       schoolId: auth.schoolId,
       createdById: auth.sub,
       phones: [phone],
-      body: `${school.name}: ${student.firstName} ${student.lastName} was collected by ${collectedBy} at ${at}.`,
+      body: await renderMessage(this.db, auth.schoolId, 'PICKUP_RELEASED', {
+        school: school.name,
+        student: `${student.firstName} ${student.lastName}`,
+        collector: collectedBy,
+        time: at,
+      }),
       batchId: `PICKUP-${logId}`,
     });
     return res.sent;
@@ -564,6 +600,240 @@ export class PickupService {
       overrideReason: e.overrideReason,
       releasedAt: e.releasedAt,
     }));
+  }
+
+  // ── Morning check-in ───────────────────────────────────────────────
+
+  /**
+   * Record a child arriving. The mirror of release, with two deliberate differences: custody
+   * verdicts do not gate an arrival (they govern who may take a child away, not who may bring
+   * one), and identification is optional because a JHS pupil walks in alone.
+   */
+  async checkIn(auth: AuthUser, dto: CheckInDto) {
+    // Replay first, same as release: a queued check-in is replayed precisely because the
+    // device never saw our answer.
+    if (dto.clientRef) {
+      const existing = await this.db.checkInLog.findFirst({
+        where: { schoolId: auth.schoolId, clientRef: dto.clientRef },
+      });
+      if (existing) {
+        return { checkedIn: true, replayed: true, at: existing.checkedInAt };
+      }
+    }
+
+    const student = await this.ownStudent(auth, dto.studentId);
+
+    const already = await this.db.checkInLog.findFirst({
+      where: { studentId: dto.studentId, checkedInAt: { gte: startOfDay() } },
+    });
+    if (already) {
+      throw new BadRequestException(
+        `${student.firstName} ${student.lastName} was already checked in today at ${already.checkedInAt.toLocaleTimeString(
+          'en-GH',
+          { hour: '2-digit', minute: '2-digit' },
+        )}.`,
+      );
+    }
+
+    let broughtBy: string | null = dto.broughtBy?.trim() || null;
+    let collectorKind: CollectorKind | null = null;
+    let collectorId: string | null = null;
+    let method: 'QR' | 'MANUAL' = 'MANUAL';
+
+    if (dto.token) {
+      const cred = await this.db.pickupCredential.findFirst({
+        where: { token: dto.token, schoolId: auth.schoolId, revokedAt: null },
+      });
+      if (!cred) throw new BadRequestException('That card is not recognised or has been revoked');
+      collectorKind = cred.guardianId ? 'GUARDIAN' : 'DELEGATE';
+      collectorId = (cred.guardianId ?? cred.delegateId)!;
+      method = 'QR';
+    } else if (dto.collectorId && dto.collectorKind) {
+      collectorKind = dto.collectorKind;
+      collectorId = dto.collectorId;
+    }
+    if (collectorKind && collectorId) {
+      const { name } = await this.loadCollector(auth, collectorKind, collectorId, dto.studentId);
+      broughtBy = name;
+    }
+
+    const log = await this.db.checkInLog.create({
+      data: {
+        schoolId: auth.schoolId,
+        studentId: dto.studentId,
+        broughtBy,
+        collectorKind,
+        collectorId,
+        method,
+        recordedById: auth.sub,
+        clientRef: dto.clientRef ?? null,
+      },
+    });
+    await this.db.audit(auth.schoolId, auth.sub, 'pickup.checkin', 'Student', dto.studentId, {
+      broughtBy: broughtBy ?? undefined,
+      method,
+    });
+    return {
+      id: log.id,
+      student: `${student.firstName} ${student.lastName}`,
+      broughtBy,
+      checkedInAt: log.checkedInAt,
+    };
+  }
+
+  /** The day's arrivals, for the same gate screen that shows the day's releases. */
+  async checkIns(auth: AuthUser, date?: string) {
+    const from = startOfDay(date ? new Date(date) : new Date());
+    const to = new Date(from);
+    to.setDate(to.getDate() + 1);
+    const entries = await this.db.checkInLog.findMany({
+      where: { schoolId: auth.schoolId, checkedInAt: { gte: from, lt: to } },
+      include: {
+        student: {
+          select: {
+            firstName: true,
+            lastName: true,
+            admissionNo: true,
+            classRoom: { select: { name: true } },
+          },
+        },
+      },
+      orderBy: { checkedInAt: 'desc' },
+    });
+    return entries.map((e) => ({
+      id: e.id,
+      student: `${e.student.firstName} ${e.student.lastName}`,
+      admissionNo: e.student.admissionNo,
+      className: e.student.classRoom?.name ?? '—',
+      broughtBy: e.broughtBy,
+      method: e.method,
+      checkedInAt: e.checkedInAt,
+    }));
+  }
+
+  // ── Car line ───────────────────────────────────────────────────────
+
+  /**
+   * The staff queue display: who is outside, in arrival order, with the children they may take.
+   * WAITING and CALLED only — DONE and CANCELLED rows exist for the analytics, not the screen.
+   */
+  async carLineQueue(auth: AuthUser) {
+    const from = startOfDay();
+    const entries = await this.db.carLineEntry.findMany({
+      where: {
+        schoolId: auth.schoolId,
+        announcedAt: { gte: from },
+        status: { in: ['WAITING', 'CALLED'] },
+      },
+      orderBy: { announcedAt: 'asc' },
+      include: {
+        guardian: {
+          select: {
+            firstName: true,
+            lastName: true,
+            phone: true,
+            photoUrl: true,
+            students: {
+              where: { canPickup: true, custodyFlag: { not: 'BLOCKED' } },
+              select: {
+                student: {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    status: true,
+                    classRoom: { select: { name: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    return entries.map((e, i) => ({
+      id: e.id,
+      position: i + 1,
+      status: e.status,
+      announcedAt: e.announcedAt,
+      calledAt: e.calledAt,
+      guardian: {
+        name: `${e.guardian.firstName} ${e.guardian.lastName}`,
+        phone: e.guardian.phone,
+        hasPhoto: !!e.guardian.photoUrl,
+      },
+      children: e.guardian.students
+        .filter((s) => s.student.status === 'ACTIVE')
+        .map((s) => ({
+          id: s.student.id,
+          name: `${s.student.firstName} ${s.student.lastName}`,
+          className: s.student.classRoom?.name ?? null,
+        })),
+    }));
+  }
+
+  /** Move an arrival through the queue: call the family forward, or finish/cancel the entry. */
+  async setCarLineStatus(auth: AuthUser, id: string, status: 'CALLED' | 'DONE' | 'CANCELLED') {
+    const entry = await this.db.carLineEntry.findFirst({
+      where: { id, schoolId: auth.schoolId },
+    });
+    if (!entry) throw new NotFoundException('Not in the queue');
+    if (entry.status === 'DONE' || entry.status === 'CANCELLED') {
+      throw new BadRequestException('That arrival is already finished');
+    }
+    await this.db.carLineEntry.update({
+      where: { id },
+      data: {
+        status,
+        calledAt: status === 'CALLED' ? new Date() : entry.calledAt,
+        doneAt: status === 'DONE' || status === 'CANCELLED' ? new Date() : null,
+      },
+    });
+    return { ok: true, status };
+  }
+
+  // ── Analytics ──────────────────────────────────────────────────────
+
+  /**
+   * How dismissal actually runs: car line wait times (announced → done) and each collector's
+   * history, over a window. The arithmetic lives in common/dismissal-analytics so it is proved
+   * without a database.
+   */
+  async analytics(auth: AuthUser, days = 30) {
+    const window = Math.min(Math.max(days, 1), 365);
+    const from = startOfDay();
+    from.setDate(from.getDate() - window);
+
+    const [entries, releases] = await Promise.all([
+      this.db.carLineEntry.findMany({
+        where: {
+          schoolId: auth.schoolId,
+          announcedAt: { gte: from },
+          status: { in: ['CALLED', 'DONE'] },
+        },
+        select: { announcedAt: true, doneAt: true },
+      }),
+      this.db.releaseLog.findMany({
+        where: { schoolId: auth.schoolId, releasedAt: { gte: from } },
+        select: {
+          collectedBy: true,
+          collectorKind: true,
+          collectorId: true,
+          overrideReason: true,
+          releasedAt: true,
+        },
+      }),
+    ]);
+
+    return {
+      windowDays: window,
+      waits: waitStats(entries),
+      releases: {
+        total: releases.length,
+        overrides: releases.filter((r) => r.overrideReason).length,
+      },
+      collectors: collectorHistory(releases).slice(0, 50),
+    };
   }
 
   // ── Dismissal-change requests ──────────────────────────────────────
@@ -672,6 +942,43 @@ export class PickupService {
     await this.db.audit(auth.schoolId, auth.sub, 'pickup.guardian-photo', 'Guardian', guardianId);
     return { ok: true };
   }
+
+  /** Same contract as guardianPhoto, for a delegate — a driver's face matters as much. */
+  async delegatePhoto(auth: AuthUser, delegateId: string) {
+    const d = await this.db.pickupDelegate.findFirst({
+      where: { id: delegateId, schoolId: auth.schoolId },
+      select: { photoUrl: true },
+    });
+    if (!d?.photoUrl) throw new NotFoundException('No photo on file for this person');
+    return storage().get(d.photoUrl);
+  }
+
+  async setDelegatePhoto(auth: AuthUser, delegateId: string, file: UploadedPhoto) {
+    if (!file) throw new BadRequestException('Choose a photo');
+    if (!PHOTO_TYPES.includes(file.mimetype)) {
+      throw new BadRequestException('Photos must be JPEG or PNG');
+    }
+    const d = await this.db.pickupDelegate.findFirst({
+      where: { id: delegateId, schoolId: auth.schoolId },
+    });
+    if (!d) throw new NotFoundException('Person not found');
+
+    const key = objectKey(auth.schoolId, 'delegate-photos', delegateId, file.originalname);
+    await storage().put(key, file.buffer, file.mimetype);
+    if (d.photoUrl)
+      await storage()
+        .delete(d.photoUrl)
+        .catch(() => undefined);
+    await this.db.pickupDelegate.update({ where: { id: delegateId }, data: { photoUrl: key } });
+    await this.db.audit(
+      auth.schoolId,
+      auth.sub,
+      'pickup.delegate-photo',
+      'PickupDelegate',
+      delegateId,
+    );
+    return { ok: true };
+  }
 }
 @Controller('pickup')
 @RequireEntitlement('safety.pickup')
@@ -757,10 +1064,40 @@ export class PickupController {
     return this.svc.setGuardianPhoto(user, id, file);
   }
 
+  @Get('delegates/:id/photo')
+  @RequirePermission('pickup.view')
+  async delegatePhoto(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const buf = await this.svc.delegatePhoto(user, id);
+    return new StreamableFile(buf, { type: 'image/jpeg' });
+  }
+
+  @Post('delegates/:id/photo')
+  @RequirePermission('pickup.manage')
+  @UseInterceptors(FileInterceptor('file'))
+  uploadDelegatePhoto(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @UploadedFile() file: UploadedPhoto,
+  ) {
+    return this.svc.setDelegatePhoto(user, id, file);
+  }
+
   @Post('verify')
   @RequirePermission('pickup.release')
   verify(@CurrentUser() user: AuthUser, @Body() dto: VerifyDto) {
     return this.svc.verify(user, dto);
+  }
+
+  @Post('checkin')
+  @RequirePermission('pickup.release')
+  checkIn(@CurrentUser() user: AuthUser, @Body() dto: CheckInDto) {
+    return this.svc.checkIn(user, dto);
+  }
+
+  @Get('checkins')
+  @RequirePermission('pickup.view')
+  checkIns(@CurrentUser() user: AuthUser, @Query('date') date?: string) {
+    return this.svc.checkIns(user, date);
   }
 
   @Post('release')
@@ -773,6 +1110,34 @@ export class PickupController {
   @RequirePermission('pickup.view')
   log(@CurrentUser() user: AuthUser, @Query('date') date?: string) {
     return this.svc.log(user, date);
+  }
+
+  @Get('carline')
+  @RequirePermission('pickup.view')
+  @RequireEntitlement('safety.carline')
+  carLine(@CurrentUser() user: AuthUser) {
+    return this.svc.carLineQueue(user);
+  }
+
+  @Patch('carline/:id')
+  @RequirePermission('pickup.release')
+  @RequireEntitlement('safety.carline')
+  setCarLine(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body('status') status: 'CALLED' | 'DONE' | 'CANCELLED',
+  ) {
+    if (!['CALLED', 'DONE', 'CANCELLED'].includes(status)) {
+      throw new BadRequestException('status must be CALLED, DONE or CANCELLED');
+    }
+    return this.svc.setCarLineStatus(user, id, status);
+  }
+
+  @Get('analytics')
+  @RequirePermission('pickup.view')
+  @RequireEntitlement('safety.carline')
+  analytics(@CurrentUser() user: AuthUser, @Query('days') days?: string) {
+    return this.svc.analytics(user, days ? parseInt(days, 10) || 30 : 30);
   }
 
   @Get('dismissal-requests')

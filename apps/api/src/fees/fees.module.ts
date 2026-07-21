@@ -52,10 +52,13 @@ import { markSchedule, scheduleTotals } from '../common/installments';
 import { concessionsFor, rankSiblings } from '../common/concessions';
 import { SmsModule, SmsService } from '../sms/sms.module';
 import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
-import { receiptPdf } from '../common/pdf';
+import { receiptPdf, statementPdf } from '../common/pdf';
+import { statementLines } from '../common/statement';
 import { toCsv, toXlsx, Cell } from '../common/export';
 import { balanceOf } from '../common/ledger';
 import { nextInSequence, refNumber } from '../common/sequences';
+import { MESSAGE_TEMPLATES, listTemplates, renderMessage } from '../common/templates';
+import { journalLines, journalTotals } from '../common/journal';
 import { PageQuery, dateWindow, orderBy, pageArgs, toPage } from '../common/list-query';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -553,39 +556,18 @@ export class FeesService {
     return { ok: true };
   }
 
-  /** Fallback wording when a school has not written its own. */
-  private static readonly DEFAULT_TEMPLATES: Record<string, string> = {
-    FEE_REMINDER_GENTLE:
-      "{school}: a balance of {amount} remains on {student}'s account. Kindly settle at your convenience. Thank you.",
-    FEE_REMINDER_FIRM:
-      '{school}: {student} has an outstanding balance of {amount}. Kindly settle before the end of term to avoid disruption{nextTerm}. Contact the bursar to arrange payment.',
-  };
-
-  /** Substitute {placeholders}; anything unknown is left alone rather than blanked. */
-  private fill(body: string, vars: Record<string, string>) {
-    return body.replace(/\{(\w+)\}/g, (m, k) => vars[k] ?? m);
-  }
-
-  private async template(schoolId: string, kind: string) {
-    const row = await this.db.messageTemplate.findUnique({
-      where: { schoolId_kind: { schoolId, kind } },
-    });
-    return row?.body ?? FeesService.DEFAULT_TEMPLATES[kind] ?? '';
-  }
-
+  /**
+   * The wording of every automatic message, editable in one place. The catalogue and rendering
+   * live in common/templates.ts; these endpoints stay here because the reminder settings page
+   * has always talked to /fees, and the other kinds now ride along.
+   */
   async listTemplates(auth: AuthUser) {
-    const rows = await this.db.messageTemplate.findMany({ where: { schoolId: auth.schoolId } });
-    const byKind = new Map(rows.map((r) => [r.kind, r.body]));
-    return Object.keys(FeesService.DEFAULT_TEMPLATES).map((kind) => ({
-      kind,
-      body: byKind.get(kind) ?? FeesService.DEFAULT_TEMPLATES[kind],
-      customised: byKind.has(kind),
-      placeholders: ['school', 'student', 'amount', 'nextTerm'],
-    }));
+    return listTemplates(this.db, auth.schoolId);
   }
 
   async saveTemplate(auth: AuthUser, kind: string, body: string) {
-    if (!(kind in FeesService.DEFAULT_TEMPLATES)) throw new BadRequestException('Unknown template');
+    if (!(kind in MESSAGE_TEMPLATES)) throw new BadRequestException('Unknown template');
+    if (!body.trim()) throw new BadRequestException('The message cannot be empty');
     await this.db.messageTemplate.upsert({
       where: { schoolId_kind: { schoolId: auth.schoolId, kind } },
       create: { schoolId: auth.schoolId, kind, body },
@@ -660,7 +642,7 @@ export class FeesService {
         skipped++;
         continue;
       }
-      const body = this.fill(await this.template(auth.schoolId, kindOf(heavy)), {
+      const body = await renderMessage(this.db, auth.schoolId, kindOf(heavy), {
         school: school.name,
         student: d.name,
         amount: money(d.balance),
@@ -787,6 +769,161 @@ export class FeesService {
 
     const { skip, take, page, perPage } = pageArgs(q);
     return toPage(rows.slice(skip, skip + take), matching.length, { page, perPage });
+  }
+
+  /**
+   * The full statement of account for one child, as a branded PDF — every charge, payment and
+   * correction with a running balance. The row arithmetic lives in common/statement.ts and is
+   * proved to land on `balanceOf` exactly.
+   */
+  async statementPdf(auth: AuthUser, studentId: string) {
+    const student = await this.db.student.findFirst({
+      where: { id: studentId, schoolId: auth.schoolId },
+      include: { classRoom: { select: { name: true } } },
+    });
+    if (!student) throw new NotFoundException('Student not found');
+    const [entries, school] = await Promise.all([
+      this.db.ledgerEntry.findMany({
+        where: { studentId, schoolId: auth.schoolId },
+        include: { receipt: { select: { number: true } } },
+      }),
+      this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } }),
+    ]);
+    const { lines, totals } = statementLines(
+      entries.map((e) => ({
+        id: e.id,
+        type: e.type,
+        amount: e.amount,
+        reversedId: e.reversedId,
+        method: e.method,
+        reference: e.reference,
+        receiptNumber: e.receipt?.number ?? null,
+        createdAt: e.createdAt,
+      })),
+    );
+    await this.db.audit(auth.schoolId, auth.sub, 'fees.statement', 'Student', studentId);
+    return {
+      buffer: await statementPdf({
+        school: {
+          name: school.name,
+          motto: school.motto,
+          address: school.address,
+          phone: school.phone,
+          brandColor: school.brandColor,
+          logo: school.logoUrl
+            ? await storage()
+                .get(school.logoUrl)
+                .catch(() => null)
+            : null,
+        },
+        student: {
+          name: `${student.firstName} ${student.lastName}`,
+          admissionNo: student.admissionNo,
+          className: student.classRoom?.name ?? null,
+        },
+        currency: school.currency,
+        rows: lines,
+        totals,
+        generatedAt: new Date(),
+      }),
+      filename: `statement-${student.admissionNo}.pdf`,
+    };
+  }
+
+  /**
+   * Every ledger entry in a window, for the accountant. The whole ledger, not a page of it —
+   * a total summed from fetched rows is a function of the open page (see project memory), and
+   * an export is precisely the place that must never be.
+   */
+  async ledgerExport(auth: AuthUser, format: string, from?: string, to?: string) {
+    const createdAt = dateWindow({ from, to } as PageQuery);
+    const entries = await this.db.ledgerEntry.findMany({
+      where: { schoolId: auth.schoolId, ...(createdAt ? { createdAt } : {}) },
+      include: {
+        student: { select: { firstName: true, lastName: true, admissionNo: true } },
+        receipt: { select: { number: true } },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+    const headers = [
+      'Date',
+      'Reference',
+      'Receipt No.',
+      'Student',
+      'Admission No.',
+      'Type',
+      'Method',
+      'Amount',
+      'Reversed Entry',
+      'Note',
+    ];
+    const rows: Cell[][] = entries.map((e) => [
+      e.createdAt.toISOString().slice(0, 10),
+      e.reference,
+      e.receipt?.number ?? '',
+      `${e.student.firstName} ${e.student.lastName}`,
+      e.student.admissionNo,
+      e.type,
+      e.method ?? '',
+      Number(e.amount),
+      e.reversedId ?? '',
+      e.note ?? '',
+    ]);
+    if (format === 'csv') {
+      return { buffer: toCsv(headers, rows), type: 'text/csv', filename: 'ledger.csv' };
+    }
+    return {
+      buffer: await toXlsx('Ledger', headers, rows),
+      type: XLSX_MIME,
+      filename: 'ledger.xlsx',
+    };
+  }
+
+  /**
+   * The double-entry journal for the accountant (FEATURES.md §7): the append-only ledger
+   * projected into balanced debit/credit pairs over a small chart of accounts. A projection,
+   * never a second ledger — see common/journal.ts.
+   */
+  async journalExport(auth: AuthUser, format: string, from?: string, to?: string) {
+    const createdAt = dateWindow({ from, to } as PageQuery);
+    const entries = await this.db.ledgerEntry.findMany({
+      where: { schoolId: auth.schoolId, ...(createdAt ? { createdAt } : {}) },
+      include: { student: { select: { firstName: true, lastName: true } } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+    const lines = journalLines(
+      entries.map((e) => ({
+        id: e.id,
+        type: e.type,
+        amount: e.amount,
+        method: e.method,
+        reference: e.reference,
+        reversedId: e.reversedId,
+        createdAt: e.createdAt,
+        studentName: `${e.student.firstName} ${e.student.lastName}`,
+      })),
+    );
+    const totals = journalTotals(lines);
+    const headers = ['Date', 'Reference', 'Description', 'Account', 'Debit', 'Credit'];
+    const rows: Cell[][] = [
+      ...lines.map((l) => [
+        l.date.toISOString().slice(0, 10),
+        l.reference,
+        l.description,
+        l.account,
+        l.debit ?? '',
+        l.credit ?? '',
+      ]),
+      ['', '', 'TOTALS', '', totals.debits, totals.credits],
+    ];
+    if (format === 'csv') {
+      return { buffer: toCsv(headers, rows), type: 'text/csv', filename: 'journal.csv' };
+    }
+    return {
+      buffer: await toXlsx('Journal', headers, rows),
+      type: XLSX_MIME,
+      filename: 'journal.xlsx',
+    };
   }
 
   async defaultersExport(auth: AuthUser, termId: string, format: string) {
@@ -1737,6 +1874,48 @@ export class FeesController {
   @RequirePermission('fees.view')
   defaulters(@CurrentUser() user: AuthUser, @Query() query: ListDefaultersDto) {
     return this.svc.listDefaulters(user, query);
+  }
+
+  @Get('students/:id/statement.pdf')
+  @RequirePermission('fees.view')
+  async statement(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const { buffer, filename } = await this.svc.statementPdf(user, id);
+    return new StreamableFile(buffer, {
+      type: 'application/pdf',
+      disposition: `attachment; filename="${filename}"`,
+    });
+  }
+
+  @Get('journal/export')
+  @RequirePermission('fees.view', 'fees.export')
+  @RequireEntitlement('platform.export')
+  async journalExport(
+    @CurrentUser() user: AuthUser,
+    @Query('format') format = 'xlsx',
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const { buffer, type, filename } = await this.svc.journalExport(user, format, from, to);
+    return new StreamableFile(buffer, {
+      type,
+      disposition: `attachment; filename="${filename}"`,
+    });
+  }
+
+  @Get('ledger/export')
+  @RequirePermission('fees.view', 'fees.export')
+  @RequireEntitlement('platform.export')
+  async ledgerExport(
+    @CurrentUser() user: AuthUser,
+    @Query('format') format = 'xlsx',
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const { buffer, type, filename } = await this.svc.ledgerExport(user, format, from, to);
+    return new StreamableFile(buffer, {
+      type,
+      disposition: `attachment; filename="${filename}"`,
+    });
   }
 
   @Get('defaulters/export')

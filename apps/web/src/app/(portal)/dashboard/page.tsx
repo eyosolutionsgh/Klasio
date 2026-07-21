@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import AskData from '@/components/AskData';
 import { api, getMe, money } from '@/lib/api';
 
 interface Stats {
@@ -171,6 +172,10 @@ export default async function DashboardPage() {
             )}
           </ul>
         </section>
+      </div>
+
+      <div className="mt-6">
+        <AskData />
       </div>
     </div>
   );

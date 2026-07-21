@@ -24,6 +24,8 @@ import { AuthUser, CurrentUser, Public, RequirePermission, jwtSecret } from '../
 import { CalendarModule, CalendarService } from '../calendar/calendar.module';
 import { ResourcesModule, ResourcesService, ResourceScope } from '../resources/resources.module';
 import { balanceOf } from '../common/ledger';
+import { reportCardPdf, ReportCardData } from '../common/pdf';
+import { storage } from '../common/storage';
 
 /** Wrong PINs before the account is barred, and for how long. */
 const PIN_MAX_ATTEMPTS = 5;
@@ -241,6 +243,79 @@ export class StudentPortalService {
     };
   }
 
+  /**
+   * The pupil's own published report as the same A4 PDF their guardian downloads. Mirrors the
+   * guardian portal's publishedCard, scoped to the signed-in student — published only, because a
+   * child must never see a report before the school releases it.
+   */
+  async reportCardPdf(auth: StudentUser, termId: string) {
+    const [student, report] = await Promise.all([
+      this.db.student.findUniqueOrThrow({
+        where: { id: auth.sub },
+        include: { classRoom: { select: { name: true } } },
+      }),
+      this.db.termReport.findFirst({
+        where: { studentId: auth.sub, termId, schoolId: auth.schoolId, publishedAt: { not: null } },
+      }),
+    ]);
+    if (!report) throw new NotFoundException('That report has not been published');
+
+    const [school, term, level] = await Promise.all([
+      this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } }),
+      this.db.term.findFirst({
+        where: { id: termId },
+        include: { academicYear: { select: { name: true } } },
+      }),
+      this.db.classRoom.findFirst({
+        where: { id: report.classId },
+        include: { level: { include: { gradingScheme: true } } },
+      }),
+    ]);
+    const scheme =
+      level?.level.gradingScheme ??
+      (await this.db.gradingScheme.findFirst({
+        where: { schoolId: auth.schoolId, kind: 'GES_CLASSIC' },
+      }));
+
+    const card = {
+      schemeKind: scheme?.kind ?? 'GES_CLASSIC',
+      template: school.reportTemplate,
+      school: {
+        name: school.name,
+        motto: school.motto,
+        address: school.address,
+        phone: school.phone,
+        brandColor: school.brandColor,
+        logo: school.logoUrl
+          ? await storage()
+              .get(school.logoUrl)
+              .catch(() => null)
+          : null,
+      },
+      weights: { sba: school.sbaWeight ?? 30, exam: school.examWeight ?? 70 },
+      student: {
+        name: `${student.firstName} ${student.lastName}`,
+        admissionNo: student.admissionNo,
+        className: student.classRoom?.name ?? null,
+      },
+      term: {
+        name: term?.name,
+        year: term?.academicYear.name,
+        nextTermBegins: term?.nextTermBegins ?? null,
+      },
+      lines: report.lines,
+      overallTotal: report.overallTotal,
+      classPosition: report.classPosition,
+      classSize: report.classSize,
+      attendance: { present: report.attendancePresent, total: report.attendanceTotal },
+      conduct: report.conduct,
+      interest: report.interest,
+      teacherRemark: report.teacherRemark,
+      headRemark: report.headRemark,
+    };
+    return reportCardPdf(card as unknown as ReportCardData);
+  }
+
   async notices(auth: StudentUser) {
     const notices = await this.db.announcement.findMany({
       where: { schoolId: auth.schoolId, audience: { in: ['ALL', 'STUDENTS'] } },
@@ -306,6 +381,16 @@ export class StudentPortalController {
   }
 
   @UseGuards(StudentGuard)
+  @Get('reports/:termId/pdf')
+  async reportPdf(@CurrentStudent() s: StudentUser, @Param('termId') termId: string) {
+    const buf = await this.svc.reportCardPdf(s, termId);
+    return new StreamableFile(buf, {
+      type: 'application/pdf',
+      disposition: `attachment; filename="report-${termId}.pdf"`,
+    });
+  }
+
+  @UseGuards(StudentGuard)
   @Get('notices')
   notices(@CurrentStudent() s: StudentUser) {
     return this.svc.notices(s);
@@ -356,7 +441,7 @@ export class StudentPinController {
   imports: [CalendarModule, ResourcesModule],
   controllers: [StudentPortalController, StudentPinController],
   providers: [StudentPortalService, StudentGuard],
-  exports: [StudentPortalService],
+  exports: [StudentPortalService, StudentGuard],
 })
 export class StudentPortalModule {}
 

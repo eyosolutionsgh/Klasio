@@ -106,6 +106,9 @@ export default function AttendancePage() {
           Mark the daily register — tap a status for each child.{' '}
           <Link href="/attendance/trends" className="text-brand underline underline-offset-2">
             See attendance patterns →
+          </Link>{' '}
+          <Link href="/attendance/staff" className="text-brand underline underline-offset-2">
+            Staff register &amp; leave →
           </Link>
         </p>
       </div>

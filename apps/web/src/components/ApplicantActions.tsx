@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import Combobox from './Combobox';
 import DownloadButton from './DownloadButton';
+import ApplicantFiles from './ApplicantFiles';
 import { Button, useAsyncAction } from './Button';
 import { ChoiceCards } from './ChoiceCards';
 import { CalendarIcon, UserIcon } from './icons';
@@ -133,6 +134,8 @@ export default function ApplicantActions({
           Open record
         </a>
       )}
+
+      <ApplicantFiles applicantId={applicant.id} applicantName={applicant.name} />
 
       {hasLetter && (
         <span className="self-end">

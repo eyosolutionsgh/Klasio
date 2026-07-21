@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, useAsyncAction } from '@/components/Button';
 import { ChoiceCards } from '@/components/ChoiceCards';
+import CampusSettings from '@/components/CampusSettings';
+import ApiKeysSettings from '@/components/ApiKeysSettings';
 import { CalendarIcon, PlusIcon, SaveIcon } from '@/components/icons';
 
 interface Term {
@@ -849,6 +851,10 @@ export default function SchoolSetupPage() {
           </Button>
         </form>
       </section>
+
+      <CampusSettings />
+
+      <ApiKeysSettings />
     </div>
   );
 }

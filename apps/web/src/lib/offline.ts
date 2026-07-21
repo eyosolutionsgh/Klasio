@@ -10,10 +10,11 @@
  * same row rather than a duplicate. Do not queue anything that appends (payments, ledger
  * entries): a replay would take money twice.
  *
- * Pickup release is the one append that is queued, and only because it was made idempotent
- * first: the gate device mints a `clientRef` before sending, and the server returns the existing
- * row rather than writing a second one. The rule is not "never queue an append" — it is "never
- * queue a write that a replay would duplicate". Make it safe first, then queue it.
+ * Pickup release and morning check-in are the appends that are queued, and only because they
+ * were made idempotent first: the gate device mints a `clientRef` before sending, and the server
+ * returns the existing row rather than writing a second one. The rule is not "never queue an
+ * append" — it is "never queue a write that a replay would duplicate". Make it safe first, then
+ * queue it.
  */
 
 const DB_NAME = 'eyo-offline';

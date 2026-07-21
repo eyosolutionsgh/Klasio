@@ -102,6 +102,11 @@ async function main() {
     await db.pickupCredential.deleteMany({ where: { schoolId: sid } });
     await db.pickupDelegate.deleteMany({ where: { schoolId: sid } });
     await db.releaseLog.deleteMany({ where: { schoolId: sid } });
+    await db.checkInLog.deleteMany({ where: { schoolId: sid } });
+    await db.carLineEntry.deleteMany({ where: { schoolId: sid } });
+    await db.transportScan.deleteMany({ where: { schoolId: sid } });
+    await db.transportRider.deleteMany({ where: { schoolId: sid } });
+    await db.transportRoute.deleteMany({ where: { schoolId: sid } });
     await db.dismissalRequest.deleteMany({ where: { schoolId: sid } });
     // Optional-fee subscriptions reference both students and fee items.
     await db.studentFeeItem.deleteMany({ where: { schoolId: sid } });
@@ -128,8 +133,15 @@ async function main() {
     // Sign-in codes reference guardians — clear them before the guardians themselves.
     await db.guardianOtp.deleteMany({ where: { schoolId: sid } });
     await db.guardian.deleteMany({ where: { schoolId: sid } });
+    await db.cbtAttempt.deleteMany({ where: { schoolId: sid } });
+    await db.cbtExam.deleteMany({ where: { schoolId: sid } });
+    await db.question.deleteMany({ where: { schoolId: sid } });
+    await db.questionBank.deleteMany({ where: { schoolId: sid } });
     await db.student.deleteMany({ where: { schoolId: sid } });
+    await db.syllabusCoverage.deleteMany({ where: { schoolId: sid } });
+    await db.syllabusTopic.deleteMany({ where: { schoolId: sid } });
     await db.subject.deleteMany({ where: { schoolId: sid } });
+    await db.campus.deleteMany({ where: { schoolId: sid } });
     await db.classRoom.deleteMany({ where: { schoolId: sid } });
     await db.level.deleteMany({ where: { schoolId: sid } });
     await db.gradingScheme.deleteMany({ where: { schoolId: sid } });
@@ -137,6 +149,10 @@ async function main() {
     await db.term.deleteMany({ where: { academicYear: { schoolId: sid } } });
     await db.academicYear.deleteMany({ where: { schoolId: sid } });
     await db.auditLog.deleteMany({ where: { schoolId: sid } });
+    await db.staffAttendanceRecord.deleteMany({ where: { schoolId: sid } });
+    await db.leaveRequest.deleteMany({ where: { schoolId: sid } });
+    await db.payRun.deleteMany({ where: { schoolId: sid } });
+    await db.staffPayProfile.deleteMany({ where: { schoolId: sid } });
     await db.user.deleteMany({ where: { schoolId: sid } });
     await db.school.delete({ where: { id: sid } });
   }

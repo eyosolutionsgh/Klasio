@@ -38,7 +38,15 @@ import { weighSubject } from '../common/weighting';
 import { PrismaService } from '../prisma/prisma.service';
 import { isStaleReplay, parseRecordedAt } from '../common/replay';
 import { hasEntitlement } from '../common/entitlements';
-import { AuthUser, CurrentUser, RequireAnyPermission, RequirePermission } from '../common/auth';
+import {
+  AuthUser,
+  CurrentUser,
+  RequireAnyPermission,
+  RequireEntitlement,
+  RequirePermission,
+} from '../common/auth';
+import { renderMessage } from '../common/templates';
+import { beceProjection, wassceReadiness } from '../common/exam-analytics';
 import { reportCardPdf, ReportCardData, broadsheetPdf, BroadsheetData } from '../common/pdf';
 import { toCsv, toXlsx } from '../common/export';
 import { PageQuery, dateWindow, orderBy, pageArgs, toPage } from '../common/list-query';
@@ -885,7 +893,10 @@ export class AssessmentService {
       this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } }),
       this.db.term.findUnique({ where: { id: dto.termId } }),
     ]);
-    const body = `${school.name}: ${term?.name ?? 'This term'} terminal reports are now available. Sign in at the guardian portal with your phone number to view your child's results.`;
+    const body = await renderMessage(this.db, auth.schoolId, 'RESULTS_READY', {
+      school: school.name,
+      term: term?.name ?? 'This term',
+    });
 
     /**
      * One batch id per student, not one for the class.
@@ -1081,6 +1092,62 @@ export class AssessmentService {
   }
 
   /** Broadsheet / tabulation sheet: students × subjects with totals, positions and class ranking. */
+  /**
+   * BECE aggregate projection (JHS) or WASSCE readiness (SHS) for a class, from the term's
+   * computed results (FEATURES.md §4). The grade arithmetic lives in common/exam-analytics —
+   * a planning tool, and the page says so.
+   */
+  async outlook(auth: AuthUser, classId: string, termId: string) {
+    const cls = await this.db.classRoom.findFirst({
+      where: { id: classId, schoolId: auth.schoolId },
+      include: { level: { select: { category: true } } },
+    });
+    if (!cls) throw new NotFoundException('Class not found');
+    const category = cls.level.category;
+    if (category !== 'JHS' && category !== 'SHS') {
+      throw new BadRequestException('The examinations outlook is for JHS and SHS classes');
+    }
+
+    const r = await this.computeClassResults(auth, classId, termId);
+    const subjectsById = new Map(r.subjects.map((s) => [s.id, s]));
+    const coreById = new Map(
+      (
+        await this.db.subject.findMany({
+          where: { schoolId: auth.schoolId },
+          select: { id: true, isCore: true },
+        })
+      ).map((s) => [s.id, s.isCore]),
+    );
+
+    const students = r.students.map((st) => {
+      const lines = r.perStudent.get(st.id) ?? [];
+      const marks = lines
+        .filter((l) => l.total !== null && l.total !== undefined)
+        .map((l) => ({
+          subject: subjectsById.get(l.subjectId)?.name ?? 'Unknown subject',
+          isCore: coreById.get(l.subjectId) ?? false,
+          total: Number(l.total),
+        }));
+      const base = {
+        id: st.id,
+        name: `${st.firstName} ${st.lastName}`,
+        admissionNo: st.admissionNo,
+        marked: marks.length,
+      };
+      return category === 'JHS'
+        ? { ...base, ...beceProjection(marks) }
+        : { ...base, ...wassceReadiness(marks) };
+    });
+
+    // Best outlook first; a student with no aggregate yet sorts to the end, where the work is.
+    students.sort((a, b) => {
+      const aa = 'aggregate' in a ? (a.aggregate ?? 999) : 999;
+      const bb = 'aggregate' in b ? (b.aggregate ?? 999) : 999;
+      return aa - bb;
+    });
+    return { kind: category, className: cls.name, termName: r.term.name, students };
+  }
+
   async broadsheet(auth: AuthUser, classId: string, termId: string): Promise<BroadsheetData> {
     const r = await this.computeClassResults(auth, classId, termId);
     const school = await this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } });
@@ -1284,6 +1351,17 @@ export class AssessmentController {
     @Body() dto: UpdateReportDto,
   ) {
     return this.svc.updateReport(user, studentId, termId, dto);
+  }
+
+  @Get('outlook')
+  @RequirePermission('reports.view')
+  @RequireEntitlement('exams.analytics')
+  outlook(
+    @CurrentUser() user: AuthUser,
+    @Query('classId') classId: string,
+    @Query('termId') termId: string,
+  ) {
+    return this.svc.outlook(user, classId, termId);
   }
 
   @Get('broadsheet')

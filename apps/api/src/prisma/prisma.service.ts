@@ -94,6 +94,36 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       data: { schoolId, userId, action, entity, entityId, detail: detail as never },
     });
   }
+
+  /**
+   * Audit an update with the forensic before/after (FEATURES.md §19: "full forensic history").
+   *
+   * Only the fields that actually changed are recorded, as `{ changes: { field: { from, to } } }`
+   * — a full row dump would put someone's whole record in the trail every time one field moved.
+   * Values are stringified for comparison, so Dates and Decimals diff sanely.
+   */
+  async auditChange(
+    schoolId: string,
+    userId: string | null,
+    action: string,
+    entity: string,
+    entityId: string,
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+  ) {
+    const changes: Record<string, { from: unknown; to: unknown }> = {};
+    // Only fields the caller actually sent: a PATCH that omits `name` did not clear it.
+    for (const key of Object.keys(after)) {
+      const b = after[key];
+      if (b === undefined) continue;
+      const a = before[key];
+      if (String(a ?? '') !== String(b ?? '')) {
+        changes[key] = { from: a ?? null, to: b ?? null };
+      }
+    }
+    if (Object.keys(changes).length === 0) return;
+    await this.audit(schoolId, userId, action, entity, entityId, { changes });
+  }
 }
 
 /** Everything except these is a model name to be routed at the current tenant transaction. */

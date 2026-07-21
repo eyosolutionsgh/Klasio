@@ -88,6 +88,14 @@ const NAV: NavItem[] = [
     group: 'Academic',
   },
   {
+    href: '/exams',
+    label: 'Examinations',
+    icon: 'M9 2a1 1 0 00-1 1v1H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-2V3a1 1 0 00-1-1H9zm1 2h4v2h-4V4zM7 9h10v2H7V9zm0 4h10v2H7v-2zm0 4h6v2H7v-2z',
+    tip: 'Question banks and computer-based tests',
+    needs: 'exams.cbt',
+    group: 'Academic',
+  },
+  {
     href: '/fees',
     label: 'Fees',
     icon: 'M11.8 10.9c-2.3-.6-3-1.2-3-2.1 0-1.1 1-1.8 2.7-1.8 1.8 0 2.4.8 2.5 2h2.2c-.1-1.6-1.1-3.1-3-3.6V3.2h-3v2.2c-1.9.4-3.4 1.6-3.4 3.5 0 2.3 1.9 3.4 4.6 4 2.4.6 2.9 1.4 2.9 2.3 0 .7-.5 1.7-2.7 1.7-2 0-2.8-.9-3-2H6.4c.1 2 1.6 3.2 3.4 3.6v2.3h3v-2.2c1.9-.4 3.5-1.5 3.5-3.5 0-2.8-2.4-3.7-4.5-4.2z',
@@ -101,6 +109,22 @@ const NAV: NavItem[] = [
     icon: 'M12 2a5 5 0 015 5v3h1a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2v-8a2 2 0 012-2h1V7a5 5 0 015-5zm0 2a3 3 0 00-3 3v3h6V7a3 3 0 00-3-3zm0 9a2 2 0 00-1 3.7V18h2v-1.3A2 2 0 0012 13z',
     tip: 'Check who is collecting and log every release',
     needs: 'safety.pickup',
+    group: 'Daily',
+  },
+  {
+    href: '/payroll',
+    label: 'Payroll',
+    icon: 'M12 2a4 4 0 110 8 4 4 0 010-8zm0 10c4.4 0 8 1.8 8 4v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2c0-2.2 3.6-4 8-4zm5-6h4v2h-4V6zm0 4h4v2h-4v-2z',
+    tip: 'Salaries, SSNIT, PAYE and payslips',
+    needs: 'hr.payroll',
+    group: 'Finance',
+  },
+  {
+    href: '/transport',
+    label: 'Transport',
+    icon: 'M4 16c0 .9.4 1.7 1 2.2V20a1 1 0 001 1h1a1 1 0 001-1v-1h8v1a1 1 0 001 1h1a1 1 0 001-1v-1.8c.6-.5 1-1.3 1-2.2V6c0-3.5-3.6-4-8-4s-8 .5-8 4v10zm3.5 1a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm9 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM6 11V6h12v5H6z',
+    tip: 'Bus routes, manifests and boarding scans',
+    needs: 'safety.transport',
     group: 'Daily',
   },
   {

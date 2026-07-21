@@ -144,6 +144,19 @@ export default function StudentPage() {
         </section>
 
         <section className="card p-6">
+          <h2 className="font-display text-xl">My tests</h2>
+          <p className="text-sm text-oat mt-1.5">
+            Computer-based tests your teachers have set.{' '}
+            <a
+              href="/student/exams"
+              className="text-forest font-medium underline underline-offset-2"
+            >
+              Open my tests →
+            </a>
+          </p>
+        </section>
+
+        <section className="card p-6">
           <h2 className="font-display text-xl">My results</h2>
           {me.reports.length === 0 ? (
             <p className="text-sm text-oat mt-2">
@@ -153,14 +166,25 @@ export default function StudentPage() {
           ) : (
             <ul className="mt-4 space-y-3">
               {me.reports.map((r) => (
-                <li key={r.termId} className="border-b border-mist/50 last:border-0 pb-3 last:pb-0">
-                  <p className="font-medium text-sm">
-                    {r.term} · {r.year}
-                  </p>
-                  <p className="text-[11px] text-oat tabular">
-                    Total {r.overallTotal.toFixed(1)}
-                    {r.classPosition && ` · position ${r.classPosition} of ${r.classSize}`}
-                  </p>
+                <li
+                  key={r.termId}
+                  className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-mist/50 last:border-0 pb-3 last:pb-0"
+                >
+                  <div>
+                    <p className="font-medium text-sm">
+                      {r.term} · {r.year}
+                    </p>
+                    <p className="text-[11px] text-oat tabular">
+                      Total {r.overallTotal.toFixed(1)}
+                      {r.classPosition && ` · position ${r.classPosition} of ${r.classSize}`}
+                    </p>
+                  </div>
+                  <a
+                    href={`/api/student/student/reports/${r.termId}/pdf`}
+                    className="inline-flex items-center justify-center min-h-11 text-[13px] font-medium text-forest border border-forest/40 rounded-full px-4 hover:bg-forest-mist transition"
+                  >
+                    Download PDF
+                  </a>
                 </li>
               ))}
             </ul>

@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import Combobox from '@/components/Combobox';
 import DismissalInbox from '@/components/DismissalInbox';
+import EmergencyAlert from '@/components/EmergencyAlert';
+import CarLineQueue from '@/components/CarLineQueue';
 import QrScanner from '@/components/QrScanner';
 import { submitOrQueue } from '@/lib/offline';
 import OfflineBar from '@/components/OfflineBar';
@@ -59,6 +61,14 @@ interface ReleaseRow {
   overrideReason: string | null;
   releasedAt: string;
 }
+interface CheckInRow {
+  id: string;
+  student: string;
+  className: string;
+  broughtBy: string | null;
+  method: string;
+  checkedInAt: string;
+}
 
 const time = (d: string) =>
   new Date(d).toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' });
@@ -75,6 +85,10 @@ export default function PickupPage() {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [log, setLog] = useState<ReleaseRow[]>([]);
+  // Morning and afternoon share the one gate device, so arrivals live on the same page.
+  const [mode, setMode] = useState<'ARRIVAL' | 'DISMISSAL'>('DISMISSAL');
+  const [broughtBy, setBroughtBy] = useState('');
+  const [arrivals, setArrivals] = useState<CheckInRow[]>([]);
 
   useEffect(() => {
     // `perPage=all` on purpose: this is the dismissal desk's picker, not a browsable list, and a
@@ -89,9 +103,15 @@ export default function PickupPage() {
     if (res.ok) setLog(await res.json());
   }, []);
 
+  const loadArrivals = useCallback(async () => {
+    const res = await fetch('/api/proxy/pickup/checkins');
+    if (res.ok) setArrivals(await res.json());
+  }, []);
+
   useEffect(() => {
     loadLog();
-  }, [loadLog]);
+    loadArrivals();
+  }, [loadLog, loadArrivals]);
 
   useEffect(() => {
     setCheck(null);
@@ -187,17 +207,89 @@ export default function PickupPage() {
     }
   });
 
+  const checkInAction = useAsyncAction(async () => {
+    if (!studentId) return;
+    setError(null);
+    const student = students.find((s) => s.id === studentId);
+    const clientRef = crypto.randomUUID();
+    const result = await submitOrQueue(
+      '/api/proxy/pickup/checkin',
+      {
+        studentId,
+        broughtBy: broughtBy.trim() || undefined,
+        token: token.trim() || undefined,
+        clientRef,
+      },
+      `${student?.name ?? 'Child'} checked in`,
+    );
+
+    if (result.queued) {
+      setDone(
+        `${student?.name ?? 'Child'} checked in. The network is down, so this will be recorded ` +
+          'as soon as it comes back.',
+      );
+      setStudentId('');
+      setBroughtBy('');
+      setToken('');
+      return;
+    }
+
+    const d = (result.body ?? {}) as { student?: string; message?: string };
+    if (result.ok) {
+      setDone(`${d.student ?? student?.name ?? 'Child'} checked in.`);
+      setStudentId('');
+      setBroughtBy('');
+      setToken('');
+      loadArrivals();
+    } else {
+      setError(result.message ?? d.message ?? 'Could not check in.');
+      throw new Error('rejected');
+    }
+  });
+
   const people = [...(auth?.guardians ?? []), ...(auth?.delegates ?? [])];
 
   return (
     <div>
       {/* The gate can release with the network down, so it must show what is still unsent. */}
       <OfflineBar />
-      <div className="rise rise-1">
-        <h1 className="font-display text-3xl">Dismissal</h1>
-        <p className="text-sm text-oat mt-1.5">
-          Check who is collecting before releasing a child. Every release is logged.
-        </p>
+      <div className="rise rise-1 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="font-display text-3xl">
+            {mode === 'DISMISSAL' ? 'Dismissal' : 'Arrivals'}
+          </h1>
+          <p className="text-sm text-oat mt-1.5">
+            {mode === 'DISMISSAL'
+              ? 'Check who is collecting before releasing a child. Every release is logged.'
+              : 'Record each child arriving. Who brought them is optional — many walk in alone.'}
+          </p>
+        </div>
+        <a
+          href="/pickup/analytics"
+          className="text-[13px] text-oat hover:text-brand transition underline underline-offset-2"
+        >
+          Analytics
+        </a>
+        <div className="inline-flex rounded-lg border border-mist overflow-hidden" role="tablist">
+          {(['ARRIVAL', 'DISMISSAL'] as const).map((m) => (
+            <button
+              key={m}
+              role="tab"
+              aria-selected={mode === m}
+              onClick={() => {
+                setMode(m);
+                setCheck(null);
+                setDone(null);
+                setError(null);
+              }}
+              className={`px-4 py-2 text-[13px] font-medium transition ${
+                mode === m ? 'bg-brand text-white' : 'bg-white text-oat hover:text-ink'
+              }`}
+            >
+              {m === 'ARRIVAL' ? 'Morning arrivals' : 'Dismissal'}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="grid lg:grid-cols-[1.1fr_1fr] gap-6 mt-6">
@@ -212,7 +304,48 @@ export default function PickupPage() {
             onChange={setStudentId}
           />
 
-          {studentId && !check && (
+          {mode === 'ARRIVAL' && studentId && (
+            <div className="mt-5 rounded-lg bg-parchment/60 p-4">
+              <p className="text-[11px] uppercase tracking-wider text-oat">Check in</p>
+              <p className="text-xs text-oat mt-1">
+                Scan the pass of whoever brought them, or type a name — or neither, if the child
+                came alone.
+              </p>
+              <div className="flex flex-wrap gap-2 mt-3">
+                <div className="relative flex-1 min-w-[12rem]">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
+                    <KeyIcon />
+                  </span>
+                  <input
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                    placeholder="Pass code from the QR (optional)"
+                    className="w-full min-h-11 rounded-lg border border-mist bg-white px-3.5 py-2 pl-10 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+                  />
+                </div>
+                <input
+                  value={broughtBy}
+                  onChange={(e) => setBroughtBy(e.target.value)}
+                  placeholder="Brought by (optional)"
+                  className="flex-1 min-w-[10rem] min-h-11 rounded-lg border border-mist bg-white px-3.5 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15"
+                />
+              </div>
+              <QrScanner onScan={(value) => setToken(value)} />
+              <div className="mt-3">
+                <Button
+                  onClick={checkInAction.run}
+                  state={checkInAction.state}
+                  pendingLabel="Checking in…"
+                  doneLabel="Checked in!"
+                  failedLabel="Couldn't check in"
+                >
+                  Check in
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {mode === 'DISMISSAL' && studentId && !check && (
             <div className="mt-5 rounded-lg bg-parchment/60 p-4">
               <p className="text-[11px] uppercase tracking-wider text-oat">
                 Scan or enter a gate pass
@@ -263,7 +396,7 @@ export default function PickupPage() {
             </div>
           )}
 
-          {auth && !check && (
+          {mode === 'DISMISSAL' && auth && !check && (
             <div className="mt-5">
               <p className="text-[11px] uppercase tracking-wider text-oat">Who is collecting?</p>
               <ul className="mt-2 space-y-2">
@@ -384,7 +517,7 @@ export default function PickupPage() {
                 {/* The pass proves the pass; only the face proves the person holding it. */}
                 {check.collector.hasPhoto ? (
                   <img
-                    src={`/api/proxy/pickup/guardians/${check.collector.id}/photo`}
+                    src={`/api/proxy/pickup/${check.collector.kind === 'GUARDIAN' ? 'guardians' : 'delegates'}/${check.collector.id}/photo`}
                     alt={check.collector.name}
                     className="w-16 h-16 rounded-lg object-cover border border-mist shrink-0"
                   />
@@ -470,7 +603,36 @@ export default function PickupPage() {
         </section>
 
         <div className="space-y-6">
-          <DismissalInbox />
+          <EmergencyAlert />
+          {mode === 'ARRIVAL' && (
+            <section className="card p-6 rise rise-3">
+              <h2 className="font-display text-xl">Arrived today</h2>
+              <p className="text-sm text-oat mt-1.5">
+                {arrivals.length} child{arrivals.length === 1 ? '' : 'ren'} checked in.
+              </p>
+              <ul className="mt-4 space-y-3">
+                {arrivals.map((r) => (
+                  <li key={r.id} className="border-b border-mist/50 last:border-0 pb-3 last:pb-0">
+                    <div className="flex justify-between gap-3">
+                      <span className="text-sm font-medium">{r.student}</span>
+                      <span className="text-[11px] text-oat tabular shrink-0">
+                        {time(r.checkedInAt)}
+                      </span>
+                    </div>
+                    <p className="text-[12px] text-oat">
+                      {r.className}
+                      {r.broughtBy ? ` · brought by ${r.broughtBy}` : ' · came alone'}
+                    </p>
+                  </li>
+                ))}
+                {arrivals.length === 0 && (
+                  <li className="text-sm text-oat">Nobody has been checked in yet today.</li>
+                )}
+              </ul>
+            </section>
+          )}
+          {mode === 'DISMISSAL' && <CarLineQueue />}
+          {mode === 'DISMISSAL' && <DismissalInbox />}
 
           <section className="card p-6 rise rise-3">
             <h2 className="font-display text-xl">Released today</h2>

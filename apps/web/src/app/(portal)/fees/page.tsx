@@ -1,5 +1,6 @@
 import { api, getMe, money as fmtMoney } from '@/lib/api';
 import DefaultersTable, { type Defaulter } from '@/components/DefaultersTable';
+import { DefaultRiskPanel } from '@/components/RiskPanels';
 import DepositQueue from '@/components/DepositQueue';
 import FeeFilters from '@/components/FeeFilters';
 import Pagination from '@/components/Pagination';
@@ -131,6 +132,33 @@ export default async function FeesPage({
             </p>
           </div>
         ))}
+      </div>
+
+      <div className="mt-3 flex justify-end items-center gap-1 text-[12px]">
+        <span className="text-oat">Ledger for the accountant:</span>
+        {(['csv', 'xlsx'] as const).map((f) => (
+          <a
+            key={f}
+            href={`/api/proxy/fees/ledger/export?format=${f}`}
+            className="rounded-md border border-mist px-2 py-0.5 text-brand hover:bg-brand-mist transition uppercase"
+          >
+            {f}
+          </a>
+        ))}
+        <span className="text-oat ml-3">Double-entry journal:</span>
+        {(['csv', 'xlsx'] as const).map((f) => (
+          <a
+            key={`j-${f}`}
+            href={`/api/proxy/fees/journal/export?format=${f}`}
+            className="rounded-md border border-mist px-2 py-0.5 text-brand hover:bg-brand-mist transition uppercase"
+          >
+            {f}
+          </a>
+        ))}
+      </div>
+
+      <div className="mt-6">
+        <DefaultRiskPanel />
       </div>
 
       <DepositQueue currency={cur} />

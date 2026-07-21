@@ -212,7 +212,21 @@ export class UsersService {
       },
       select: { id: true, name: true, email: true, phone: true, role: true, active: true },
     });
-    await this.db.audit(auth.schoolId, auth.sub, 'user.update', 'User', id, dto as object);
+    await this.db.auditChange(
+      auth.schoolId,
+      auth.sub,
+      'user.update',
+      'User',
+      id,
+      {
+        name: target.name,
+        phone: target.phone,
+        role: target.role,
+        staffRoleId: target.staffRoleId,
+        active: target.active,
+      },
+      dto as Record<string, unknown>,
+    );
     return user;
   }
 

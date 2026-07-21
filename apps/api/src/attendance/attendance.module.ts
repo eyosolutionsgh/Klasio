@@ -14,6 +14,7 @@ import { isStaleReplay, parseRecordedAt } from '../common/replay';
 import { hasEntitlement } from '../common/entitlements';
 import { SmsModule, SmsService } from '../sms/sms.module';
 import { AuthUser, CurrentUser, RequireEntitlement, RequirePermission } from '../common/auth';
+import { renderMessage } from '../common/templates';
 import { PageQuery, dateWindow, pageArgs, toPage } from '../common/list-query';
 
 class AttendanceEntryDto {
@@ -194,7 +195,11 @@ export class AttendanceService {
         schoolId: auth.schoolId,
         createdById: auth.sub,
         phones: [phone],
-        body: `${school.name}: ${st.firstName} ${st.lastName} was marked absent today (${stamp}). Please contact the school if this is unexpected.`,
+        body: await renderMessage(this.db, auth.schoolId, 'ABSENCE_ALERT', {
+          school: school.name,
+          student: `${st.firstName} ${st.lastName}`,
+          date: stamp,
+        }),
         batchId,
       });
       alerted += res.sent;

@@ -75,6 +75,26 @@ const RESOURCE_TYPES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 ];
 
+/**
+ * Video and audio (FEATURES.md §15) — a recorded lesson, a listening-comprehension track. Their
+ * own list with their own size cap, because a document cap that fits a recorded lesson would
+ * quietly let someone attach a 200MB "PDF".
+ */
+const MEDIA_TYPES = [
+  'video/mp4',
+  'video/webm',
+  'video/3gpp',
+  'audio/mpeg',
+  'audio/mp4',
+  'audio/ogg',
+  'audio/wav',
+  'audio/webm',
+  'audio/aac',
+  'audio/amr',
+];
+
+const MAX_MEDIA_BYTES = 200 * 1024 * 1024;
+
 /** Minimal shape of a Multer upload — avoids depending on @types/multer. */
 interface UploadedFileLike {
   buffer: Buffer;
@@ -201,13 +221,17 @@ export class ResourcesService {
 
   private assertUpload(file: UploadedFileLike | undefined) {
     if (!file?.buffer) throw new BadRequestException('No file uploaded');
-    if (file.size > MAX_UPLOAD_BYTES) {
-      throw new BadRequestException(
-        `File is too large (max ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)}MB)`,
-      );
-    }
-    if (!RESOURCE_TYPES.includes(file.mimetype)) {
+    const isMedia = MEDIA_TYPES.includes(file.mimetype);
+    if (!isMedia && !RESOURCE_TYPES.includes(file.mimetype)) {
       throw new BadRequestException(`Unsupported file type ${file.mimetype}`);
+    }
+    const cap = isMedia ? MAX_MEDIA_BYTES : MAX_UPLOAD_BYTES;
+    if (file.size > cap) {
+      throw new BadRequestException(
+        `File is too large (max ${Math.round(cap / 1024 / 1024)}MB for ${
+          isMedia ? 'video and audio' : 'documents'
+        })`,
+      );
     }
   }
 

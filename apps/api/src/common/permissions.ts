@@ -35,6 +35,7 @@ export type PermissionGroup =
   | 'Finance'
   | 'Safety'
   | 'Communication'
+  | 'Staff & HR'
   | 'Administration';
 
 export const PERMISSIONS = [
@@ -159,6 +160,18 @@ export const PERMISSIONS = [
     caution: 'The gate decision itself.',
   },
   { code: 'pickup.manage', label: 'Manage collectors and gate passes', group: 'Safety' },
+  { code: 'transport.manage', label: 'Manage bus routes and riders', group: 'Safety' },
+  {
+    code: 'transport.operate',
+    label: 'Scan children on and off the bus',
+    group: 'Safety',
+  },
+  {
+    code: 'safety.emergency',
+    label: 'Send emergency and lockdown alerts',
+    group: 'Safety',
+    caution: 'Texts every family and every member of staff at once. Not undoable.',
+  },
 
   // ── Communication ─────────────────────────────────────────────────
   { code: 'comms.announce', label: 'Post announcements', group: 'Communication' },
@@ -183,6 +196,21 @@ export const PERMISSIONS = [
   },
   { code: 'calendar.view', label: 'See the school calendar', group: 'Communication' },
   { code: 'calendar.manage', label: 'Manage the school calendar', group: 'Communication' },
+
+  // ── Staff & HR ────────────────────────────────────────────────────
+  { code: 'hr.attendance', label: 'Mark staff attendance', group: 'Staff & HR' },
+  {
+    code: 'hr.leave',
+    label: 'Approve or decline staff leave',
+    group: 'Staff & HR',
+    caution: 'Nobody can decide their own request, whatever they hold.',
+  },
+  {
+    code: 'hr.payroll',
+    label: 'Run payroll and see salaries',
+    group: 'Staff & HR',
+    caution: "Every colleague's salary. The heaviest permission in the building.",
+  },
 
   // ── Administration ────────────────────────────────────────────────
   {
@@ -285,6 +313,11 @@ export const ROLE_PRESETS: RolePreset[] = [
       'fees.view',
       'pickup.view',
       'pickup.manage',
+      'safety.emergency',
+      'transport.manage',
+      'transport.operate',
+      'hr.attendance',
+      'hr.leave',
       'comms.announce',
       'comms.social',
       'comms.sms',
@@ -312,6 +345,9 @@ export const ROLE_PRESETS: RolePreset[] = [
       'timetable.manage',
       'resources.manage',
       'pickup.view',
+      'safety.emergency',
+      'hr.attendance',
+      'hr.leave',
       'comms.announce',
       'comms.social',
       'calendar.manage',
@@ -378,6 +414,7 @@ export const ROLE_PRESETS: RolePreset[] = [
       'fees.deposits',
       'fees.gateways',
       'fees.export',
+      'hr.payroll',
       'comms.sms',
       'comms.reminders',
       'audit.view',
@@ -426,6 +463,7 @@ export const ROLE_PRESETS: RolePreset[] = [
       'pickup.view',
       'pickup.release',
       'pickup.manage',
+      'transport.operate',
       'comms.announce',
       'comms.social',
       'calendar.view',

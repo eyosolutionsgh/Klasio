@@ -180,7 +180,10 @@ export default function MarksPage() {
         <h1 className="font-display text-3xl">Marks entry</h1>
         <p className="text-sm text-oat mt-1.5">
           Enter continuous assessment and exam scores. SBA scales to 30, exam to 70 on the terminal
-          report.
+          report.{' '}
+          <a href="/marks/capture" className="text-brand underline underline-offset-2">
+            Read marks from a photo →
+          </a>
         </p>
       </div>
 

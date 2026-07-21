@@ -2,6 +2,7 @@ import { api, getMe } from '@/lib/api';
 import SmsComposer, { type ClassOpt, type LevelOpt } from '@/components/SmsComposer';
 import SmsTopUp from '@/components/SmsTopUp';
 import MessageFilters from '@/components/MessageFilters';
+import AutoMessages from '@/components/AutoMessages';
 import Pagination from '@/components/Pagination';
 import SortHeader from '@/components/SortHeader';
 import { Button } from '@/components/Button';
@@ -76,6 +77,10 @@ export default async function MessagingPage({
 
       <div className="mt-6 rise rise-2">
         <SmsComposer classes={classes} levels={structure.levels} />
+      </div>
+
+      <div className="mt-6">
+        <AutoMessages />
       </div>
 
       <div className="mt-8 rise rise-3 flex flex-wrap items-end justify-between gap-4">
