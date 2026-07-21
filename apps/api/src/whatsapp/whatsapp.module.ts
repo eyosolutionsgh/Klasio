@@ -462,6 +462,7 @@ export class WhatsAppService {
     if (teacher?.phone) {
       await this.sms.sendToPhones({
         schoolId,
+        createdById: 'system',
         phones: [teacher.phone],
         body: `${guardian.firstName} ${guardian.lastName} says ${ward.firstName} (${ward.classRoom?.name}) is absent today: "${text.slice(0, 120)}"`,
         batchId: `WABOT-ABS-${stamp}-${ward.id}`,
