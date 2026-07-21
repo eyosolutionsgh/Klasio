@@ -7,6 +7,7 @@ import ReportActions from '@/components/ReportActions';
 import { apiQuery, listHref, one, type ListSearchParams, type Page } from '@/lib/list';
 
 interface ReportRow {
+  vettedAt?: string | null;
   studentId: string;
   name: string;
   admissionNo: string;
@@ -114,6 +115,13 @@ export default async function ReportsPage({
           total={reports.total}
           unpublishedCount={unpublished.total}
           publishedCount={published.total}
+          /* Counted from the rows on screen only when the whole class fits; the badge is a
+             convenience, and over-counting it would claim a sign-off that never happened. */
+          vettedCount={
+            reports.total <= reports.rows.length
+              ? reports.rows.filter((r) => r.vettedAt).length
+              : 0
+          }
         />
         {/* A disclosure rather than an action, so it is a link and survives a refresh. */}
         <Link

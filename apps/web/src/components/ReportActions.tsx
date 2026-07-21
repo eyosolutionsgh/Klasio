@@ -30,6 +30,7 @@ export default function ReportActions({
   total,
   unpublishedCount,
   publishedCount,
+  vettedCount,
 }: {
   classId: string;
   termId: string;
@@ -38,6 +39,8 @@ export default function ReportActions({
   unpublishedCount: number;
   /** Reports already released to families — what makes regeneration consequential. */
   publishedCount: number;
+  /** How many the head has read and signed off, of `total`. */
+  vettedCount?: number;
 }) {
   const router = useRouter();
   // Failures only — the buttons report their own success.
@@ -96,8 +99,16 @@ export default function ReportActions({
       'Could not retract these reports.',
     ),
   );
+  /**
+   * The step between generating and publishing: the head reads every card and signs it off.
+   * Regenerating clears it, because a report recomputed afterwards is not the one that was read.
+   */
+  const vet = useAsyncAction(() =>
+    post('assessment/reports/vet', { classId, termId, published: true }, 'Could not mark these as checked.'),
+  );
 
   const allPublished = total > 0 && unpublishedCount === 0;
+  const allVetted = total > 0 && (vettedCount ?? 0) >= total;
 
   if (confirmingRegenerate) {
     /* The stop: counts the families before it will overwrite what they have already read. */
@@ -158,6 +169,26 @@ export default function ReportActions({
       >
         Generate reports
       </Button>
+      {/* Offered before publishing, since that is the order the work happens in. */}
+      {total > 0 && !allPublished && !allVetted && (
+        <Button
+          onClick={vet.run}
+          state={vet.state}
+          variant="secondary"
+          pendingLabel="Marking…"
+          doneLabel="Checked!"
+          failedLabel="Couldn't mark"
+          data-tip="Record that you have read these reports, before releasing them"
+          className="tip"
+        >
+          Mark as checked
+        </Button>
+      )}
+      {total > 0 && !allPublished && allVetted && (
+        <span className="text-[11px] uppercase tracking-wider bg-leaf/10 text-leaf rounded-full px-2 py-0.5">
+          Checked
+        </span>
+      )}
       {total > 0 &&
         (allPublished ? (
           /* Secondary, not danger: retracting is reversible and re-opens the remarks. */

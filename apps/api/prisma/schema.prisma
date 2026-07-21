@@ -719,6 +719,14 @@ model TermReport {
   teacherRemark     String?
   headRemark        String?
   publishedAt       DateTime?
+  /// Set when the head has read the report and is content with it, before it is released.
+  ///
+  /// The order a Ghanaian school actually works in is generate → vet → publish, and the vetting is
+  /// the head reading every card. Without a state for it, "checked" lived in somebody's memory and
+  /// the only visible difference between a vetted report and an unread one was that a human had
+  /// scrolled past it.
+  vettedAt          DateTime?
+  vettedById        String?
   generatedAt       DateTime  @default(now())
 
   @@unique([studentId, termId])
@@ -1372,6 +1380,31 @@ model ApiKey {
   createdAt   DateTime  @default(now())
   lastUsedAt  DateTime?
   revokedAt   DateTime?
+
+  @@index([schoolId])
+}
+
+/// A school's own endpoint, told when something happens here.
+///
+/// The other half of "API access & webhooks": the read-only API lets another system ask, and this
+/// lets Klasio tell. A school with an accounting package wants to hear about a payment when it
+/// happens, not to poll every ten minutes for the rest of the term.
+model Webhook {
+  id          String    @id @default(cuid())
+  schoolId    String
+  url         String
+  /// Which events to send. Empty means every event, which is what most schools want.
+  events      String[]  @default([])
+  /// Signing secret, shown once. The receiver verifies the signature over the exact bytes sent,
+  /// the same rule the payment gateways' own webhooks are verified by.
+  secret      String
+  active      Boolean   @default(true)
+  createdById String
+  createdAt   DateTime  @default(now())
+  /// Last outcome, so a school can see a dead endpoint without reading logs it has no access to.
+  lastStatus  Int?
+  lastError   String?
+  lastSentAt  DateTime?
 
   @@index([schoolId])
 }

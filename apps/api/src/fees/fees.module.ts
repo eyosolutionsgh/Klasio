@@ -61,6 +61,7 @@ import { PrismaService, withTenant } from '../prisma/prisma.service';
 import { markSchedule, scheduleTotals } from '../common/installments';
 import { concessionsFor, rankSiblings } from '../common/concessions';
 import { SmsModule, SmsService } from '../sms/sms.module';
+import { IntegrationsModule, IntegrationsService } from '../integrations/integrations.module';
 import {
   AuthUser,
   CurrentUser,
@@ -69,7 +70,7 @@ import {
   RequirePermission,
 } from '../common/auth';
 import { verifyQstashSignature } from '../common/qstash';
-import { receiptPdf, statementPdf } from '../common/pdf';
+import { receiptPdf, statementPdf, tableReportPdf } from '../common/pdf';
 import { statementLines } from '../common/statement';
 import { toCsv, toXlsx, Cell } from '../common/export';
 import { balanceOf } from '../common/ledger';
@@ -278,6 +279,7 @@ export class FeesService {
   constructor(
     private db: PrismaService,
     private sms: SmsService,
+    private integrations: IntegrationsService,
   ) {}
 
   /**
@@ -1011,6 +1013,28 @@ export class FeesService {
     if (format === 'csv') {
       return { buffer: toCsv(headers, rows), type: 'text/csv', filename: 'journal.csv' };
     }
+    if (format === 'pdf') {
+      // Paper, for the meeting. CSV is right for an accountant and no answer at all for a board.
+      const school = await this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } });
+      return {
+        buffer: await tableReportPdf({
+          school: {
+            name: school.name,
+            motto: school.motto,
+            address: school.address,
+            phone: school.phone,
+            brandColor: school.brandColor,
+          },
+          title: 'Double-entry journal',
+          subtitle: from || to ? `${from ?? 'the beginning'} to ${to ?? 'today'}` : null,
+          headers,
+          rows: rows as Array<Array<string | number>>,
+          numericColumns: [4, 5],
+        }),
+        type: 'application/pdf',
+        filename: 'journal.pdf',
+      };
+    }
     return {
       buffer: await toXlsx('Journal', headers, rows),
       type: XLSX_MIME,
@@ -1030,6 +1054,27 @@ export class FeesService {
     ]);
     if (format === 'csv') {
       return { buffer: toCsv(headers, rows), type: 'text/csv', filename: 'defaulters.csv' };
+    }
+    if (format === 'pdf') {
+      const school = await this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } });
+      return {
+        buffer: await tableReportPdf({
+          school: {
+            name: school.name,
+            motto: school.motto,
+            address: school.address,
+            phone: school.phone,
+            brandColor: school.brandColor,
+          },
+          title: 'Outstanding fees',
+          subtitle: null,
+          headers,
+          rows: rows as Array<Array<string | number>>,
+          numericColumns: [4],
+        }),
+        type: 'application/pdf',
+        filename: 'defaulters.pdf',
+      };
     }
     return {
       buffer: await toXlsx('Defaulters', headers, rows),
@@ -1166,6 +1211,16 @@ export class FeesService {
   }
 
   /** Record a manual payment (cash/bank/momo recorded at office). Append-only + receipt. */
+  /**
+   * Tell the school's own systems, when it has asked to be told.
+   *
+   * Never allowed to fail the thing that triggered it: a school's accounting endpoint being down
+   * must not roll back a payment that was taken at the counter.
+   */
+  private notifyIntegrations(schoolId: string, event: string, payload: Record<string, unknown>) {
+    void this.integrations.dispatch(schoolId, event, payload).catch(() => undefined);
+  }
+
   async recordPayment(auth: AuthUser, dto: RecordPaymentDto) {
     const student = await this.db.student.findFirst({
       where: { id: dto.studentId, schoolId: auth.schoolId },
@@ -1207,6 +1262,14 @@ export class FeesService {
       amount: dto.amount,
       method: dto.method,
       reference: entry.reference,
+    });
+    this.notifyIntegrations(auth.schoolId, 'payment.recorded', {
+      studentId: dto.studentId,
+      admissionNo: student.admissionNo,
+      amount: dto.amount,
+      method: dto.method,
+      reference: entry.reference,
+      receiptNumber: receipt.number,
     });
     return {
       reference: entry.reference,
@@ -2436,7 +2499,7 @@ export class FeesQstashController {
 }
 
 @Module({
-  imports: [SmsModule],
+  imports: [IntegrationsModule, SmsModule],
   controllers: [FeesController, FeesQstashController],
   providers: [FeesService, RemindersQueue],
   exports: [FeesService],

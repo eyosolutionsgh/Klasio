@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   admissionLetterPdf,
   leaverDocPdf,
+  tableReportPdf,
   reportCardPdf,
   receiptPdf,
   broadsheetPdf,
@@ -106,6 +107,71 @@ describe('PDF builders', () => {
       signatory: 'Mrs. Adjei',
     });
     expect(isPdf(buf)).toBe(true);
+  });
+
+  describe('table report', () => {
+    const school = { name: 'Brighton Academy', motto: null, address: 'Accra', phone: '024' };
+
+    it('renders a financial summary as paper', async () => {
+      const buf = await tableReportPdf({
+        school,
+        title: 'Double-entry journal',
+        headers: ['Date', 'Reference', 'Description', 'Account', 'Debit', 'Credit'],
+        rows: [['2026-05-01', 'INV-1', 'Term 3 fees — Ama Mensah', 'Fee income', '', 1200]],
+        numericColumns: [4, 5],
+      });
+      expect(isPdf(buf)).toBe(true);
+    });
+
+    it('carries the headers onto a second page', async () => {
+      // A long journal is the normal case, and a second page of unlabelled columns is unreadable.
+      const rows = Array.from({ length: 200 }, (_, i) => [
+        '2026-05-01',
+        `INV-${i}`,
+        'Term 3 fees',
+        'Fee income',
+        '',
+        1200,
+      ]);
+      const buf = await tableReportPdf({
+        school,
+        title: 'Double-entry journal',
+        headers: ['Date', 'Reference', 'Description', 'Account', 'Debit', 'Credit'],
+        rows,
+        numericColumns: [4, 5],
+      });
+      expect(isPdf(buf)).toBe(true);
+      // Several pages' worth of content rather than one clipped page.
+      expect(buf.length).toBeGreaterThan(5000);
+    });
+
+    it('keeps an over-long cell on one line', async () => {
+      /*
+        pdfkit's `lineBreak: false` does not actually stop it wrapping, and rows here sit a fixed
+        15pt apart — so a wrapped description overprints the row below it, silently, and only on
+        paper. The cell is measured and cut instead.
+      */
+      const long = 'Term 3 fees — ' + 'Ama Serwaa Mensah of Basic Five Gold '.repeat(6);
+      const buf = await tableReportPdf({
+        school,
+        title: 'Double-entry journal',
+        headers: ['Date', 'Reference', 'Description', 'Account', 'Debit', 'Credit'],
+        rows: [['2026-05-01', 'INV-1', long, 'Fee income', '', 1200]],
+        numericColumns: [4, 5],
+      });
+      expect(isPdf(buf)).toBe(true);
+    });
+
+    it('renders with no rows at all', async () => {
+      // "Nobody owes anything" is a real and welcome result; it must still print.
+      const buf = await tableReportPdf({
+        school,
+        title: 'Outstanding fees',
+        headers: ['Admission No.', 'Name', 'Class', 'Guardian Phone', 'Balance'],
+        rows: [],
+      });
+      expect(isPdf(buf)).toBe(true);
+    });
   });
 
   describe('leaver documents', () => {

@@ -758,6 +758,8 @@ export class AssessmentService {
       });
       if (lines.length === 0) continue;
       const att = attTotals.get(st.id) ?? { present: 0, total: 0 };
+      // Clearing the vetting on regeneration: a report recomputed after the head signed it off is
+      // not the document that was signed off.
       await this.db.termReport.upsert({
         where: { studentId_termId: { studentId: st.id, termId: dto.termId } },
         update: {
@@ -768,6 +770,8 @@ export class AssessmentService {
           attendancePresent: att.present,
           attendanceTotal: att.total,
           generatedAt: new Date(),
+          vettedAt: null,
+          vettedById: null,
         },
         create: {
           schoolId: auth.schoolId,
@@ -830,6 +834,7 @@ export class AssessmentService {
       classPosition: r.classPosition,
       classSize: r.classSize,
       publishedAt: r.publishedAt,
+      vettedAt: r.vettedAt,
     }));
     return toPage(rows, total, { page, perPage });
   }
@@ -875,6 +880,33 @@ export class AssessmentService {
   }
 
   /** Publish (or retract) a whole class's reports for a term. Guardians only ever see published ones. */
+  /**
+   * Mark a class's reports as read and approved by the head, before anything is released.
+   *
+   * The order a school actually works in is generate → vet → publish, and the vetting is the head
+   * reading every card. Regenerating clears it, because a report recomputed after it was signed
+   * off is not the document that was signed off.
+   */
+  async vetReports(auth: AuthUser, dto: PublishReportsDto) {
+    const vetted = dto.published !== false;
+    const result = await this.db.termReport.updateMany({
+      where: { schoolId: auth.schoolId, classId: dto.classId, termId: dto.termId },
+      data: {
+        vettedAt: vetted ? new Date() : null,
+        vettedById: vetted ? auth.sub : null,
+      },
+    });
+    await this.db.audit(
+      auth.schoolId,
+      auth.sub,
+      vetted ? 'reports.vet' : 'reports.unvet',
+      'ClassRoom',
+      dto.classId,
+      { termId: dto.termId, count: result.count },
+    );
+    return { vetted, count: result.count };
+  }
+
   async publishReports(auth: AuthUser, dto: PublishReportsDto) {
     const publish = dto.published !== false;
     const result = await this.db.termReport.updateMany({
@@ -1022,6 +1054,35 @@ export class AssessmentService {
       identical to a normal one in the marks, and shows up only as the same class appearing twice.
       A parent asking "did he repeat Basic 4?" is asking about this, not about an average.
     */
+    /*
+      Conduct and health, which the audit found missing from what was otherwise a purely academic
+      record. A cumulative record card in a Ghanaian school carries all three, and the reason is
+      practical: the receiving school on a transfer, and the head writing a testimonial, are both
+      reading for character as much as for marks.
+    */
+    const [conductByTerm, discipline, medical] = await Promise.all([
+      Promise.resolve(
+        rows
+          .map((r) => ({ term: r.term, year: r.year, termId: r.termId }))
+          .map((r) => {
+            const report = reports.find((x) => x.termId === r.termId);
+            return {
+              term: `${r.year} · ${r.term}`,
+              conduct: report?.conduct ?? null,
+              interest: report?.interest ?? null,
+              teacherRemark: report?.teacherRemark ?? null,
+            };
+          })
+          .filter((r) => r.conduct || r.interest || r.teacherRemark),
+      ),
+      this.db.disciplineEntry.findMany({
+        where: { schoolId: auth.schoolId, studentId },
+        orderBy: { occurredOn: 'desc' },
+        take: 20,
+      }),
+      Promise.resolve(student.medicalNotes ?? null),
+    ]);
+
     const promotions = await this.db.promotionRecord.findMany({
       where: { schoolId: auth.schoolId, studentId },
       include: { academicYear: { select: { name: true, startDate: true } } },
@@ -1061,6 +1122,19 @@ export class AssessmentService {
         decidedAt: p.createdAt,
       })),
       yearsRepeated: promotions.filter((p) => p.action === 'REPEATED').length,
+      conduct: conductByTerm,
+      discipline: discipline.map((d) => ({
+        occurredOn: d.occurredOn,
+        description: d.description,
+        actionTaken: d.actionTaken,
+        outcome: d.outcome,
+      })),
+      /**
+       * Present only for a reader who holds the medical permission. Absent, not null: a null here
+       * would read as "no medical notes", which is a different and dangerous claim.
+       * See student-detail-custody-redaction.
+       */
+      medicalNotes: auth.permissions?.includes('students.medical') ? medical : undefined,
     };
   }
 
@@ -1390,6 +1464,17 @@ export class AssessmentController {
   @RequirePermission('reports.publish')
   publish(@CurrentUser() user: AuthUser, @Body() dto: PublishReportsDto) {
     return this.svc.publishReports(user, dto);
+  }
+
+  /**
+   * Vetting is the head's remark permission rather than the publish one: the person who reads
+   * every card and signs it off is the person who writes the head's remark on it, and that is
+   * deliberately not the same authority as releasing results to families.
+   */
+  @Post('reports/vet')
+  @RequirePermission('reports.remark.head')
+  vet(@CurrentUser() user: AuthUser, @Body() dto: PublishReportsDto) {
+    return this.svc.vetReports(user, dto);
   }
 
   // The route gate is the class teacher's remark; the head teacher's remark is checked in the
