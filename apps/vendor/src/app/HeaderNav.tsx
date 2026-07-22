@@ -21,14 +21,22 @@ const ITEMS: { href: string; label: string; isActive: (path: string) => boolean 
     isActive: (path) => path === '/' || path.startsWith('/clients'),
   },
   { href: '/packages', label: 'Packages', isActive: (path) => path.startsWith('/packages') },
-  { href: '/security', label: 'Signing in', isActive: (path) => path.startsWith('/security') },
+  { href: '/security', label: 'Security', isActive: (path) => path.startsWith('/security') },
 ];
 
+/**
+ * Set as one segmented control rather than three loose links.
+ *
+ * The track groups the destinations into a single object, which is the other half of telling them
+ * from the wordmark beside them — a label cannot be mistaken for a link when the links are visibly
+ * a set and it is not in the set. The current item is the raised one, so "where am I" is answered
+ * by depth rather than by a colour somebody has to have been told about.
+ */
 export default function HeaderNav() {
   const pathname = usePathname() ?? '';
 
   return (
-    <nav className="flex items-center gap-1 text-sm">
+    <nav className="flex items-center gap-0.5 rounded-full bg-hush/70 p-1 ring-1 ring-mist/70 text-sm">
       {ITEMS.map((item) => {
         const active = item.isActive(pathname);
         return (
@@ -38,10 +46,10 @@ export default function HeaderNav() {
             // Announced as well as shown: the styling says "you are here" to everyone who can see
             // it, and this says it to everyone who cannot.
             aria-current={active ? 'page' : undefined}
-            className={`rounded-md px-2.5 py-1.5 transition ${
+            className={`rounded-full px-3.5 py-1.5 transition ${
               active
-                ? 'bg-hush text-navy font-medium'
-                : 'text-slate hover:text-navy hover:bg-hush/60'
+                ? 'bg-white text-navy font-medium shadow-sm ring-1 ring-mist/80'
+                : 'text-slate hover:text-navy'
             }`}
           >
             {item.label}

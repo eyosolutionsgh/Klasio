@@ -18,6 +18,7 @@ import {
 } from './session';
 import {
   confirmEnrolment,
+  disableAuthenticator,
   emailFactorAvailable,
   sendEmailCode,
   verifySecondFactor,
@@ -146,6 +147,24 @@ export async function completeEnrolment(
 export interface EnrolmentResult {
   error?: string;
   recoveryCodes?: string[];
+}
+
+/**
+ * Turn the authenticator off for the account holding this session.
+ *
+ * Only ever your own — the id comes from the session and never from the form, so this cannot be
+ * pointed at somebody else's account by editing a field. `disableAuthenticator` decides whether it
+ * is safe; this only decides whose.
+ */
+export async function turnOffAuthenticator(): Promise<{ error?: string }> {
+  const user = await currentUser();
+  if (!user) redirect('/login');
+
+  const result = await disableAuthenticator(user.id);
+  if (!result.ok) return { error: result.error ?? 'That could not be turned off.' };
+  // The page reads enrolment from the database, so it has to be re-fetched to show the change.
+  revalidatePath('/security');
+  return {};
 }
 
 export async function signOut() {

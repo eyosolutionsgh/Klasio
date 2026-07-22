@@ -98,6 +98,48 @@ export function emailFactorAvailable(): boolean {
 }
 
 /**
+ * Turn the authenticator off — and refuse when it is the only way in.
+ *
+ * The security page used to carry no way to do this at all, on the reasoning that taking a way in
+ * away from an account is a support decision rather than a button, and that somebody who has lost
+ * their phone wants a recovery code instead of a faster route to being locked out. That reasoning
+ * is about the person who has *lost* the app. It reads differently for the person holding a live
+ * session who wants to move to a new phone, and it left this portal with a real dead end: with one
+ * staff account there is no "another member of staff" to ask, so an authenticator nobody could use
+ * could not be replaced by anyone.
+ *
+ * So the guard moves rather than disappears. Disabling is allowed while a signed-in person can
+ * still get back in by email, and refused outright when it would be the last factor standing —
+ * which is the lockout the original decision was actually protecting against.
+ *
+ * Recovery codes go with it. They exist to get past a missing authenticator; keeping them alive
+ * for an authenticator that no longer exists would leave a set of one-use passwords behind, which
+ * is the opposite of turning the thing off.
+ */
+export async function disableAuthenticator(userId: string): Promise<VerifyResult> {
+  if (!emailFactorAvailable()) {
+    return {
+      ok: false,
+      error:
+        'This server cannot send email, so the authenticator is the only way into this account. ' +
+        'Configure email first, or you would be locking yourself out.',
+    };
+  }
+
+  await db.vendorUser.update({
+    where: { id: userId },
+    data: {
+      totpSecretEnc: null,
+      totpConfirmedAt: null,
+      recoveryCodeHashes: [],
+      mfaFailedAttempts: 0,
+      mfaLockedUntil: null,
+    },
+  });
+  return { ok: true };
+}
+
+/**
  * Send a sign-in code to the address on the account.
  *
  * The address is never taken from the request. Letting a form choose where a code goes turns a
