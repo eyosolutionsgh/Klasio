@@ -61,6 +61,7 @@ import { PrismaService, withTenant } from '../prisma/prisma.service';
 import { markSchedule, scheduleTotals } from '../common/installments';
 import { concessionsFor, rankSiblings } from '../common/concessions';
 import { holdersOf } from '../common/holders';
+import { schoolWhatsAppNumber } from '../common/school-whatsapp';
 import { SmsModule, SmsService } from '../sms/sms.module';
 import { IntegrationsModule, IntegrationsService } from '../integrations/integrations.module';
 import {
@@ -909,6 +910,8 @@ export class FeesService {
           motto: school.motto,
           address: school.address,
           phone: school.phone,
+          // The bill is the other document every family holds — see common/school-whatsapp.ts.
+          whatsapp: await schoolWhatsAppNumber(this.db as never, auth.schoolId),
           brandColor: school.brandColor,
           logo: school.logoUrl
             ? await storage()
@@ -1549,6 +1552,7 @@ export class FeesService {
         motto: school.motto,
         address: school.address,
         phone: school.phone,
+        whatsapp: await schoolWhatsAppNumber(this.db as never, schoolId),
         brandColor: school.brandColor,
         logo: school.logoUrl
           ? await storage()

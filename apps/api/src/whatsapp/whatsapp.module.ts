@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   Req,
@@ -13,7 +14,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { IsString, MinLength } from 'class-validator';
+import { IsOptional, IsString, MinLength } from 'class-validator';
 import { Prisma } from '@prisma/client';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { PrismaService, withTenant } from '../prisma/prisma.service';
@@ -26,6 +27,8 @@ import {
 } from '../common/auth';
 import { canReply, minutesLeft, windowFromInbound } from '../common/whatsapp-window';
 import { normalizeMsisdn } from '../common/phone';
+import { parseHandback } from '../common/whatsapp-handback';
+import { decryptSecret, encryptSecret } from '../common/crypto';
 import { balanceOf } from '../common/ledger';
 import { buildReportCard } from '../common/report-card';
 import { reportCardPdf } from '../common/pdf';
@@ -51,6 +54,21 @@ import { AiModule, AiService } from '../ai/ai.module';
 
 class ReplyDto {
   @IsString() @MinLength(1) body: string;
+}
+
+/**
+ * What a school pastes in from Meta to connect its own number.
+ *
+ * The phone number **id** rather than the number: Meta addresses the sending number by an id, and
+ * a school that types its own +233 number here would get a connection that never sends. The
+ * number itself is asked for separately, only so the settings screen can say which one is
+ * connected.
+ */
+class WhatsAppConfigDto {
+  @IsString() @MinLength(5) phoneNumberId: string;
+  @IsString() @MinLength(20) token: string;
+  @IsOptional() @IsString() displayNumber?: string;
+  @IsOptional() @IsString() wabaId?: string;
 }
 
 export interface WhatsAppProvider {
@@ -185,31 +203,44 @@ interface BotState {
 
 @Injectable()
 export class WhatsAppService {
-  private provider: WhatsAppProvider;
-
   constructor(
     private db: PrismaService,
     private licence: LicenceService,
     private sms: SmsService,
     private ai: AiService,
-  ) {
+  ) {}
+
+  /**
+   * Whose number this school replies from — resolved per request, not once at boot.
+   *
+   * It used to be built in the constructor from `WHATSAPP_PHONE_NUMBER_ID`/`WHATSAPP_TOKEN`, so
+   * connecting WhatsApp meant editing the environment on the box and restarting it. A school can
+   * now paste its own credentials into Settings, and the environment stays as the fallback for a
+   * box configured the old way.
+   *
+   * The refusal that used to happen at startup happens here instead, for the same reason it
+   * existed: a mock that reports success tells a school its reply reached a worried parent when
+   * nothing was sent. Refusing at send time is what lets an unconnected school run everything
+   * else in the product — which, before this, it could not.
+   */
+  private async providerFor(schoolId: string): Promise<WhatsAppProvider> {
+    const account = await withTenant(schoolId, () =>
+      this.db.whatsAppAccount.findFirst({ where: { schoolId, active: true } }),
+    );
+    if (account) {
+      return new CloudApiProvider(account.phoneNumberId, decryptSecret(account.tokenEnc));
+    }
+
     const { WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_TOKEN } = process.env;
-    const configured = WHATSAPP_PHONE_NUMBER_ID && WHATSAPP_TOKEN;
-    // Same reasoning as SmsService: a mock that reports success in production tells a school its
-    // reply reached a parent when nothing was sent. A reply inside the 24-hour window is often
-    // answering a worried question, so silently dropping it is worse than refusing to start.
-    if (
-      !configured &&
-      process.env.NODE_ENV === 'production' &&
-      process.env.ALLOW_MOCK_SMS !== 'true'
-    ) {
-      throw new Error(
-        'No WhatsApp provider configured. Set WHATSAPP_PHONE_NUMBER_ID/WHATSAPP_TOKEN, or ALLOW_MOCK_SMS=true to accept that no reply will be delivered.',
+    if (WHATSAPP_PHONE_NUMBER_ID && WHATSAPP_TOKEN) {
+      return new CloudApiProvider(WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_TOKEN);
+    }
+    if (process.env.NODE_ENV === 'production' && process.env.ALLOW_MOCK_SMS !== 'true') {
+      throw new BadRequestException(
+        'This school has no WhatsApp number connected. Connect one under Communication → WhatsApp before replying.',
       );
     }
-    this.provider = configured
-      ? new CloudApiProvider(WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_TOKEN)
-      : new MockWhatsAppProvider();
+    return new MockWhatsAppProvider();
   }
 
   /**
@@ -306,7 +337,8 @@ export class WhatsAppService {
     filename: string,
     caption: string,
   ) {
-    const sent = await this.provider.sendDocument(conv.phone, file, filename, caption);
+    const provider = await this.providerFor(conv.schoolId);
+    const sent = await provider.sendDocument(conv.phone, file, filename, caption);
     await this.db.whatsAppMessage.create({
       data: {
         schoolId: conv.schoolId,
@@ -323,7 +355,8 @@ export class WhatsAppService {
   }
 
   private async sendBot(conv: { id: string; phone: string; schoolId: string }, body: string) {
-    const sent = await this.provider.send(conv.phone, body);
+    const provider = await this.providerFor(conv.schoolId);
+    const sent = await provider.send(conv.phone, body);
     await this.db.whatsAppMessage.create({
       data: {
         schoolId: conv.schoolId,
@@ -730,15 +763,33 @@ export class WhatsAppService {
       },
     });
     const now = new Date();
-    return rows.map((c) => ({
-      id: c.id,
-      phone: c.phone,
-      name: c.guardian ? `${c.guardian.firstName} ${c.guardian.lastName}` : null,
-      lastMessage: c.messages[0]?.body ?? null,
-      lastInboundAt: c.lastInboundAt,
-      minutesLeft: minutesLeft(c, now),
-      canReply: canReply(c, now).allowed,
-    }));
+    return (
+      rows
+        .map((c) => ({
+          id: c.id,
+          phone: c.phone,
+          name: c.guardian ? `${c.guardian.firstName} ${c.guardian.lastName}` : null,
+          lastMessage: c.messages[0]?.body ?? null,
+          lastInboundAt: c.lastInboundAt,
+          minutesLeft: minutesLeft(c, now),
+          canReply: canReply(c, now).allowed,
+          /**
+           * The assistant has stepped aside and this family was told a person would answer.
+           *
+           * Without it the list showed only the 24-hour window, so a thread somebody is waiting
+           * on looked exactly like one the assistant handled by itself — and the promise made in
+           * the school's name was the one thing the screen could not show.
+           */
+          needsPerson: ((c.botState as BotState) ?? {}).handedOff === true,
+        }))
+        // Waiting families first, and among them the ones whose window closes soonest. A list
+        // ordered purely by recency buries the thread that matters under chatter the bot handled.
+        .sort((a, b) => {
+          if (a.needsPerson !== b.needsPerson) return a.needsPerson ? -1 : 1;
+          if (a.needsPerson) return a.minutesLeft - b.minutesLeft;
+          return 0;
+        })
+    );
   }
 
   async thread(auth: AuthUser, id: string) {
@@ -771,6 +822,74 @@ export class WhatsAppService {
   }
 
   /**
+   * What the settings screen may know: whether a number is connected, which one, and whether it
+   * has ever sent — never the token. A credential that can be read back out of an API is one
+   * screenshot away from being somebody else's.
+   */
+  async config(auth: AuthUser) {
+    const account = await this.db.whatsAppAccount.findFirst({
+      where: { schoolId: auth.schoolId },
+    });
+    const envFallback = !!(process.env.WHATSAPP_PHONE_NUMBER_ID && process.env.WHATSAPP_TOKEN);
+    return {
+      connected: !!account,
+      phoneNumberId: account?.phoneNumberId ?? null,
+      displayNumber: account?.displayNumber ?? null,
+      wabaId: account?.wabaId ?? null,
+      lastSentAt: account?.lastSentAt ?? null,
+      connectedAt: account?.createdAt ?? null,
+      /**
+       * True when this box has credentials in its environment and the school has connected none.
+       * Said plainly on the screen, because otherwise "not connected" would be a lie: replies do
+       * go out, from whatever number the box was set up with.
+       */
+      usingBoxDefault: !account && envFallback,
+      /** The address Meta must call. Shown so it can be pasted into Meta's webhook settings. */
+      webhookUrl: `${process.env.PUBLIC_BASE_URL ?? ''}/whatsapp/webhook/${auth.schoolId}`,
+    };
+  }
+
+  /**
+   * Connect a number, or replace the one connected.
+   *
+   * The token is encrypted with the per-school key, like a payment gateway's secret, and is never
+   * returned again. Replacing rather than accumulating: a school has one WhatsApp number, and a
+   * second row would only raise the question of which one replies.
+   */
+  async saveConfig(auth: AuthUser, dto: WhatsAppConfigDto) {
+    const data = {
+      phoneNumberId: dto.phoneNumberId.trim(),
+      tokenEnc: encryptSecret(dto.token.trim()),
+      displayNumber: dto.displayNumber?.trim() || null,
+      wabaId: dto.wabaId?.trim() || null,
+      active: true,
+      connectedById: auth.sub,
+    };
+    await this.db.whatsAppAccount.upsert({
+      where: { schoolId: auth.schoolId },
+      create: { schoolId: auth.schoolId, ...data },
+      update: data,
+    });
+    // The token is deliberately absent from the audit detail — an audit log people can read is
+    // not a place to keep a credential.
+    await this.db.audit(auth.schoolId, auth.sub, 'whatsapp.connect', 'WhatsAppAccount', undefined, {
+      phoneNumberId: data.phoneNumberId,
+      displayNumber: data.displayNumber,
+    });
+    return this.config(auth);
+  }
+
+  /**
+   * Disconnect. Conversations and their history stay: they are the record of what the school was
+   * told and what it said back, and that outlives the connection.
+   */
+  async removeConfig(auth: AuthUser) {
+    await this.db.whatsAppAccount.deleteMany({ where: { schoolId: auth.schoolId } });
+    await this.db.audit(auth.schoolId, auth.sub, 'whatsapp.disconnect', 'WhatsAppAccount');
+    return this.config(auth);
+  }
+
+  /**
    * Reply to a family.
    *
    * `canReply` is checked here, on the server, immediately before sending. The UI hides the box
@@ -786,14 +905,31 @@ export class WhatsAppService {
     const decision = canReply(conv);
     if (!decision.allowed) throw new BadRequestException(decision.reason);
 
-    const sent = await this.provider.send(conv.phone, dto.body);
+    /**
+     * The school may end the handoff in the reply itself — "/bot", or a phrase like "back to the
+     * assistant". Whatever text remains is what the family receives, so one message can both
+     * answer the question and give the thread back.
+     */
+    const { handBack, message } = parseHandback(dto.body);
+    if (handBack && !message) {
+      // Nothing to say to the family — the school is only taking their hands off the thread. No
+      // outbound row, because nothing was sent and the transcript must not imply otherwise.
+      await this.setBotState(conv.id, {});
+      await this.db.audit(auth.schoolId, auth.sub, 'whatsapp.handback', 'WhatsAppConversation', id);
+      return { sent: false, handedBack: true };
+    }
+
+    const provider = await this.providerFor(auth.schoolId);
+    const sent = await provider.send(conv.phone, message);
     const now = new Date();
     await this.db.whatsAppMessage.create({
       data: {
         schoolId: auth.schoolId,
         conversationId: conv.id,
         direction: 'OUTBOUND',
-        body: dto.body,
+        // What was actually sent, not what was typed: the transcript is the record of what the
+        // family received, and the command was an instruction to us rather than a word to them.
+        body: message,
         externalId: sent.externalId ?? null,
         sentById: auth.sub,
       },
@@ -803,7 +939,15 @@ export class WhatsAppService {
       data: { lastOutboundAt: now },
     });
     await this.db.audit(auth.schoolId, auth.sub, 'whatsapp.reply', 'WhatsAppConversation', conv.id);
-    return { sent: true, provider: this.provider.kind };
+    // Recorded so "is WhatsApp working?" has an answer that is not a guess.
+    await this.db.whatsAppAccount
+      .updateMany({ where: { schoolId: auth.schoolId }, data: { lastSentAt: now } })
+      .catch(() => undefined);
+    if (handBack) {
+      await this.setBotState(conv.id, {});
+      await this.db.audit(auth.schoolId, auth.sub, 'whatsapp.handback', 'WhatsAppConversation', id);
+    }
+    return { sent: true, handedBack: handBack, provider: provider.kind };
   }
 }
 
@@ -904,6 +1048,28 @@ export class WhatsAppController {
   @RequireEntitlement('comms.whatsapp.templates')
   reply(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ReplyDto) {
     return this.svc.reply(user, id, dto);
+  }
+
+  /**
+   * Connecting the number is the same authority as replying from it: `comms.whatsapp`, matching
+   * how the social accounts screen gates connecting a page on `comms.social`.
+   */
+  @Get('config')
+  @RequirePermission('comms.whatsapp')
+  config(@CurrentUser() user: AuthUser) {
+    return this.svc.config(user);
+  }
+
+  @Post('config')
+  @RequirePermission('comms.whatsapp')
+  saveConfig(@CurrentUser() user: AuthUser, @Body() dto: WhatsAppConfigDto) {
+    return this.svc.saveConfig(user, dto);
+  }
+
+  @Delete('config')
+  @RequirePermission('comms.whatsapp')
+  removeConfig(@CurrentUser() user: AuthUser) {
+    return this.svc.removeConfig(user);
   }
 }
 

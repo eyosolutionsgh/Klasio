@@ -12,6 +12,7 @@
  * is). This decides only what the document says.
  */
 import { ReportCardData } from './pdf';
+import { schoolWhatsAppNumber } from './school-whatsapp';
 import { storage } from './storage';
 
 /** The slice of PrismaService this needs. Structural, so the helper stays easy to reason about. */
@@ -110,6 +111,8 @@ export async function buildReportCard(
       motto: school.motto,
       address: school.address,
       phone: school.phone,
+      // Printed on the report card because that is the document that reaches every family.
+      whatsapp: await schoolWhatsAppNumber(db as never, schoolId),
       brandColor: school.brandColor,
       // Bytes, not the storage key — and a crest that cannot be read must not stop anyone getting
       // the report card, so a failed fetch degrades to no logo.

@@ -12,7 +12,16 @@ import { SendIcon } from './icons';
  * be one: the school only ever answers. The window can also shut between page load and send, so
  * a refusal from the server is shown as the sentence it returns rather than swallowed.
  */
-export default function WhatsAppReply({ id, minutesLeft }: { id: string; minutesLeft: number }) {
+export default function WhatsAppReply({
+  id,
+  minutesLeft,
+  needsPerson,
+}: {
+  id: string;
+  minutesLeft: number;
+  /** The assistant has stepped aside on this thread and the family was promised a person. */
+  needsPerson?: boolean;
+}) {
   const router = useRouter();
   const [body, setBody] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +51,19 @@ export default function WhatsAppReply({ id, minutesLeft }: { id: string; minutes
 
   return (
     <form onSubmit={send.run}>
+      {/*
+        Said where the reply is written, not in a settings page nobody opens mid-conversation.
+        The assistant stays quiet until the school says so — it has no way of knowing whether the
+        matter is settled, and jumping back in mid-conversation is the failure the pause exists to
+        prevent.
+      */}
+      {needsPerson && (
+        <p className="text-[12px] text-clay border-l-2 border-clay/40 pl-2.5 mb-3">
+          This family asked for a person, so the assistant has gone quiet here. End
+          <code className="mx-1 rounded bg-parchment px-1 py-0.5 text-[11px]">/bot</code>
+          on your reply when the matter is settled and it will take the thread again.
+        </p>
+      )}
       <label className="block text-[13px]" htmlFor="wa-reply">
         <span className="block text-oat mb-1">Reply</span>
         <textarea

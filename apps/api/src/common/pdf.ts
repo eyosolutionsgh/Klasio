@@ -19,6 +19,15 @@ export interface DocSchool {
   motto: string | null;
   address: string | null;
   phone: string | null;
+  /**
+   * The school's WhatsApp number, when one is connected.
+   *
+   * Printed on everything a family holds, because a channel nobody knows about is not a channel.
+   * The screen used to tell schools to "put your WhatsApp number on terminal reports, bills and
+   * the school gate" — which is the software asking a head teacher to do the software's job, and
+   * asking it in a place they would only look if the feature was already working.
+   */
+  whatsapp?: string | null;
   /** Validated 6-digit hex, or null to use the house colour. */
   brandColor?: string | null;
   /** Crest bytes, when one is on file. */
@@ -26,6 +35,18 @@ export interface DocSchool {
 }
 
 const brandOf = (s: DocSchool) => s.brandColor || FOREST;
+
+/**
+ * The contact strip under a school's name.
+ *
+ * One function rather than the same `[address, phone].join(' · ')` written out at nine call
+ * sites, which is how the WhatsApp number would have reached the report card and missed the bill.
+ */
+export function contactLine(s: DocSchool): string {
+  return [s.address, s.phone, s.whatsapp ? `WhatsApp ${s.whatsapp}` : null]
+    .filter(Boolean)
+    .join('  ·  ');
+}
 
 /**
  * Draw the school crest, or quietly skip it.
@@ -234,7 +255,7 @@ export function reportCardPdf(card: ReportCardData): Promise<Buffer> {
       .font('Helvetica')
       .fontSize(9)
       .text(
-        [card.school.motto, card.school.address, card.school.phone].filter(Boolean).join('  ·  '),
+        [card.school.motto, contactLine(card.school)].filter(Boolean).join('  ·  '),
         textX,
         44,
         { width: textW },
@@ -259,11 +280,9 @@ export function reportCardPdf(card: ReportCardData): Promise<Buffer> {
       .text(card.school.name, left, doc.y, { width, align: 'center' });
     doc.fillColor(OAT).font('Helvetica-Oblique').fontSize(9);
     if (card.school.motto) doc.text(card.school.motto, { align: 'center' });
-    doc
-      .font('Helvetica')
-      .text([card.school.address, card.school.phone].filter(Boolean).join(' · '), {
-        align: 'center',
-      });
+    doc.font('Helvetica').text(contactLine(card.school), {
+      align: 'center',
+    });
     doc
       .moveDown(0.6)
       .fillColor(INK)
@@ -425,11 +444,7 @@ export function receiptPdf(r: ReceiptData): Promise<Buffer> {
     .font('Helvetica-Bold')
     .fontSize(16)
     .text(r.school.name, left, doc.y, { width, align: 'center' });
-  doc
-    .fillColor(OAT)
-    .font('Helvetica')
-    .fontSize(8)
-    .text([r.school.address, r.school.phone].filter(Boolean).join(' · '), { align: 'center' });
+  doc.fillColor(OAT).font('Helvetica').fontSize(8).text(contactLine(r.school), { align: 'center' });
   doc
     .moveDown(0.5)
     .fillColor(INK)
@@ -624,7 +639,7 @@ export function statementPdf(s: StatementData): Promise<Buffer> {
     .font('Helvetica-Bold')
     .fontSize(17)
     .text(s.school.name, left, doc.y, { width, align: 'center' });
-  const contact = [s.school.address, s.school.phone].filter(Boolean).join(' · ');
+  const contact = contactLine(s.school);
   if (contact) {
     doc.fillColor(OAT).font('Helvetica').fontSize(9).text(contact, { width, align: 'center' });
   }
@@ -970,9 +985,17 @@ export function tableReportPdf(data: TableReportData): Promise<Buffer> {
   const numeric = new Set(data.numericColumns ?? []);
 
   doc.fillColor(BRAND).font('Helvetica-Bold').fontSize(15).text(data.school.name, left, doc.y);
-  doc.fillColor(INK).font('Helvetica-Bold').fontSize(12).text(data.title, left, doc.y + 2);
+  doc
+    .fillColor(INK)
+    .font('Helvetica-Bold')
+    .fontSize(12)
+    .text(data.title, left, doc.y + 2);
   if (data.subtitle) {
-    doc.fillColor(OAT).font('Helvetica').fontSize(9).text(data.subtitle, left, doc.y + 1);
+    doc
+      .fillColor(OAT)
+      .font('Helvetica')
+      .fontSize(9)
+      .text(data.subtitle, left, doc.y + 1);
   }
   doc
     .moveTo(left, doc.y + 5)
@@ -1215,7 +1238,11 @@ export function leaverDocPdf(data: LeaverDocData): Promise<Buffer> {
     .strokeColor(MIST)
     .lineWidth(0.8)
     .stroke();
-  doc.fillColor(INK).font('Helvetica-Bold').fontSize(10).text(data.signatory, left, sigY + 5);
+  doc
+    .fillColor(INK)
+    .font('Helvetica-Bold')
+    .fontSize(10)
+    .text(data.signatory, left, sigY + 5);
   doc
     .fillColor(OAT)
     .font('Helvetica')
@@ -1319,7 +1346,7 @@ export async function pickupCardPdf(data: PickupCardData): Promise<Buffer> {
   // Where to return it, and who to ring. Both are optional on a school record, so a school that
   // has filled in neither simply gets no line rather than a stray separator. Flows from the text
   // above rather than a fixed y, so a two-line address cannot land on top of it.
-  const contact = [data.school.address, data.school.phone].filter(Boolean).join(' · ');
+  const contact = contactLine(data.school);
   if (contact) {
     doc
       .fillColor(INK)

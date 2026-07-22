@@ -179,4 +179,52 @@ describe('whatsapp assistant', () => {
     const latest = await lastBotReply(guardianPhone);
     expect(latest.id).toBe(handoff.id);
   });
+
+  it('the school gives the thread back with a command in its own reply', async () => {
+    /**
+     * The pause used to be permanent — nothing anywhere cleared `handedOff` — so a family that
+     * once asked for a person needed a person forever after, including for "what is my balance".
+     * It ends when the school says so and not on a timer: only they know whether the matter is
+     * actually settled.
+     */
+    // Matched on the last nine digits like `lastBotReply`: what the webhook stores is the
+    // normalised MSISDN, not the string the seed happens to hold.
+    const conv = await db.whatsAppConversation.findFirstOrThrow({
+      where: { schoolId, phone: { contains: guardianPhone.slice(-9) } },
+    });
+    expect((conv.botState as { handedOff?: boolean })?.handedOff, 'still paused').toBe(true);
+
+    const owner = await db.user.findFirstOrThrow({ where: { schoolId, role: 'OWNER' } });
+    const token = signToken({
+      sub: owner.id,
+      schoolId,
+      role: owner.role,
+      tier: 'ADVANCED',
+      name: owner.name,
+    });
+    const res = await call<{ handedBack: boolean }>(
+      api.baseUrl,
+      'POST',
+      `/whatsapp/conversations/${conv.id}/reply`,
+      { token, body: { body: 'The head will see you Friday at 10am. /bot' } },
+    );
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.handedBack).toBe(true);
+
+    const after = await db.whatsAppConversation.findFirstOrThrow({ where: { id: conv.id } });
+    expect((after.botState as { handedOff?: boolean })?.handedOff ?? false).toBe(false);
+
+    // What the family received: the sentence, with its own full stop, and no sign of the command.
+    const outbound = await db.whatsAppMessage.findFirstOrThrow({
+      where: { conversationId: conv.id, direction: 'OUTBOUND' },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(outbound.body).toBe('The head will see you Friday at 10am.');
+    expect(outbound.body).not.toContain('/bot');
+
+    // And the assistant is answering again.
+    await inbound(api, schoolId, guardianPhone, 'What do I owe?');
+    const resumed = await lastBotReply(guardianPhone);
+    expect(resumed.body).not.toBe(outbound.body);
+  });
 });

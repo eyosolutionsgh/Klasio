@@ -2422,6 +2422,37 @@ enum SocialPlatform {
 ///
 /// Modelled on GatewayAccount: composite unique, the credential encrypted at rest, and a list
 /// endpoint that returns whether a token exists rather than the token.
+/// The school's own WhatsApp Business number, as the school connects it.
+///
+/// WhatsApp used to be the one messaging channel a school could not set up for itself: the
+/// credentials were read from `WHATSAPP_PHONE_NUMBER_ID`/`WHATSAPP_TOKEN` in the box's
+/// environment, so connecting it meant someone editing a file on the server. On a product where
+/// every school runs its own box that is not configuration, it is a support call — and until it
+/// happened the WhatsApp screen sat there permanently empty, which is exactly how it came to look
+/// useless.
+///
+/// One row per school; the token is encrypted with the same per-tenant key as the payment
+/// gateways and the social tokens, and is never read back out to the browser.
+model WhatsAppAccount {
+  id       String @id @default(cuid())
+  schoolId String @unique
+
+  /// Meta's phone number id for the WhatsApp Business number — not the number itself.
+  phoneNumberId String
+  tokenEnc      String
+  /// Shown back so the school can tell which number is connected without exposing the token.
+  displayNumber String?
+  /// The WhatsApp Business Account id, kept for support rather than used at send time.
+  wabaId        String?
+
+  active        Boolean   @default(true)
+  connectedById String?
+  /// When a send last succeeded — the honest answer to "is this working?".
+  lastSentAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
 model SocialAccount {
   id       String         @id @default(cuid())
   schoolId String

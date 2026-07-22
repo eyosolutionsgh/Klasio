@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   admissionLetterPdf,
+  contactLine,
   leaverDocPdf,
   tableReportPdf,
   reportCardPdf,
@@ -300,5 +301,31 @@ describe('PDF builders', () => {
       ],
     });
     expect(isPdf(buf)).toBe(true);
+  });
+});
+
+describe('the contact strip', () => {
+  const base = { name: 'Brighton Academy', motto: null, address: 'Accra', phone: '0302 000 000' };
+
+  it('prints the WhatsApp number where families will see it', () => {
+    // The school used to be told to do this by hand, on a screen they would only look at once it
+    // was already working.
+    expect(contactLine({ ...base, whatsapp: '+233 24 123 4567' })).toContain(
+      'WhatsApp +233 24 123 4567',
+    );
+  });
+
+  it('says nothing at all when no number is connected', () => {
+    // Most schools have not connected WhatsApp; the strip must not grow an empty separator.
+    expect(contactLine(base)).toBe('Accra  ·  0302 000 000');
+    expect(contactLine({ ...base, whatsapp: null })).toBe('Accra  ·  0302 000 000');
+  });
+
+  it('is one function, so a document cannot be forgotten', () => {
+    // The report card, the bill and the receipt all draw the same string. Written out per call
+    // site, the number would have reached one and missed the others.
+    expect(contactLine({ ...base, address: null, phone: null, whatsapp: '024' })).toBe(
+      'WhatsApp 024',
+    );
   });
 });
