@@ -11,6 +11,7 @@ import { PrismaClient } from '@prisma/client';
 import * as jwt from 'jsonwebtoken';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { jwtSecret } from '../src/common/auth';
+import { balanceOf } from '../src/common/ledger';
 import { Api, call, ownerDb, seededSchool, startApi } from './setup/harness';
 
 const guardianToken = (g: { id: string; schoolId: string; firstName: string; lastName: string }) =>
@@ -87,7 +88,19 @@ describe('fee clearance gate on report release', () => {
     await db.$disconnect();
   });
 
-  /** Put the family into debt, deterministically, without touching what the seed billed. */
+  /**
+   * Put the family exactly `amount` in debt — including exactly nothing.
+   *
+   * The seed bills fees and collects most of them, so roughly a third of its students still owe
+   * something. Which one this spec picks comes from a `findFirstOrThrow`, so deleting only this
+   * spec's own rows left the balance at whatever the seed happened to leave: zero for most
+   * students and not zero for the rest. "Releases the report once the balance is settled" then
+   * passed or failed on which row the database returned first.
+   *
+   * Settling is a PAYMENT for whatever is outstanding rather than a delete, because the ledger is
+   * append-only and money is not made to disappear by removing rows — the same reason production
+   * corrects with a REVERSAL. It carries the ITEST- reference so the next call clears it.
+   */
   async function owe(amount: number) {
     await db.ledgerEntry.deleteMany({ where: { studentId, reference: { startsWith: 'ITEST-' } } });
     if (amount > 0) {
@@ -99,6 +112,27 @@ describe('fee clearance gate on report release', () => {
           type: 'INVOICE',
           amount,
           reference: `ITEST-${Date.now()}`,
+          createdById: staffUserId,
+        },
+      });
+      return;
+    }
+
+    const outstanding = balanceOf(
+      await db.ledgerEntry.findMany({
+        where: { studentId },
+        select: { id: true, type: true, amount: true, reversedId: true },
+      }),
+    );
+    if (outstanding > 0) {
+      await db.ledgerEntry.create({
+        data: {
+          schoolId,
+          studentId,
+          termId,
+          type: 'PAYMENT',
+          amount: outstanding,
+          reference: `ITEST-SETTLE-${Date.now()}`,
           createdById: staffUserId,
         },
       });
@@ -204,12 +238,9 @@ describe('fee clearance gate on report release', () => {
     });
     expect((await pdf()).status).toBe(200);
 
-    const revoked = await call(
-      api.baseUrl,
-      'DELETE',
-      `/fees/clearances/${studentId}/${termId}`,
-      { token: staffToken },
-    );
+    const revoked = await call(api.baseUrl, 'DELETE', `/fees/clearances/${studentId}/${termId}`, {
+      token: staffToken,
+    });
     expect(revoked.status).toBe(200);
     expect((await pdf()).status).toBe(403);
   });
@@ -218,7 +249,7 @@ describe('fee clearance gate on report release', () => {
    * The negative half. FeeClearance is a new tenant table, and a missing RLS policy fails open
    * and silently — the API would happily read another school's clearances and never say so.
    */
-  it('cannot see another school\'s clearance rows', async () => {
+  it("cannot see another school's clearance rows", async () => {
     await db.feeClearance.deleteMany({ where: { schoolId } });
     await call(api.baseUrl, 'POST', '/fees/clearances', {
       token: staffToken,
