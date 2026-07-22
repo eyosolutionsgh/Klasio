@@ -1,4 +1,17 @@
 {
   "extends": "./tsconfig.json",
-  "exclude": ["node_modules", "dist", "prisma", "test", "**/*.spec.ts"]
+  /**
+   * `api` is excluded, and that is load-bearing rather than tidiness.
+   *
+   * `api/index.ts` is the Vercel entrypoint. Vercel compiles it itself as a Function, so it does
+   * not belong in `nest build`'s output — and including it moves that output. TypeScript infers
+   * the root directory from the files it compiles, so with both `src/` and `api/` in scope the
+   * common root becomes the package directory and `main.js` is emitted to `dist/src/main.js`
+   * instead of `dist/main.js`. Everything that is not Vercel — the Dockerfile, an on-prem box, the
+   * e2e job in CI — starts the API with `node dist/main.js`, and all of them break.
+   *
+   * It stays in `tsconfig.json`'s `include` so `pnpm typecheck` still covers it. Only the emit is
+   * narrowed.
+   */
+  "exclude": ["node_modules", "dist", "prisma", "test", "api", "**/*.spec.ts"]
 }
