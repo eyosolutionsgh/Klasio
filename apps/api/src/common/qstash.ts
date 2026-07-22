@@ -55,6 +55,18 @@ export async function ensureSchedule(input: {
   cron: string;
   log: { log: (m: string) => void; warn: (m: string) => void };
 }): Promise<boolean> {
+  // Half-configured is the case worth naming. Neither variable set is an ordinary deployment that
+  // does not use QStash and must stay silent; a token with nowhere to call back to is somebody who
+  // meant to use it, and the cost of saying nothing is a schedule that never runs and never
+  // explains itself.
+  if (process.env.QSTASH_TOKEN && !callbackBase()) {
+    input.log.warn(
+      `QStash is configured but API_PUBLIC_URL is not set, so "${input.scheduleId}" was not ` +
+        "registered and this job will not run. Set it to the API's stable public URL — the same " +
+        'address payment gateways are given for their webhooks.',
+    );
+    return false;
+  }
   if (!schedulerConfigured()) return false;
   const destination = `${callbackBase()}${input.path}`;
   try {

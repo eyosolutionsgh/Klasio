@@ -54,6 +54,34 @@ describe('qstash configuration', () => {
     ).resolves.toBe(false);
   });
 
+  it('says so when QStash is configured but has nowhere to call back to', async () => {
+    // Half-configured must not be silent: it is somebody who meant to use QStash, and the symptom
+    // otherwise is a job that never runs and never explains why. Cost a deploy to work out once.
+    const warnings: string[] = [];
+    process.env.QSTASH_TOKEN = 'tok_test';
+    await ensureSchedule({
+      scheduleId: 'the-sweep',
+      path: '/x',
+      cron: '* * * * *',
+      log: { log: () => undefined, warn: (m) => warnings.push(m) },
+    });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('API_PUBLIC_URL');
+    expect(warnings[0]).toContain('the-sweep');
+  });
+
+  it('stays silent where QStash is simply not in use', async () => {
+    // The on-prem case. A school's server must not log about a service it does not talk to.
+    const warnings: string[] = [];
+    await ensureSchedule({
+      scheduleId: 'x',
+      path: '/x',
+      cron: '* * * * *',
+      log: { log: () => undefined, warn: (m) => warnings.push(m) },
+    });
+    expect(warnings).toEqual([]);
+  });
+
   it('registers nothing when there is an address but no token', async () => {
     // A replica given only the signing keys answers callbacks; it must not re-point the schedules
     // at itself.
