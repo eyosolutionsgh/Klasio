@@ -1,4 +1,5 @@
-import { api } from '@/lib/api';
+import Link from 'next/link';
+import { api, apiOrNull } from '@/lib/api';
 import DownloadButton from '@/components/DownloadButton';
 import ReturnsFilters from '@/components/ReturnsFilters';
 import { ROLE_LABELS } from '@/lib/roles';
@@ -39,8 +40,16 @@ export default async function ReturnsPage({
   searchParams: Promise<{ termId?: string }>;
 }) {
   const { termId } = await searchParams;
+  /**
+   * The summary may legitimately not exist: a return is a snapshot of one term's roll, so a school
+   * that has not set a current term has nothing to snapshot and the API says so with a 404. That
+   * used to reach the error boundary as "This page couldn't load. A server error occurred", which
+   * told a head teacher the software was broken when the answer was "set your term".
+   *
+   * The structure is fetched either way, because it is what lets them choose a term and carry on.
+   */
   const [summary, structure] = await Promise.all([
-    api<Summary>(`/returns${termId ? `?termId=${termId}` : ''}`),
+    apiOrNull<Summary>(`/returns${termId ? `?termId=${termId}` : ''}`),
     api<Structure>('/school/structure'),
   ]);
 
@@ -48,6 +57,8 @@ export default async function ReturnsPage({
   const terms = structure.years.flatMap((y) =>
     y.terms.map((t) => ({ id: t.id, label: `${y.name} · ${t.name}` })),
   );
+
+  if (!summary) return <NoTerm terms={terms} />;
   const qs = `&termId=${summary.term.id}`;
   /*
     WAEC and CSSPS concern leaving classes only. Filtered on the level category rather than the
@@ -332,6 +343,50 @@ export default async function ReturnsPage({
             </div>
           </dl>
         </section>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * What the page says before there is a term to report on.
+ *
+ * Two different situations, and they need different answers. A school that has set up its calendar
+ * but marked no term current can simply pick one and file it — a return for a past term is a
+ * normal thing to want, and the picker already supports it. A school with no calendar at all has
+ * nothing to pick, so it is sent to where terms are created rather than shown an empty control.
+ */
+function NoTerm({ terms }: { terms: { id: string; label: string }[] }) {
+  return (
+    <div>
+      <div className="rise rise-1">
+        <h1 className="font-display text-3xl">Termly returns</h1>
+        <p className="text-sm text-oat mt-1.5 max-w-2xl">
+          The counts GES and NaSIA ask for each term, assembled from the records you already keep.
+        </p>
+      </div>
+
+      <div className="card p-6 mt-6 max-w-2xl rise rise-2">
+        <h2 className="font-display text-xl">
+          {terms.length > 0 ? 'Choose a term to report on' : 'No terms set up yet'}
+        </h2>
+        <p className="text-sm text-oat mt-2 leading-relaxed">
+          {terms.length > 0
+            ? 'A return is the roll as it stood in one particular term, and none is currently marked as running. Pick the term you are filing for.'
+            : 'A return counts one term’s enrolment, staffing, attendance and results — so there is nothing to assemble until your academic year and its terms exist.'}
+        </p>
+        {terms.length > 0 ? (
+          <div className="mt-4">
+            <ReturnsFilters termId="" terms={terms} />
+          </div>
+        ) : (
+          <Link
+            href="/settings/school"
+            className="inline-block mt-4 text-[13px] text-brand hover:underline underline-offset-2"
+          >
+            Set up the academic year
+          </Link>
+        )}
       </div>
     </div>
   );

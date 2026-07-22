@@ -3,6 +3,24 @@ import { redirect } from 'next/navigation';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
+/**
+ * The same fetch, for a resource that legitimately may not exist yet — `null` instead of a throw.
+ *
+ * A 404 is not always a fault. A termly return is a snapshot of one term, so a school that has
+ * not set its current term has nothing to snapshot; the API says so honestly and `api()` turned
+ * that into "This page couldn't load. A server error occurred", which is both alarming and wrong
+ * about whose problem it is. Only 404 is softened — every other status still throws, because a
+ * 500 really is a fault and should not be quietly rendered as an empty page.
+ */
+export async function apiOrNull<T>(path: string, init?: RequestInit): Promise<T | null> {
+  try {
+    return await api<T>(path, init);
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith('API 404:')) return null;
+    throw e;
+  }
+}
+
 /** Server-side API fetch with the session token. Redirects to /login on 401. */
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const jar = await cookies();
