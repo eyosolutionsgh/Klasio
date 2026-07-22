@@ -559,29 +559,35 @@ export default function Sidebar({
         someone's logo to suit our palette is not ours to do, so the surface changes instead.
       */}
       {/*
-        A signature, not a second brand: the school owns this sidebar, so the supplier's mark is
-        laid out sideways in one short row rather than as a stacked block. The label and the plan
-        share the column beside the plate — three stacked rows of it were taking ~130px off the
-        menu for something read once.
+        A signature, not a second brand: the school owns this sidebar, so the supplier's mark sits
+        small at the foot rather than as the stacked block that was taking ~130px off the menu.
+
+        "Powered by" belongs to the mark and sits directly above it. It spent a version in the
+        column beside the plate, immediately above the plan — which read, in one line, as "powered
+        by Advanced plan". The plan says what it is instead: labelled "Plan:", which names the
+        thing rather than leaving a bare word to be read as the end of somebody else's sentence.
       */}
-      <div className="mt-auto shrink-0 flex items-center gap-2.5 px-4 py-2.5 border-t border-paper/10">
-        <div className="shrink-0 rounded-md bg-paper/95 px-2 py-1.5 grid place-items-center">
-          {/* Sized by width, not height. At a fixed 24px tall the mark floated in a mostly empty
-              panel and the strapline collapsed into a smudge. It stays on a light plate: the
-              artwork was keyed off white and washes out rather than failing obviously on the
-              navy. */}
-          <img
-            src="/brand/klasio-lockup.png"
-            alt="Klasio — School Management System"
-            className="w-[86px] h-auto"
-          />
-        </div>
-        <div className="min-w-0 leading-tight">
-          <p className="text-[9px] uppercase tracking-widest text-paper/35">Powered by</p>
-          {/* Sentence case, not the shouted uppercase of the old badge. */}
-          <p className="text-[11px] text-paper/45">
-            {tier.charAt(0) + tier.slice(1).toLowerCase()} plan
-          </p>
+      <div className="mt-auto shrink-0 px-4 py-2.5 border-t border-paper/10">
+        <p className="text-[9px] uppercase tracking-widest text-paper/35 leading-none">
+          Powered by
+        </p>
+        <div className="mt-1.5 flex items-center gap-2.5">
+          <div className="shrink-0 rounded-md bg-paper/95 px-2 py-1.5 grid place-items-center">
+            {/* Sized by width, not height. At a fixed 24px tall the mark floated in a mostly empty
+                panel and the strapline collapsed into a smudge. It stays on a light plate: the
+                artwork was keyed off white and washes out rather than failing obviously on the
+                navy. */}
+            <img
+              src="/brand/klasio-lockup.png"
+              alt="Klasio — School Management System"
+              className="w-[86px] h-auto"
+            />
+          </div>
+          <span className="text-[11px] text-paper/45 whitespace-nowrap">
+            {/* Sentence case, not the shouted uppercase of the old badge. */}
+            Plan:{' '}
+            <span className="text-paper/70">{tier.charAt(0) + tier.slice(1).toLowerCase()}</span>
+          </span>
         </div>
       </div>
 
