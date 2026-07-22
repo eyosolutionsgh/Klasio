@@ -38,7 +38,7 @@ import { hasEntitlement } from '../common/entitlements';
 import { createHmac } from 'crypto';
 import { balanceOf } from '../common/ledger';
 import { nextInSequence, refNumber } from '../common/sequences';
-import { verifyQstashSignature } from '../common/qstash';
+import { ensureSchedule, verifyQstashSignature } from '../common/qstash';
 
 class ConnectGatewayDto {
   @IsIn(['HUBTEL', 'PAYSTACK', 'FLUTTERWAVE']) provider: 'HUBTEL' | 'PAYSTACK' | 'FLUTTERWAVE';
@@ -60,6 +60,8 @@ class CheckoutDto {
 
 const PAYMENTS_QUEUE = 'payments';
 const SWEEP_EVERY_MS = 5 * 60_000;
+/** The same five minutes as SWEEP_EVERY_MS, in the only units QStash accepts. */
+const SWEEP_CRON = '*/5 * * * *';
 const PENDING_OLDER_THAN_MIN = 10;
 
 /** Minimal shape of the raw-body request — avoids depending on @types/express. */
@@ -853,6 +855,21 @@ export class PaymentsQueue implements OnModuleInit, OnModuleDestroy {
   constructor(private svc: PaymentsService) {}
 
   async onModuleInit() {
+    // QStash first, and only when it is configured: a deployment that has Redis is unaffected by
+    // this and keeps the worker below. Registering the schedule here rather than by hand in the
+    // Upstash console keeps the sweep's cadence next to the code that performs it.
+    if (
+      await ensureSchedule({
+        scheduleId: 'klasio-payments-requery-sweep',
+        path: '/payments/internal/qstash/sweep',
+        cron: SWEEP_CRON,
+        log: this.logger,
+      })
+    ) {
+      this.enabled = true;
+      return;
+    }
+
     const url = process.env.REDIS_URL;
     if (!url) {
       this.logger.warn(

@@ -69,7 +69,7 @@ import {
   RequireEntitlement,
   RequirePermission,
 } from '../common/auth';
-import { verifyQstashSignature } from '../common/qstash';
+import { ensureSchedule, verifyQstashSignature } from '../common/qstash';
 import { receiptPdf, statementPdf, tableReportPdf } from '../common/pdf';
 import { statementLines } from '../common/statement';
 import { toCsv, toXlsx, Cell } from '../common/export';
@@ -2364,6 +2364,8 @@ export class FeesController {
 const REMINDERS_QUEUE = 'fee-reminders';
 /** Checked hourly; each school fires only in its own chosen hour, at most once a day. */
 const TICK_MS = 60 * 60 * 1000;
+/** The same hour as TICK_MS, in the only units QStash accepts. On the hour, not on the minute. */
+const TICK_CRON = '0 * * * *';
 
 /**
  * Runs each school's fee reminders on the day and hour it chose.
@@ -2385,6 +2387,19 @@ export class RemindersQueue implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   async onModuleInit() {
+    // QStash first, and only when it is configured — a deployment with Redis keeps the worker
+    // below and is unaffected. See the same shape in payments.module.ts.
+    if (
+      await ensureSchedule({
+        scheduleId: 'klasio-fee-reminders-tick',
+        path: '/fees/internal/qstash/reminders-tick',
+        cron: TICK_CRON,
+        log: this.logger,
+      })
+    ) {
+      return;
+    }
+
     const url = process.env.REDIS_URL;
     if (!url) {
       this.logger.warn('REDIS_URL not set — scheduled fee reminders disabled; send manually.');
