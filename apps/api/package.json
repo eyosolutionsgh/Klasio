@@ -17,6 +17,7 @@
     "licence:mint": "ts-node --transpile-only scripts/mint-licence.ts",
     "licence:new-key": "ts-node --transpile-only scripts/mint-licence.ts --new-key",
     "db:seed:second": "ts-node --transpile-only prisma/seed-second-school.ts",
+    "db:seed:roles": "ts-node --transpile-only prisma/seed-role-users.ts",
     "db:drift-check": "bash scripts/drift-check.sh"
   },
   "dependencies": {
