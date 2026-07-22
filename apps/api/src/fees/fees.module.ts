@@ -69,7 +69,12 @@ import {
   RequireEntitlement,
   RequirePermission,
 } from '../common/auth';
-import { describeRejectedCallback, ensureSchedule, verifyQstashSignature } from '../common/qstash';
+import {
+  describeRejectedCallback,
+  ensureSchedule,
+  signedBodyOf,
+  verifyQstashSignature,
+} from '../common/qstash';
 import { receiptPdf, statementPdf, tableReportPdf } from '../common/pdf';
 import { statementLines } from '../common/statement';
 import { toCsv, toXlsx, Cell } from '../common/export';
@@ -2508,7 +2513,7 @@ export class FeesQstashController {
   @Public()
   async qstashTick(@Req() req: RawRequest) {
     const signature = req.headers['upstash-signature'];
-    const raw = (req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}))).toString('utf8');
+    const raw = signedBodyOf(req);
     const ok = await verifyQstashSignature(signature, raw);
     if (!ok) {
       this.logger.warn(

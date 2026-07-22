@@ -38,7 +38,12 @@ import { hasEntitlement } from '../common/entitlements';
 import { createHmac } from 'crypto';
 import { balanceOf } from '../common/ledger';
 import { nextInSequence, refNumber } from '../common/sequences';
-import { describeRejectedCallback, ensureSchedule, verifyQstashSignature } from '../common/qstash';
+import {
+  describeRejectedCallback,
+  ensureSchedule,
+  signedBodyOf,
+  verifyQstashSignature,
+} from '../common/qstash';
 
 class ConnectGatewayDto {
   @IsIn(['HUBTEL', 'PAYSTACK', 'FLUTTERWAVE']) provider: 'HUBTEL' | 'PAYSTACK' | 'FLUTTERWAVE';
@@ -951,7 +956,7 @@ export class PaymentsQstashController {
   @Public()
   async qstashSweep(@Req() req: RawRequest) {
     const signature = req.headers['upstash-signature'];
-    const raw = (req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}))).toString('utf8');
+    const raw = signedBodyOf(req);
     const ok = await verifyQstashSignature(signature, raw);
     if (!ok) {
       this.logger.warn(

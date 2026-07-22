@@ -97,6 +97,23 @@ function client(): Receiver {
 }
 
 /**
+ * The exact bytes QStash signed.
+ *
+ * `rawBody` is the right answer and is what a self-hosted deployment provides — Nest is created
+ * with `rawBody: true` for this and for gateway webhooks. Vercel parses the request before Nest
+ * sees it, so there it is absent, and Express has already turned the empty body QStash sent into
+ * `{}`. Re-serialising that verified `"{}"` against a signature computed over `""`, which fails
+ * every time, deterministically, and reads as a rejected credential rather than a mangled body.
+ *
+ * An absent rawBody therefore means empty, not unknown: `ensureSchedule` registers these schedules
+ * with no body, so there is nothing else it could have been. If a schedule ever carries a payload,
+ * this has to change with it — hence the assumption stated here rather than buried in a handler.
+ */
+export function signedBodyOf(req: { rawBody?: Buffer }): string {
+  return req.rawBody ? req.rawBody.toString('utf8') : '';
+}
+
+/**
  * Why a callback was rejected, in the terms that actually distinguish the causes.
  *
  * A 401 on a QStash callback has three quite different meanings — no signing key configured, no
