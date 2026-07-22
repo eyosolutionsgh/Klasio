@@ -20,7 +20,12 @@ interface Preview {
   isFinalClass: boolean;
   suggestedToClassId: string | null;
   classes: { id: string; name: string }[];
-  students: { studentId: string; name: string; suggestedAction: string; suggestedToClassId: string | null }[];
+  students: {
+    studentId: string;
+    name: string;
+    suggestedAction: string;
+    suggestedToClassId: string | null;
+  }[];
 }
 
 describe('per-child promotion run', () => {
@@ -37,13 +42,29 @@ describe('per-child promotion run', () => {
     token = seeded.token;
     schoolId = seeded.school.id;
 
-    // A class that is not the school's last, so PROMOTE has somewhere to go.
+    /**
+     * A class that is not the school's last, so PROMOTE has somewhere to go — and one with enough
+     * children in it to hold one back *and* move the rest.
+     *
+     * `find` took whichever row the database returned first, which is not a stable thing to
+     * depend on: other specs enrol applicants and move students, and eventually this picked a
+     * class holding a single child. The test then held that child back, had nobody left to
+     * promote, and died on `moving[0]` — a crash that says nothing about promotion.
+     */
     const rows = await db.classRoom.findMany({
       where: { schoolId, students: { some: { status: 'ACTIVE' } } },
-      include: { level: { select: { order: true } }, _count: { select: { students: true } } },
+      include: {
+        level: { select: { order: true } },
+        _count: { select: { students: { where: { status: 'ACTIVE' } } } },
+      },
     });
     const maxOrder = Math.max(...rows.map((r) => r.level.order));
-    classId = rows.find((r) => r.level.order < maxOrder)!.id;
+    const candidates = rows
+      .filter((r) => r.level.order < maxOrder && r._count.students > 1)
+      // Fullest first, id as the tie-break, so the same class is chosen on every run.
+      .sort((a, b) => b._count.students - a._count.students || a.id.localeCompare(b.id));
+    expect(candidates.length, 'a non-final class with at least two children').toBeGreaterThan(0);
+    classId = candidates[0].id;
   });
 
   afterAll(async () => {

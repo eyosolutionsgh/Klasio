@@ -103,40 +103,43 @@ describe('fee clearance gate on report release', () => {
    */
   async function owe(amount: number) {
     await db.ledgerEntry.deleteMany({ where: { studentId, reference: { startsWith: 'ITEST-' } } });
-    if (amount > 0) {
-      await db.ledgerEntry.create({
-        data: {
-          schoolId,
-          studentId,
-          termId,
-          type: 'INVOICE',
-          amount,
-          reference: `ITEST-${Date.now()}`,
-          createdById: staffUserId,
-        },
-      });
-      return;
-    }
 
-    const outstanding = balanceOf(
+    /**
+     * Measured, not assumed.
+     *
+     * This used to bill `amount` and call it done, which only lands on `amount` if the child
+     * starts at zero — and they often do not. The seed leaves about a third of students owing,
+     * and a spec running earlier in the suite can leave this one in *credit*: deposit-separation
+     * confirms a bank deposit, which is a payment on somebody's ledger. Billing a child who is
+     * 1,000 in credit still leaves them owing nothing, the report was released exactly as it
+     * should be, and three assertions failed for a reason that had nothing to do with clearance.
+     */
+    const current = balanceOf(
       await db.ledgerEntry.findMany({
         where: { studentId },
         select: { id: true, type: true, amount: true, reversedId: true },
       }),
     );
-    if (outstanding > 0) {
-      await db.ledgerEntry.create({
-        data: {
-          schoolId,
-          studentId,
-          termId,
-          type: 'PAYMENT',
-          amount: outstanding,
-          reference: `ITEST-SETTLE-${Date.now()}`,
-          createdById: staffUserId,
-        },
-      });
-    }
+    const delta = amount - current;
+    // Already there. Cent-level tolerance rather than `=== 0`, since these are money floats.
+    if (Math.abs(delta) < 0.005) return;
+
+    await db.ledgerEntry.create({
+      data: {
+        schoolId,
+        studentId,
+        termId,
+        /**
+         * Owing more than they do: bill the difference. Owing less, or in credit: pay it down.
+         * A PAYMENT rather than deleting rows, because the ledger is append-only and money does
+         * not disappear by removing history — the same reason production corrects with REVERSAL.
+         */
+        type: delta > 0 ? 'INVOICE' : 'PAYMENT',
+        amount: Math.abs(delta),
+        reference: `ITEST-${delta > 0 ? 'OWE' : 'SETTLE'}-${Date.now()}`,
+        createdById: staffUserId,
+      },
+    });
   }
 
   async function setPolicy(on: boolean) {

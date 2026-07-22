@@ -157,7 +157,20 @@ export default async function setup() {
     await admin.$disconnect();
   }
 
-  run(PRISMA_BIN, ['migrate', 'deploy']);
+  /**
+   * Reset rather than deploy: every run starts from an empty schema.
+   *
+   * `migrate deploy` leaves the previous run's rows behind, and the seed only rebuilds the demo
+   * school — so a feeding record, a WhatsApp thread or a ledger entry written by a spec survived
+   * into the next run and changed what the next run counted. That produced failures that
+   * alternated between runs on identical code, which is the most expensive kind: nobody can tell
+   * a real break from the weather, so eventually nobody looks.
+   *
+   * `--skip-seed` because the seed is run below, deliberately, after the stale-school cleanup.
+   * The `eyo_app` role survives a reset (roles are cluster-level, not schema-level), and the
+   * migrations re-apply its grants as they run.
+   */
+  run(PRISMA_BIN, ['migrate', 'reset', '--force', '--skip-seed']);
 
   // Granting after migrate as well as during it: `migrate deploy` is a no-op on an already
   // migrated database, so on a re-run the migration's own GRANT block never executes.

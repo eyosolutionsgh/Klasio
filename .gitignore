@@ -8,6 +8,8 @@ coverage/
 # under a random key, so a seed run leaves a fresh untracked directory every time and no two
 # machines ever agree. The provider mkdirs on write, so nothing needs the folder to exist.
 apps/api/storage/
+# Where the integration suite writes uploads now that it no longer reaches the real R2 bucket.
+apps/api/.test-storage/
 *.log
 .env
 .env.local

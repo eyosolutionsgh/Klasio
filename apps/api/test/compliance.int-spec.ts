@@ -41,12 +41,33 @@ describe('regulator exports', () => {
       where: { academicYear: { schoolId }, isCurrent: true },
     });
     termId = term.id;
-    const scored = await db.score.findFirstOrThrow({
+    /**
+     * The class with the most scored children this term, not whichever score row Postgres happens
+     * to return first.
+     *
+     * `findFirst` with no `orderBy` returns rows in physical order, and every update another spec
+     * makes shuffles that — so this picked a different class depending on how much work had run
+     * before it, and eventually one whose reports had no lines at all. The export was then empty
+     * and the assertion failed for a reason that had nothing to do with exports. No single
+     * predecessor caused it; the *volume* of them did, which is why it looked like pure chance.
+     */
+    const scores = await db.score.findMany({
       where: { schoolId, termId, student: { status: 'ACTIVE', classId: { not: null } } },
-      include: { student: true },
+      select: { studentId: true, student: { select: { classId: true } } },
     });
-    classId = scored.student.classId as string;
-    studentId = scored.studentId;
+    const byClass = new Map<string, Set<string>>();
+    for (const s of scores) {
+      const key = s.student.classId as string;
+      if (!byClass.has(key)) byClass.set(key, new Set());
+      byClass.get(key)!.add(s.studentId);
+    }
+    const best = [...byClass.entries()].sort(
+      // Most scored students wins; the class id breaks ties, so the choice is the same every run.
+      (a, b) => b[1].size - a[1].size || a[0].localeCompare(b[0]),
+    )[0];
+    expect(best, 'the seed scored at least one class this term').toBeTruthy();
+    classId = best[0];
+    studentId = [...best[1]].sort()[0];
   });
 
   afterAll(async () => {
@@ -94,11 +115,19 @@ describe('regulator exports', () => {
     );
     // Headers name the school's own weighting rather than assuming 30/70, since it is adjustable.
     expect(sheet).toMatch(/SBA \(of \d+\)/);
-    expect(sheet.split('\n').length).toBeGreaterThan(2);
+    // One row per subject per candidate. Named in the message, because "greater than 2" on its
+    // own tells whoever sees it fail nothing about what was missing.
+    expect(sheet.split('\n').length, `no SBA rows exported for class ${classId}`).toBeGreaterThan(
+      2,
+    );
   });
 
   it('counts the census by class, sex and age at the census date', async () => {
-    const sheet = await csv(api.baseUrl, '/compliance/emis/census?format=csv&asOf=2026-10-01', token);
+    const sheet = await csv(
+      api.baseUrl,
+      '/compliance/emis/census?format=csv&asOf=2026-10-01',
+      token,
+    );
     expect(sheet).toContain('Youngest');
     expect(sheet).toContain('TOTAL');
     // Staff appear with their licence state named rather than left blank — a blank reads as
@@ -134,9 +163,27 @@ describe('regulator exports', () => {
         token,
         body: {
           choices: [
-            { rank: 1, schoolName: 'Achimota School', programme: 'General Science', category: 'A', residency: 'Boarding' },
-            { rank: 2, schoolName: 'Presec Legon', programme: 'General Science', category: 'A', residency: 'Boarding' },
-            { rank: 3, schoolName: 'Accra Academy', programme: 'General Arts', category: 'B', residency: 'Day' },
+            {
+              rank: 1,
+              schoolName: 'Achimota School',
+              programme: 'General Science',
+              category: 'A',
+              residency: 'Boarding',
+            },
+            {
+              rank: 2,
+              schoolName: 'Presec Legon',
+              programme: 'General Science',
+              category: 'A',
+              residency: 'Boarding',
+            },
+            {
+              rank: 3,
+              schoolName: 'Accra Academy',
+              programme: 'General Arts',
+              category: 'B',
+              residency: 'Day',
+            },
           ],
         },
       },

@@ -22,6 +22,37 @@ export default defineConfig({
     fileParallelism: false,
 
     /**
+     * And in the same order every time.
+     *
+     * One file at a time was only half of it: vitest's default sequencer orders files by how long
+     * they took on the *previous* run, read from its cache. So the interleaving shifted from run
+     * to run on the same code — and with it which file inherited which leftover state, which is
+     * how three different specs failed on three consecutive runs and every one of them passed
+     * when run alone.
+     *
+     * Alphabetical is arbitrary but fixed, and fixed is the property that matters: a failure here
+     * is reproducible, and a reproducible failure is one somebody can actually chase. It does not
+     * make the files independent — see the state each one restores in its `afterAll` — it makes
+     * them honest about the order they depend on.
+     */
+    sequence: {
+      /**
+       * Written out rather than extending `BaseSequencer`, which lives in `vitest/node` — an
+       * ESM-only module this config cannot require. The interface is two methods, and sharding is
+       * not used here, so files pass through untouched.
+       */
+      sequencer: class Alphabetical {
+        async shard<T>(files: T[]): Promise<T[]> {
+          return files;
+        }
+        async sort<T extends [unknown, string] | { moduleId: string }>(files: T[]): Promise<T[]> {
+          const path = (f: T) => (Array.isArray(f) ? f[1] : (f as { moduleId: string }).moduleId);
+          return [...files].sort((a, b) => path(a).localeCompare(path(b)));
+        }
+      } as never,
+    },
+
+    /**
      * Booting Nest, applying migrations and seeding are all slow relative to a unit test, and a
      * cold CI service container is slower still.
      */
@@ -75,6 +106,22 @@ export default defineConfig({
       MAILERSEND_API_TOKEN: '',
       MAILERSEND_FROM_EMAIL: '',
       ALLOW_MOCK_EMAIL: 'true',
+      /**
+       * The same trap a third time, and the most expensive of the three: with `STORAGE_S3_*` in
+       * `apps/api/.env`, every media test uploaded to the school's **real Cloudflare R2 bucket**.
+       * It cost money, filled a live bucket with fixtures, and made the suite depend on a network
+       * round trip — the video test timed out at 30 seconds often enough to look like flakiness in
+       * whatever spec happened to run near it, because a slow run also reorders the files.
+       *
+       * Blank means `storage()` falls back to LocalDiskProvider, which is what a school running
+       * without object storage uses anyway — so this exercises a supported path rather than a
+       * fake one.
+       */
+      STORAGE_S3_BUCKET: '',
+      STORAGE_S3_ENDPOINT: '',
+      STORAGE_S3_ACCESS_KEY_ID: '',
+      STORAGE_S3_SECRET_ACCESS_KEY: '',
+      STORAGE_LOCAL_DIR: './.test-storage',
       // Leave the BullMQ sweep off: it would re-query PENDING intents on a timer and settle
       // payments underneath the tests.
       REDIS_URL: '',

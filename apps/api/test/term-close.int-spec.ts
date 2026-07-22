@@ -49,8 +49,19 @@ describe('term and year close', () => {
   });
 
   afterAll(async () => {
-    // Leave everything open: later spec files mark registers and save scores on this term.
-    await db.term.updateMany({ where: { id: termId }, data: { closedAt: null, closedById: null } });
+    /**
+     * Leave **every** term open, not just the one this file works on.
+     *
+     * Closing the year requires closing its other terms, and reopening only `termId` left those
+     * siblings closed for the rest of the run. On its own that was invisible; combined with
+     * calendar-and-records moving the current-term flag onto one of them, a later spec would ask
+     * the API to generate reports for a current term that was closed and get a 400 it could not
+     * explain. Two files, each harmless alone.
+     */
+    await db.term.updateMany({
+      where: { academicYearId: yearId },
+      data: { closedAt: null, closedById: null },
+    });
     await db.academicYear.updateMany({
       where: { id: yearId },
       data: { closedAt: null, closedById: null },
@@ -60,10 +71,15 @@ describe('term and year close', () => {
   });
 
   const closeTerm = (body: Record<string, unknown> = {}) =>
-    call<{ closed: string; message?: string }>(api.baseUrl, 'POST', `/school/terms/${termId}/close`, {
-      token,
-      body,
-    });
+    call<{ closed: string; message?: string }>(
+      api.baseUrl,
+      'POST',
+      `/school/terms/${termId}/close`,
+      {
+        token,
+        body,
+      },
+    );
 
   const reopenTerm = (reason: string) =>
     call(api.baseUrl, 'POST', `/school/terms/${termId}/reopen`, { token, body: { reason } });
@@ -164,7 +180,9 @@ describe('term and year close', () => {
 
     const closed = await call(api.baseUrl, 'POST', `/school/years/${yearId}/close`, { token });
     expect(closed.status, JSON.stringify(closed.body)).toBe(201);
-    expect((await db.academicYear.findUniqueOrThrow({ where: { id: yearId } })).closedAt).not.toBeNull();
+    expect(
+      (await db.academicYear.findUniqueOrThrow({ where: { id: yearId } })).closedAt,
+    ).not.toBeNull();
   });
 
   it('will not reopen a term while its year is closed', async () => {

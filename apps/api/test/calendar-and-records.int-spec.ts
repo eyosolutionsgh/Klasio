@@ -16,6 +16,8 @@ describe('academic term switch', () => {
   let db: PrismaClient;
   let token: string;
   let schoolId: string;
+  /** What the seed had current before this file moved it — restored in afterAll. */
+  let originalCurrentTermId: string | null = null;
 
   beforeAll(async () => {
     db = ownerDb();
@@ -23,9 +25,39 @@ describe('academic term switch', () => {
     const seeded = await seededSchool(db);
     token = seeded.token;
     schoolId = seeded.school.id;
+    originalCurrentTermId =
+      (
+        await db.term.findFirst({
+          where: { academicYear: { schoolId }, isCurrent: true },
+          select: { id: true },
+        })
+      )?.id ?? null;
   });
 
   afterAll(async () => {
+    /**
+     * Put the current-term flag back where the seed left it.
+     *
+     * This file moves it deliberately — that is what it tests — but every other spec asks for
+     * "the current term" and expects the one the seed filled with scores, attendance and fees.
+     * Leaving the pointer on a different term made unrelated files fail depending on order.
+     */
+    if (originalCurrentTermId) {
+      await db.term.updateMany({
+        where: { academicYear: { schoolId } },
+        data: { isCurrent: false },
+      });
+      await db.term.update({ where: { id: originalCurrentTermId }, data: { isCurrent: true } });
+      const restored = await db.term.findUniqueOrThrow({
+        where: { id: originalCurrentTermId },
+        select: { academicYearId: true },
+      });
+      await db.academicYear.updateMany({ where: { schoolId }, data: { isCurrent: false } });
+      await db.academicYear.update({
+        where: { id: restored.academicYearId },
+        data: { isCurrent: true },
+      });
+    }
     await api.close();
     await db.$disconnect();
   });

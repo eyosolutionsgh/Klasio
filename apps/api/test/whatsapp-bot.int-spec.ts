@@ -95,14 +95,25 @@ describe('whatsapp assistant', () => {
    * portal — the download-something-else step WhatsApp exists to avoid.
    */
   it('attaches the report card as a PDF when results are asked for', async () => {
-    // Provision a published report for this family's child.
-    const link = await db.studentGuardian.findFirstOrThrow({
+    /**
+     * Provision a published report for **every** child of this family, not one of them.
+     *
+     * The seed gives guardians siblings, so the assistant answers "Which child?" and the test
+     * replies "1" — the first child it listed, which is not necessarily the one a `findFirst`
+     * picked here. When those differed the chosen child had no published report, the bot
+     * correctly said so instead of attaching a PDF, and the assertion failed for a reason that
+     * had nothing to do with attachments. Which row `findFirst` returned depended on what every
+     * other spec in the suite had done to the table first, so it failed perhaps one run in three.
+     */
+    const links = await db.studentGuardian.findMany({
       where: {
         guardian: { phone: guardianPhone },
         student: { schoolId, status: 'ACTIVE', classId: { not: null } },
       },
       include: { student: true },
+      orderBy: { studentId: 'asc' },
     });
+    expect(links.length, 'the seeded family has at least one child').toBeGreaterThan(0);
     const term = await db.term.findFirstOrThrow({
       where: { academicYear: { schoolId }, isCurrent: true },
     });
@@ -114,14 +125,16 @@ describe('whatsapp assistant', () => {
       tier: 'ADVANCED',
       name: owner.name,
     });
-    await call(api.baseUrl, 'POST', '/assessment/reports/generate', {
-      token,
-      body: { classId: link.student.classId, termId: term.id, regeneratePublished: true },
-    });
-    await call(api.baseUrl, 'POST', '/assessment/reports/publish', {
-      token,
-      body: { classId: link.student.classId, termId: term.id, published: true },
-    });
+    for (const classId of new Set(links.map((l) => l.student.classId as string))) {
+      await call(api.baseUrl, 'POST', '/assessment/reports/generate', {
+        token,
+        body: { classId, termId: term.id, regeneratePublished: true },
+      });
+      await call(api.baseUrl, 'POST', '/assessment/reports/publish', {
+        token,
+        body: { classId, termId: term.id, published: true },
+      });
+    }
 
     await inbound(api, schoolId, guardianPhone, 'Did the results come out?');
     const reply = await lastBotReply(guardianPhone);
