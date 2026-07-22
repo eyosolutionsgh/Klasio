@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import SchoolCrest from './SchoolCrest';
 
 /**
@@ -276,6 +277,13 @@ const NAV: NavItem[] = [
   },
 ];
 
+/** Where a nav tooltip is drawn: beside the sidebar, level with the item it describes. */
+interface TipState {
+  text: string;
+  top: number;
+  left: number;
+}
+
 export default function Sidebar({
   school,
   hasLogo,
@@ -341,14 +349,56 @@ export default function Sidebar({
       return next;
     });
 
+  /**
+   * Nav tooltips are drawn into the body rather than out of a `::after` on the link.
+   *
+   * The CSS `.tip` sits above whatever it describes, which in a dense vertical nav means a
+   * two-line tip lands squarely on the two items above it — you cannot read the menu you are
+   * pointing at. Beside the sidebar there is nothing to cover. It cannot be done with the
+   * pseudo-element either: the scrolling nav clips its own overflow on both axes, so anything
+   * placed outside the column would simply be cut off. A portal escapes both.
+   */
+  const [tip, setTip] = useState<TipState | null>(null);
+  const tipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => clearTimeout(tipTimer.current ?? undefined), []);
+
+  const hideTip = useCallback(() => {
+    clearTimeout(tipTimer.current ?? undefined);
+    setTip(null);
+  }, []);
+
+  const showTip = useCallback((text: string, el: HTMLElement) => {
+    // No hover to leave on touch, so a tapped tip would stick until you tapped elsewhere; and
+    // below lg the sidebar is a drawer over the page, where a tip beside it has nowhere to go.
+    if (!window.matchMedia('(hover: hover)').matches) return;
+    if (window.innerWidth < 1024) return;
+    clearTimeout(tipTimer.current ?? undefined);
+    // A short delay so running the pointer down the menu does not flash a tip per item.
+    tipTimer.current = setTimeout(() => {
+      const r = el.getBoundingClientRect();
+      // Off the sidebar's edge rather than the link's, so every tip lines up in one column
+      // instead of stepping in and out with the nav's own padding.
+      const edge = el.closest('aside')?.getBoundingClientRect().right ?? r.right;
+      setTip({
+        text,
+        left: edge + 10,
+        // Clamped so an item near the foot of a scrolled nav still shows its tip in full.
+        top: Math.min(Math.max(r.top + r.height / 2, 28), window.innerHeight - 28),
+      });
+    }, 180);
+  }, []);
+
   const link = (item: NavItem) => {
     const active = pathname.startsWith(item.href);
     return (
       <Link
         key={item.href}
         href={item.href}
-        data-tip={item.tip}
-        className={`tip flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] transition ${
+        onMouseEnter={(e) => showTip(item.tip, e.currentTarget)}
+        onMouseLeave={hideTip}
+        onFocus={(e) => showTip(item.tip, e.currentTarget)}
+        onBlur={hideTip}
+        className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] transition ${
           active
             ? 'bg-paper/10 text-paper font-medium'
             : 'text-paper/70 hover:text-paper hover:bg-paper/5'
@@ -382,24 +432,27 @@ export default function Sidebar({
     >
       <div className="accent-rule-gold h-[3px]" />
       {/*
-        Stacked, not a row. Beside the text the crest was capped by the height of two small lines
-        and had to share a 200px column with them; on its own row it can be read as a mark rather
-        than an icon, and the school's name gets the full width instead of ~140px — which is what
-        long names here need ("St. Augustine's International Preparatory School").
+        A row, and deliberately small. The crest was stacked above the name at 76px so a long name
+        ("St. Augustine's International Preparatory School") could have the full column width —
+        but that spent ~150px of a scrolling menu on branding the user already knows, and pushed
+        the first nav items off the top. Beside the name at 44px it costs about half that, and the
+        name still wraps to as many lines as it needs rather than being clipped to one.
 
         The close button is taken out of the flow so it stays pinned to the corner rather than
         being pushed down by whatever the stack grows to.
       */}
-      <div className="relative px-5 pt-6 pb-5 border-b border-paper/10">
-        <SchoolCrest name={school} hasLogo={hasLogo} size={76} onDark />
-        <p className="mt-3.5 text-[14px] font-medium leading-snug">{school}</p>
-        {/* Where you are, under whose school it is. The vendor's mark has moved to the foot —
-            this corner belongs to the school. */}
-        <p className="mt-1 text-[11.5px] text-paper/55 leading-none">{termLabel}</p>
+      <div className="relative flex items-center gap-3 px-4 py-3.5 pr-11 lg:pr-4 border-b border-paper/10">
+        <SchoolCrest name={school} hasLogo={hasLogo} size={44} onDark />
+        <div className="min-w-0">
+          <p className="text-[13px] font-medium leading-snug">{school}</p>
+          {/* Where you are, under whose school it is. The vendor's mark has moved to the foot —
+              this corner belongs to the school. */}
+          <p className="mt-0.5 text-[11px] text-paper/55 leading-none">{termLabel}</p>
+        </div>
         <button
           onClick={onClose}
           aria-label="Close menu"
-          className="lg:hidden absolute right-3 top-4 p-2 rounded-lg text-paper/60 hover:text-paper hover:bg-paper/10 transition"
+          className="lg:hidden absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg text-paper/60 hover:text-paper hover:bg-paper/10 transition"
         >
           <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current" aria-hidden>
             <path d="M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z" />
@@ -412,6 +465,9 @@ export default function Sidebar({
       <nav
         className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto overflow-x-clip"
         aria-label="Main"
+        // A tip is placed once, from the item's position at the time. Scrolling the nav under a
+        // held pointer would leave it stranded beside whatever moved into its place.
+        onScroll={hideTip}
       >
         {ungrouped.map(link)}
 
@@ -463,29 +519,46 @@ export default function Sidebar({
         faded rather than obviously wrong, which is the harder kind of wrong to notice. Recolouring
         someone's logo to suit our palette is not ours to do, so the surface changes instead.
       */}
-      <div className="mt-auto shrink-0 px-5 py-4 border-t border-paper/10">
-        {/*
-          Labelled, and smaller than it was. The school owns this sidebar — its crest is at the top
-          at 76px — so the supplier's mark at the foot should read as a signature rather than a
-          second brand competing with it.
-        */}
-        <p className="text-[10px] uppercase tracking-widest text-paper/35">Powered by</p>
-        <div className="mt-1.5 rounded-lg bg-paper/95 px-3 py-2 grid place-items-center">
+      {/*
+        A signature, not a second brand: the school owns this sidebar, so the supplier's mark is
+        laid out sideways in one short row rather than as a stacked block. The label and the plan
+        share the column beside the plate — three stacked rows of it were taking ~130px off the
+        menu for something read once.
+      */}
+      <div className="mt-auto shrink-0 flex items-center gap-2.5 px-4 py-2.5 border-t border-paper/10">
+        <div className="shrink-0 rounded-md bg-paper/95 px-2 py-1.5 grid place-items-center">
           {/* Sized by width, not height. At a fixed 24px tall the mark floated in a mostly empty
-              panel and the strapline collapsed into a smudge; filling the column's width gives
-              both room to be read. It stays on a light plate: the artwork was keyed off white and
-              washes out rather than failing obviously on the navy. */}
+              panel and the strapline collapsed into a smudge. It stays on a light plate: the
+              artwork was keyed off white and washes out rather than failing obviously on the
+              navy. */}
           <img
             src="/brand/klasio-lockup.png"
             alt="Klasio — School Management System"
-            className="w-full max-w-[120px] h-auto"
+            className="w-[86px] h-auto"
           />
         </div>
-        <p className="mt-2 text-[11px] text-paper/40 leading-relaxed">
+        <div className="min-w-0 leading-tight">
+          <p className="text-[9px] uppercase tracking-widest text-paper/35">Powered by</p>
           {/* Sentence case, not the shouted uppercase of the old badge. */}
-          {tier.charAt(0) + tier.slice(1).toLowerCase()} plan
-        </p>
+          <p className="text-[11px] text-paper/45">
+            {tier.charAt(0) + tier.slice(1).toLowerCase()} plan
+          </p>
+        </div>
       </div>
+
+      {tip &&
+        createPortal(
+          <div
+            role="tooltip"
+            style={{ top: tip.top, left: tip.left }}
+            className="no-print fixed z-[60] -translate-y-1/2 pointer-events-none
+              max-w-[16rem] rounded-lg bg-ink px-2.5 py-1.5 text-[12px] leading-snug
+              text-paper shadow-lg"
+          >
+            {tip.text}
+          </div>,
+          document.body,
+        )}
     </aside>
   );
 }
