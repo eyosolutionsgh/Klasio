@@ -125,16 +125,34 @@ export default function PayrollPage() {
     load();
   });
 
+  /**
+   * Approving freezes a month's figures, so it asks first — but in the page, not through
+   * `window.confirm`.
+   *
+   * The native dialog is suppressed in embedded and automated browsers, and a suppressed
+   * `confirm()` returns false. Approving could therefore never succeed there: no dialog appeared,
+   * the handler took the cancelled branch, and the button reported "Couldn't approve" for a
+   * request it had never sent. It threw to reach that state, which also put an uncaught error in
+   * the console — so a user declining their own prompt was recorded as a failure twice over.
+   *
+   * The stop below is the one the graduation flow already uses: named, counted, and dismissable
+   * without anything claiming to have failed.
+   */
+  const [confirmingApproval, setConfirmingApproval] = useState(false);
+  /** Summed from the run's own lines — the same figures the confirmation is about to freeze. */
+  const runNet = (run?.lines ?? []).reduce((sum, l) => sum + l.net, 0);
+
   const approve = useAsyncAction(async () => {
     if (!run) return;
-    if (
-      !confirm(
-        `Approve ${run.period}? The figures freeze — later salary changes will not touch this month.`,
-      )
-    )
-      throw new Error('cancelled');
     const res = await fetch(`/api/proxy/payroll/runs/${run.id}/approve`, { method: 'POST' });
-    if (!res.ok) throw new Error('rejected');
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      // Said out loud rather than swallowed: "Couldn't approve" alone leaves the bursar guessing
+      // at a month they cannot pay.
+      setError(d.message ?? 'Could not approve that month.');
+      throw new Error('rejected');
+    }
+    setConfirmingApproval(false);
     openRun(run.id);
     load();
   });
@@ -311,15 +329,7 @@ export default function PayrollPage() {
                 <h2 className="font-display text-xl tabular">{run.period}</h2>
                 <div className="flex flex-wrap gap-2">
                   {run.status === 'DRAFT' ? (
-                    <Button
-                      onClick={approve.run}
-                      state={approve.state}
-                      pendingLabel="Approving…"
-                      doneLabel="Approved!"
-                      failedLabel="Couldn't approve"
-                    >
-                      Approve month
-                    </Button>
+                    <Button onClick={() => setConfirmingApproval(true)}>Approve month</Button>
                   ) : (
                     <>
                       <a
@@ -338,6 +348,41 @@ export default function PayrollPage() {
                   )}
                 </div>
               </div>
+
+              {/*
+                The stop: names the month, counts the people and the money, and says what freezing
+                means. In the page rather than a native dialog, so it cannot be suppressed by the
+                browser — and so declining is just a dismissal, not a failure.
+              */}
+              {confirmingApproval && run.status === 'DRAFT' && (
+                <div className="mt-4 rounded-lg border border-gold/40 bg-gold/5 p-4">
+                  <p className="font-medium">
+                    Approve {run.period} — {run.lines.length} staff, {money(runNet)} net?
+                  </p>
+                  <p className="text-[13px] text-oat mt-1.5 max-w-prose">
+                    The figures freeze. A later change to somebody&apos;s salary will not touch this
+                    month, and the payslips and payout files are generated from what is frozen here.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-3 mt-4">
+                    <Button
+                      onClick={approve.run}
+                      state={approve.state}
+                      pendingLabel="Approving…"
+                      doneLabel="Approved!"
+                      failedLabel="Couldn't approve"
+                    >
+                      {`Yes, approve ${run.period}`}
+                    </Button>
+                    <button
+                      onClick={() => setConfirmingApproval(false)}
+                      className="min-h-11 px-3 text-sm text-oat hover:text-brand transition"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <ul className="mt-4 space-y-2">
                 {run.lines.map((l) => (
                   <li
