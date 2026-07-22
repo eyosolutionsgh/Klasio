@@ -1,54 +1,77 @@
 /**
- * Who may manage whom, and which roles they may hand out.
+ * Who may administer whom.
  *
- * Kept pure so the privilege rules can be unit-tested without a database. The guard that
- * matters: an administrator can never create or promote someone *above* their own level, so a
- * head teacher cannot mint an owner account and take over the school.
+ * Kept pure so the privilege rules can be unit-tested without a database.
+ *
+ * These rules used to run on the legacy `Role` enum alone: only OWNER and HEAD could touch a staff
+ * account, and rank decided the rest. That predates permissions being the unit of authority, and
+ * it quietly made a whole job impossible — a school's system administrator holds `users.manage`
+ * but sits on no leadership role, so every route refused them before their permissions were ever
+ * consulted. The advertised "IT Administrator" preset could not create a single account.
+ *
+ * So: **who may administer staff is a permission** (`users.manage`), like everything else.
+ * The enum keeps exactly one job, the one it is genuinely good for — protecting the proprietor.
+ * Only a proprietor may create another proprietor or manage one, however much an administrator
+ * holds, because that is the account nobody can narrow and the school's last way back in.
  */
 import type { Role } from '@prisma/client';
 
-/** Roles that get a staff login. GUARDIAN is deliberately excluded — guardians are not staff
- *  and have no login yet (the guardian portal is a separate phase). */
-export const STAFF_ROLES: Role[] = ['OWNER', 'HEAD', 'BURSAR', 'TEACHER', 'FRONT_DESK'];
+/**
+ * Roles that get a staff login. GUARDIAN is deliberately excluded — guardians are not staff and
+ * sign in to their own portal.
+ *
+ * The four job titles are history, not choices: they belong to accounts created before the
+ * account-type choice was retired, and are listed here so those people keep appearing in the staff
+ * list. Nothing creates them any more.
+ */
+export const STAFF_ROLES: Role[] = ['OWNER', 'STAFF', 'HEAD', 'BURSAR', 'TEACHER', 'FRONT_DESK'];
 
-const RANK: Record<Role, number> = {
-  OWNER: 3,
-  HEAD: 2,
-  BURSAR: 1,
-  TEACHER: 1,
-  FRONT_DESK: 1,
-  GUARDIAN: 0,
-  // Students never act on staff routes; ranked lowest so they can never administer anyone.
-  STUDENT: 0,
-};
+/**
+ * What a new staff account is.
+ *
+ * A school says what someone *does* by giving them a staff role; being asked to also pick a job
+ * title that grants nothing produced accounts labelled things they were not — the system
+ * administrator filed under "front desk" being the one that gave the game away.
+ */
+export const DEFAULT_STAFF_ROLE: Role = 'STAFF';
+
+/** Just enough of `AuthUser` to decide, so this file stays pure and testable. */
+export interface Actor {
+  role: Role | string;
+  permissions?: string[];
+}
 
 export function isStaffRole(role: Role): boolean {
   return STAFF_ROLES.includes(role);
 }
 
-export function rankOf(role: Role): number {
-  return RANK[role] ?? 0;
+export function isOwner(actor: Actor): boolean {
+  return actor.role === 'OWNER';
 }
 
-/** Only OWNER/HEAD administer staff at all. */
-export function canAdministerStaff(actor: Role): boolean {
-  return actor === 'OWNER' || actor === 'HEAD';
+/** May `actor` administer staff accounts at all? */
+export function canAdministerStaff(actor: Actor): boolean {
+  return isOwner(actor) || (actor.permissions?.includes('users.manage') ?? false);
 }
 
 /**
- * May `actor` grant `target`? Never above their own rank, and never a non-staff role.
- * An OWNER may grant OWNER; a HEAD may grant HEAD and below, but not OWNER.
+ * May `actor` put someone on the legacy `target` role?
+ *
+ * The proprietor's rank rule survives on its own: a head teacher — or an administrator — minting
+ * an OWNER account would be minting an account that cannot afterwards be narrowed by anyone.
  */
-export function canAssignRole(actor: Role, target: Role): boolean {
+export function canAssignRole(actor: Actor, target: Role): boolean {
   if (!canAdministerStaff(actor)) return false;
   if (!isStaffRole(target)) return false;
-  return rankOf(actor) >= rankOf(target);
+  if (target === 'OWNER') return isOwner(actor);
+  return true;
 }
 
-/** May `actor` edit/deactivate a user who currently holds `target`? Same rank rule. */
-export function canManageUser(actor: Role, target: Role): boolean {
+/** May `actor` edit, deactivate or reset a user who currently holds `target`? */
+export function canManageUser(actor: Actor, target: Role): boolean {
   if (!canAdministerStaff(actor)) return false;
-  return rankOf(actor) >= rankOf(target);
+  if (target === 'OWNER') return isOwner(actor);
+  return true;
 }
 
 /** Human-readable label for UI and audit detail. */

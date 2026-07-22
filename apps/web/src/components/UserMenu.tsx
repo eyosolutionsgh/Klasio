@@ -36,10 +36,13 @@ function initials(name: string): string {
 export default function UserMenu({
   name,
   role,
+  job,
   email,
 }: {
   name: string;
   role: string;
+  /** The staff role's name — what this person does. Absent when they hold no role. */
+  job?: string | null;
   email?: string;
 }) {
   const router = useRouter();
@@ -88,13 +91,18 @@ export default function UserMenu({
         >
           {initials(name)}
         </span>
-        {/* The role is what tells you which account you are acting as, and acting as the wrong
-            one is the costly mistake — so it stays visible at every width. Only the name, which
-            the avatar initials already stand in for, drops away on a phone. */}
+        {/* Which account you are acting as — acting as the wrong one is the costly mistake — so
+            it stays visible at every width. Only the name, which the avatar initials already stand
+            in for, drops away on a phone.
+
+            The person's *job* (their staff role: "Bursar", "System Administrator"), not the coarse
+            account type, which since the type choice was retired says only "staff" and used to say
+            worse: an administrator's header read FRONT DESK, because that was the nearest word the
+            old five-value list had for them. */}
         <span className="text-left leading-tight max-w-[9rem]">
           <span className="hidden sm:block text-[13px] font-medium truncate">{name}</span>
-          <span className="block text-[10px] uppercase tracking-wider text-oat">
-            {role.toLowerCase().replace('_', ' ')}
+          <span className="block text-[10px] uppercase tracking-wider text-oat truncate">
+            {job ?? (role === 'OWNER' ? 'Proprietor' : 'No role yet')}
           </span>
         </span>
         <svg

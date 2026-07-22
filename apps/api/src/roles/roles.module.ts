@@ -15,7 +15,14 @@ import {
 import { IsArray, IsOptional, IsString, MinLength } from 'class-validator';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser, CurrentUser, RequirePermission } from '../common/auth';
-import { canGrant, PERMISSIONS, ROLE_PRESETS, sanitizePermissions } from '../common/permissions';
+import {
+  behindPreset,
+  canGrant,
+  isDelegate,
+  PERMISSIONS,
+  ROLE_PRESETS,
+  sanitizePermissions,
+} from '../common/permissions';
 
 /**
  * Roles, as the school defines them.
@@ -28,6 +35,10 @@ import { canGrant, PERMISSIONS, ROLE_PRESETS, sanitizePermissions } from '../com
  * The rule that makes the rest safe is that **nobody can hand out authority they do not hold**.
  * Without it, anyone with `users.manage` could build a role containing `fees.record_payment`,
  * assign it to themselves and quietly become a cashier.
+ *
+ * The single exception is the school's system administrator (`users.delegate`), whose job is to
+ * staff every desk without sitting at any of them. They may hand out anything; what they handed
+ * out beyond their own reach is written into the audit row, because they answer for it.
  */
 
 class RoleDto {
@@ -68,6 +79,9 @@ export class RolesService {
       permissions: r.permissions,
       presetKey: r.presetKey,
       staffCount: r._count.users,
+      // What this role would gain by catching up with the preset it came from — see behindPreset.
+      // Reported on the list so the school sees it where they manage roles, not in release notes.
+      behindPreset: behindPreset(r.presetKey, r.permissions),
     }));
   }
 
@@ -104,16 +118,21 @@ export class RolesService {
     return { restored: missing.length };
   }
 
-  /** Refuses anything the caller does not hold themselves. */
-  private assertCanGrant(auth: AuthUser, codes: string[]) {
-    const over = canGrant(auth.permissions ?? [], codes);
-    if (over.length > 0) {
-      const label = PERMISSIONS.find((p) => p.code === over[0])?.label ?? over[0];
+  /**
+   * Refuses anything the caller does not hold themselves — unless administering access is their
+   * job (`users.delegate`), in which case it returns what they reached beyond their own hand so
+   * the audit row can name it.
+   */
+  private assertCanGrant(auth: AuthUser, codes: string[]): string[] {
+    const beyond = canGrant(auth.permissions ?? [], codes);
+    if (beyond.length > 0 && !isDelegate(auth.permissions ?? [])) {
+      const label = PERMISSIONS.find((p) => p.code === beyond[0])?.label ?? beyond[0];
       throw new ForbiddenException(
         `You cannot grant "${label}" because you do not have it yourself` +
-          (over.length > 1 ? ` (and ${over.length - 1} more)` : ''),
+          (beyond.length > 1 ? ` (and ${beyond.length - 1} more)` : ''),
       );
     }
+    return beyond;
   }
 
   async create(auth: AuthUser, dto: RoleDto) {
@@ -121,7 +140,7 @@ export class RolesService {
     if (permissions.length === 0) {
       throw new BadRequestException('Choose at least one thing this role may do');
     }
-    this.assertCanGrant(auth, permissions);
+    const delegated = this.assertCanGrant(auth, permissions);
 
     const clash = await this.db.staffRole.findFirst({
       where: { schoolId: auth.schoolId, name: dto.name.trim() },
@@ -139,6 +158,7 @@ export class RolesService {
     await this.db.audit(auth.schoolId, auth.sub, 'roles.create', 'StaffRole', role.id, {
       name: role.name,
       permissions,
+      ...(delegated.length ? { delegated } : {}),
     });
     return role;
   }
@@ -154,7 +174,7 @@ export class RolesService {
     // Only the *added* permissions need to be within the caller's own authority. Taking one away
     // is always allowed, or a head could never narrow a role they do not fully hold.
     const added = permissions.filter((p) => !role.permissions.includes(p));
-    this.assertCanGrant(auth, added);
+    const delegated = this.assertCanGrant(auth, added);
 
     const updated = await this.db.staffRole.update({
       where: { id },
@@ -168,6 +188,7 @@ export class RolesService {
       name: updated.name,
       added,
       removed: role.permissions.filter((p) => !permissions.includes(p)),
+      ...(delegated.length ? { delegated } : {}),
     });
     return updated;
   }
@@ -193,6 +214,32 @@ export class RolesService {
   }
 
   /**
+   * Add what a preset has gained since this role was made.
+   *
+   * Deliberately one role at a time and never automatic: the school is looking at the list of
+   * exactly what would be added when they press it. Everything else about granting still applies —
+   * a head cannot catch up a role with permissions they do not hold themselves, and a system
+   * administrator doing it on the school's behalf is recorded as having done so.
+   */
+  async catchUpWithPreset(auth: AuthUser, id: string) {
+    const role = await this.db.staffRole.findFirst({ where: { id, schoolId: auth.schoolId } });
+    if (!role) throw new NotFoundException('Role not found');
+
+    const missing = behindPreset(role.presetKey, role.permissions);
+    if (missing.length === 0) return { added: [] };
+    const delegated = this.assertCanGrant(auth, missing);
+
+    const permissions = sanitizePermissions([...role.permissions, ...missing]);
+    await this.db.staffRole.update({ where: { id }, data: { permissions } });
+    await this.db.audit(auth.schoolId, auth.sub, 'roles.catch-up', 'StaffRole', id, {
+      name: role.name,
+      added: missing,
+      ...(delegated.length ? { delegated } : {}),
+    });
+    return { added: missing };
+  }
+
+  /**
    * Put someone on a role, and adjust it for them personally.
    *
    * The proprietor is refused outright: their authority is unconditional by design, and a role
@@ -212,18 +259,19 @@ export class RolesService {
     }
 
     let roleName: string | null = null;
+    const delegated: string[] = [];
     if (dto.staffRoleId) {
       const role = await this.db.staffRole.findFirst({
         where: { id: dto.staffRoleId, schoolId: auth.schoolId },
       });
       if (!role) throw new NotFoundException('Role not found');
       // Assigning a role hands over everything in it, so the same rule applies.
-      this.assertCanGrant(auth, role.permissions);
+      delegated.push(...this.assertCanGrant(auth, role.permissions));
       roleName = role.name;
     }
 
     const extra = sanitizePermissions(dto.extraPermissions ?? []);
-    this.assertCanGrant(auth, extra);
+    delegated.push(...this.assertCanGrant(auth, extra));
     const revoked = sanitizePermissions(dto.revokedPermissions ?? []);
 
     await this.db.user.update({
@@ -239,6 +287,9 @@ export class RolesService {
       role: roleName,
       extraPermissions: extra,
       revokedPermissions: revoked,
+      // Named, not merely counted: "who gave the storekeeper the fee ledger" is the question an
+      // audit log exists to answer, and the answer has to survive the role being edited later.
+      ...(delegated.length ? { delegated: [...new Set(delegated)] } : {}),
     });
     return { ok: true };
   }
@@ -277,6 +328,12 @@ export class RolesController {
   @RequirePermission('roles.manage')
   restore(@CurrentUser() user: AuthUser) {
     return this.svc.restorePresets(user);
+  }
+
+  @Post(':id/catch-up')
+  @RequirePermission('roles.manage')
+  catchUp(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.catchUpWithPreset(user, id);
   }
 
   @Patch(':id')

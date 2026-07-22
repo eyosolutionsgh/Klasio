@@ -26,7 +26,14 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export interface Me {
-  user: { id: string; name: string; email: string; role: string };
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    /** Proprietor or staff — no longer a job title. What they do is `staffRole`. */
+    role: string;
+    staffRole?: { name: string } | null;
+  };
   school: {
     id: string;
     name: string;

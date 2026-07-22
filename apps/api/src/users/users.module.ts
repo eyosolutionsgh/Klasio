@@ -16,20 +16,22 @@ import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class
 import { Prisma, Role } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
-import { canGrant } from '../common/permissions';
+import { canGrant, isDelegate } from '../common/permissions';
+import { AuthModule, AuthService } from '../auth/auth.module';
 import { AuthUser, CurrentUser, RequirePermission } from '../common/auth';
-import { canAssignRole, canManageUser, STAFF_ROLES } from '../common/roles';
+import { canAssignRole, canManageUser, DEFAULT_STAFF_ROLE, STAFF_ROLES } from '../common/roles';
 import { BCRYPT_ROUNDS, tempPassword } from '../common/crypto';
 
 class CreateUserDto {
   @IsString() @MinLength(2) name: string;
   @IsEmail() email: string;
   /**
-   * Legacy coarse role. Still recorded because OWNER is special — the proprietor's authority is
-   * unconditional — and because guardians and students are principals of another kind entirely.
-   * What the person may actually do comes from `staffRoleId`.
+   * What kind of principal this is, and no longer what job they do — that is `staffRoleId`.
+   *
+   * Optional, and normally omitted: a new account is simply staff. It is still accepted so a
+   * proprietor can create a co-proprietor, which is the one value that confers anything.
    */
-  @IsIn(STAFF_ROLES) role: Role;
+  @IsOptional() @IsIn(STAFF_ROLES) role?: Role;
   /** The school-defined role. Without one the account can sign in and do nothing. */
   @IsOptional() @IsString() staffRoleId?: string;
   @IsOptional() @IsString() phone?: string;
@@ -40,6 +42,7 @@ class CreateUserDto {
 class UpdateUserDto {
   @IsOptional() @IsString() @MinLength(2) name?: string;
   @IsOptional() @IsString() phone?: string;
+  /** In practice only ever OWNER: making, or standing down, a co-proprietor. */
   @IsOptional() @IsIn(STAFF_ROLES) role?: Role;
   @IsOptional() @IsString() staffRoleId?: string | null;
   @IsOptional() @IsBoolean() active?: boolean;
@@ -56,9 +59,17 @@ class ChangePasswordDto {
   @IsString() @MinLength(8) newPassword: string;
 }
 
+/** Which way a reset reaches the account holder. Email always exists; SMS needs a number on file. */
+class ResetPasswordDto {
+  @IsOptional() @IsIn(['email', 'sms']) channel?: 'email' | 'sms';
+}
+
 @Injectable()
 export class UsersService {
-  constructor(private db: PrismaService) {}
+  constructor(
+    private db: PrismaService,
+    private auth: AuthService,
+  ) {}
 
   async list(auth: AuthUser, includeInactive = false) {
     const users = await this.db.user.findMany({
@@ -93,7 +104,7 @@ export class UsersService {
     const mayManage = auth.permissions?.includes('users.manage') ?? false;
     return users.map((u) => ({
       ...u,
-      manageable: mayManage && canManageUser(auth.role, u.role) && u.id !== auth.sub,
+      manageable: mayManage && canManageUser(auth, u.role) && u.id !== auth.sub,
       isSelf: u.id === auth.sub,
     }));
   }
@@ -104,29 +115,39 @@ export class UsersService {
    * Without this, anyone with `users.manage` could create an account on the Bursar role, sign in
    * as it, and hold permissions they were never granted — which would make every separation in
    * the permission model decorative.
+   *
+   * Unless the caller administers access on the school's behalf (`users.delegate`), which is the
+   * whole of that job: staffing the bursar's desk means granting money permissions to somebody
+   * else. Returns what was handed over beyond the caller's own reach, so the audit row can name
+   * it — a delegate is answerable for over-granting, and that is only true if it is written down.
    */
-  private async assertMayAssign(auth: AuthUser, staffRoleId: string) {
+  private async assertMayAssign(auth: AuthUser, staffRoleId: string): Promise<string[]> {
     const role = await this.db.staffRole.findFirst({
       where: { id: staffRoleId, schoolId: auth.schoolId },
     });
     if (!role) throw new NotFoundException('Role not found');
-    const over = canGrant(auth.permissions ?? [], role.permissions);
-    if (over.length > 0) {
+    const beyond = canGrant(auth.permissions ?? [], role.permissions);
+    if (beyond.length > 0 && !isDelegate(auth.permissions ?? [])) {
       throw new ForbiddenException(
         `You cannot put someone on "${role.name}" because it includes access you do not have yourself`,
       );
     }
+    return beyond;
   }
 
   async create(auth: AuthUser, dto: CreateUserDto) {
-    if (!canAssignRole(auth.role, dto.role)) {
+    const accountType = dto.role ?? DEFAULT_STAFF_ROLE;
+    if (!canAssignRole(auth, accountType)) {
       throw new ForbiddenException(
-        `You cannot create a ${dto.role.toLowerCase().replace('_', ' ')} account`,
+        accountType === 'OWNER'
+          ? 'Only the proprietor can make someone a proprietor'
+          : 'You cannot create staff accounts',
       );
     }
     // Assigning a role hands over everything in it, so the same rule as the role editor applies:
-    // you cannot give away authority you do not hold yourself.
-    if (dto.staffRoleId) await this.assertMayAssign(auth, dto.staffRoleId);
+    // you cannot give away authority you do not hold yourself — unless administering access is
+    // your job, in which case what you handed over beyond your own reach is recorded.
+    const delegated = dto.staffRoleId ? await this.assertMayAssign(auth, dto.staffRoleId) : [];
 
     const plain = dto.password ?? tempPassword();
     const email = dto.email.toLowerCase().trim();
@@ -139,14 +160,15 @@ export class UsersService {
           name: dto.name,
           email,
           phone: dto.phone ?? null,
-          role: dto.role,
+          role: accountType,
           passwordHash: await bcrypt.hash(plain, BCRYPT_ROUNDS),
         },
         select: { id: true, name: true, email: true, role: true, active: true },
       });
       await this.db.audit(auth.schoolId, auth.sub, 'user.create', 'User', user.id, {
         email,
-        role: dto.role,
+        role: accountType,
+        ...(delegated.length ? { delegated } : {}),
       });
       // The one and only time the password is visible; it is stored hashed.
       return { ...user, temporaryPassword: dto.password ? undefined : plain };
@@ -161,7 +183,7 @@ export class UsersService {
   private async loadTarget(auth: AuthUser, id: string) {
     const user = await this.db.user.findFirst({ where: { id, schoolId: auth.schoolId } });
     if (!user) throw new NotFoundException('Staff member not found');
-    if (!canManageUser(auth.role, user.role)) {
+    if (!canManageUser(auth, user.role)) {
       throw new ForbiddenException('You cannot manage an account above your own role');
     }
     return user;
@@ -182,15 +204,20 @@ export class UsersService {
 
   async update(auth: AuthUser, id: string, dto: UpdateUserDto) {
     const target = await this.loadTarget(auth, id);
-    if (dto.staffRoleId) await this.assertMayAssign(auth, dto.staffRoleId);
+    const delegated = dto.staffRoleId ? await this.assertMayAssign(auth, dto.staffRoleId) : [];
 
     // Self-protection: changing your own role or switching yourself off is how admins
     // accidentally lock themselves out.
     if (target.id === auth.sub && (dto.role !== undefined || dto.active === false)) {
       throw new BadRequestException('You cannot change your own role or deactivate yourself');
     }
-    if (dto.role !== undefined && !canAssignRole(auth.role, dto.role)) {
-      throw new ForbiddenException('You cannot grant a role above your own');
+    if (dto.role !== undefined && !canAssignRole(auth, dto.role)) {
+      // Only the proprietor's own rank survives as a rank rule — see common/roles.ts.
+      throw new ForbiddenException(
+        dto.role === 'OWNER'
+          ? 'Only the proprietor can make someone a proprietor'
+          : 'You cannot hand out that role',
+      );
     }
     if (dto.role !== undefined && dto.role !== target.role) {
       await this.assertNotLastOwner(auth, target);
@@ -225,21 +252,34 @@ export class UsersService {
         staffRoleId: target.staffRoleId,
         active: target.active,
       },
-      dto as Record<string, unknown>,
+      { ...dto, ...(delegated.length ? { delegated } : {}) } as Record<string, unknown>,
     );
     return user;
   }
 
   /**
-   * Issue a fresh temporary password — returned once, stored hashed.
+   * Cut an account off and send its owner a way back in.
    *
-   * Also ends every session the target already has. This is the button a head reaches for when
-   * a member of staff has left or an account is believed compromised, and leaving the existing
-   * sessions running would have made it almost ceremonial: the person whose access you just
-   * revoked keeps it until their token expires.
+   * Three things happen, and the order matters. The old password is replaced by one nobody has —
+   * not the admin, not anybody — every session it had opened dies with it, and the account holder
+   * is sent their own reset link (or texted a code). This is the button reached for when a laptop
+   * goes missing or somebody has left, so leaving live sessions running would make it ceremonial.
+   *
+   * **The administrator never sees a credential.** It used to hand back a temporary password,
+   * which quietly made "restore this person's access" and "become this person" the same act: the
+   * system administrator holds no fee permissions by design, but a bursar's temporary password
+   * would have handed them the ledger anyway. Delivery to the account holder is what keeps
+   * administering access separate from holding it.
+   *
+   * If delivery genuinely cannot happen — a LAN box with no mail credentials, or a phone-less
+   * account — the temporary password comes back to the caller after all, plainly labelled. A
+   * school locked out of its own box because the internet is down would be a worse failure than
+   * the one this guards against, and the fallback is recorded in the audit row as what it is.
    */
-  async resetPassword(auth: AuthUser, id: string) {
+  async resetPassword(auth: AuthUser, id: string, channel: 'email' | 'sms' = 'email') {
     const target = await this.loadTarget(auth, id);
+    // Unknown to everyone, including us: the account is unreachable until its owner redeems the
+    // link. `tempPassword()` is only *read* on the fallback path below.
     const plain = tempPassword();
     await this.db.user.update({
       where: { id: target.id },
@@ -248,8 +288,28 @@ export class UsersService {
         tokenVersion: { increment: 1 },
       },
     });
-    await this.db.audit(auth.schoolId, auth.sub, 'user.resetPassword', 'User', id);
-    return { id: target.id, email: target.email, temporaryPassword: plain };
+
+    const sent = await this.auth.issueResetFor(target, channel);
+    await this.db.audit(auth.schoolId, auth.sub, 'user.resetPassword', 'User', id, {
+      channel,
+      delivered: sent.delivered,
+      ...(sent.delivered ? {} : { handedOver: true, reason: sent.reason }),
+    });
+
+    return {
+      id: target.id,
+      email: target.email,
+      delivered: sent.delivered,
+      channel: sent.channel,
+      // Not masked: the caller holds `users.view` and is looking at this person's contact details
+      // on the same screen. Masking here would obscure nothing and only make the confirmation
+      // ("sent to 024…") harder to check against the number they meant.
+      sentTo: sent.delivered ? (channel === 'sms' ? target.phone : target.email) : null,
+      // Present only when it could not be delivered — the UI shows it as a hand-over of last
+      // resort rather than the normal outcome.
+      temporaryPassword: sent.delivered ? undefined : plain,
+      reason: sent.reason,
+    };
   }
 
   /** The signed-in member's own account — no role check, everyone owns their own profile. */
@@ -349,10 +409,18 @@ export class UsersController {
 
   @Post(':id/reset-password')
   @RequirePermission('users.manage')
-  resetPassword(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.svc.resetPassword(user, id);
+  resetPassword(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: ResetPasswordDto,
+  ) {
+    return this.svc.resetPassword(user, id, dto?.channel ?? 'email');
   }
 }
 
-@Module({ controllers: [UsersController], providers: [UsersService] })
+@Module({
+  imports: [AuthModule],
+  controllers: [UsersController],
+  providers: [UsersService],
+})
 export class UsersModule {}

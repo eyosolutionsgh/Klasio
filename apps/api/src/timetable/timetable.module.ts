@@ -24,6 +24,7 @@ import {
   formatMinutes,
 } from '../common/timetable';
 import { draftTimetable, type DraftDemand } from '../common/timetable-draft';
+import { holdersOf } from '../common/holders';
 import { Type } from 'class-transformer';
 import { ValidateNested, IsArray, ArrayNotEmpty } from 'class-validator';
 
@@ -750,11 +751,10 @@ export class TimetableService {
         select: { id: true, name: true, code: true },
       }),
       this.db.user.findMany({
-        where: {
-          schoolId: auth.schoolId,
-          active: true,
-          role: { in: ['TEACHER', 'HEAD', 'OWNER'] },
-        },
+        // Whoever may enter marks is whoever teaches — the question the picker is really asking.
+        // Listing legacy roles missed an exams officer or a head of department who takes a class,
+        // and would have missed every account created after the account-type choice was retired.
+        where: { schoolId: auth.schoolId, active: true, ...holdersOf('marks.enter') },
         orderBy: { name: 'asc' },
         select: { id: true, name: true, role: true },
       }),

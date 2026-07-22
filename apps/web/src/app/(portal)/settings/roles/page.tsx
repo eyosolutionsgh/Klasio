@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import NoAccess from '@/components/NoAccess';
 import { Button, useAsyncAction, type ActionState } from '@/components/Button';
 import { EditIcon, PlusIcon, RefreshIcon, SaveIcon, TrashIcon } from '@/components/icons';
 
@@ -15,6 +16,8 @@ import { EditIcon, PlusIcon, RefreshIcon, SaveIcon, TrashIcon } from '@/componen
  * - **Removal is always allowed.** A head who does not hold `fees.record_payment` must still be
  *   able to take it out of a role, or a role can never be narrowed by anyone but the proprietor.
  *   So a permission already in the role stays tickable-off even when it is not theirs to give.
+ * - **Unless administering access is the job.** A system administrator holds `users.delegate` and
+ *   sees nothing greyed out: staffing the bursar's desk is exactly granting what they may not use.
  */
 
 interface Role {
@@ -24,6 +27,8 @@ interface Role {
   permissions: string[];
   presetKey: string | null;
   staffCount: number;
+  /** Permissions this role's preset has gained since the school's copy was made. */
+  behindPreset?: string[];
 }
 
 interface PermissionDef {
@@ -63,6 +68,7 @@ export default function RolesPage() {
   const [error, setError] = useState<string | null>(null);
 
   const canManage = held.includes('roles.manage');
+  const [denied, setDenied] = useState(false);
 
   const load = useCallback(async () => {
     const [mineRes, rolesRes] = await Promise.all([
@@ -72,6 +78,8 @@ export default function RolesPage() {
     const mine = mineRes.ok ? await mineRes.json() : { permissions: [] };
     const mineHeld: string[] = mine.permissions ?? [];
     setHeld(mineHeld);
+    // A refused list is not an empty one — see NoAccess.
+    if (rolesRes.status === 403) setDenied(true);
     setRoles(rolesRes.ok ? await rolesRes.json() : []);
     // The catalogue is behind roles.manage. Asking for it without that permission would only
     // produce a 403 to swallow, so it is not asked for.
@@ -115,6 +123,14 @@ export default function RolesPage() {
     return data;
   }
 
+  const catchUp = async (role: Role) => {
+    const d = await send(`/${role.id}/catch-up`);
+    if (!d) throw new Error('catch-up rejected');
+    setMessage(
+      `${role.name} now includes ${d.added.length} more ${d.added.length === 1 ? 'permission' : 'permissions'}.`,
+    );
+  };
+
   /** "Students 8 · Finance 3" — what a role is for, without forty codes. */
   const summary = (role: Role) => {
     const counts = new Map<string, number>();
@@ -149,6 +165,8 @@ export default function RolesPage() {
         : 'Nothing to put back — you already have all the standard roles.',
     );
   });
+
+  if (denied) return <NoAccess what="roles and permissions" />;
 
   return (
     <div className="space-y-8">
@@ -237,6 +255,15 @@ export default function RolesPage() {
                 <td data-label="Role" className="px-5 py-3">
                   <p className="font-medium">{r.name}</p>
                   {r.description && <p className="text-xs text-oat mt-0.5">{r.description}</p>}
+                  {/*
+                    Offered, never applied on its own. A role a school deliberately narrowed must
+                    not be widened by an upgrade — so the new permissions are named in full and
+                    wait for a decision. Without this the school never learns they exist: the
+                    feature ships, the menu item never appears, and nothing says why.
+                  */}
+                  {canManage && (r.behindPreset?.length ?? 0) > 0 && (
+                    <CatchUp role={r} byCode={byCode} onApply={catchUp} />
+                  )}
                 </td>
                 <td data-label="What it covers" className="px-5 py-3 text-xs text-oat">
                   {canManage ? (
@@ -331,7 +358,14 @@ function RoleEditor({
   onSubmit: (e: React.FormEvent) => void;
   state: ActionState;
 }) {
-  const holds = (code: string) => held.includes(code);
+  /**
+   * A system administrator (`users.delegate`) is employed to staff every desk in the school, which
+   * means granting the money and record permissions they are deliberately barred from holding.
+   * For them nothing is greyed out — the API applies the same exception, so greying here would
+   * refuse in the UI what the server allows.
+   */
+  const delegates = held.includes('users.delegate');
+  const holds = (code: string) => delegates || held.includes(code);
   const chosen = new Set(draft.permissions);
 
   const toggle = (code: string) => {
@@ -372,6 +406,14 @@ function RoleEditor({
           />
         </label>
       </div>
+
+      {delegates && (
+        <p className="text-xs text-oat mt-5 border-l-2 border-gold pl-3">
+          You administer access for this school, so you can put anything into a role — including
+          access you do not have yourself. Every grant beyond your own is recorded against your name
+          in the audit log.
+        </p>
+      )}
 
       {missing > 0 && (
         <p className="text-xs text-oat mt-5 border-l-2 border-gold pl-3">
@@ -460,6 +502,72 @@ function RoleEditor({
  * spin every row's button whenever any one of them was deleting. The API's reason for a refusal
  * ("3 people hold this role…") still arrives in the page-level error line.
  */
+/**
+ * "This role has caught up with the product, do you want it to?"
+ *
+ * Its own component so each row keeps its own pending/done state, and so the list of what would be
+ * added is written out in full before anything is pressed. A count alone ("2 new permissions")
+ * would be asking a head teacher to widen access sight unseen, which is the opposite of what the
+ * permission model is for.
+ */
+function CatchUp({
+  role,
+  byCode,
+  onApply,
+}: {
+  role: Role;
+  byCode: Map<string, PermissionDef>;
+  onApply: (role: Role) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const action = useAsyncAction(() => onApply(role));
+  const missing = role.behindPreset ?? [];
+
+  return (
+    <div className="mt-2 border-l-2 border-gold pl-3">
+      <p className="text-[11px] text-oat">
+        Klasio has added {missing.length} {missing.length === 1 ? 'permission' : 'permissions'} to
+        the standard {role.name} since your school set it up.
+      </p>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="text-[11px] text-brand hover:underline underline-offset-2"
+      >
+        {open ? 'Hide' : 'See what they are'}
+      </button>
+      {open && (
+        <>
+          <ul className="mt-1.5 space-y-1">
+            {missing.map((code) => {
+              const def = byCode.get(code);
+              return (
+                <li key={code} className="text-[11px] text-ink">
+                  {def?.label ?? code}
+                  {def?.caution && <span className="block text-clay">{def.caution}</span>}
+                </li>
+              );
+            })}
+          </ul>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="mt-2"
+            state={action.state}
+            onClick={action.run}
+            pendingLabel="Adding…"
+            doneLabel="Added"
+            failedLabel="Couldn't add"
+          >
+            {`Add ${missing.length === 1 ? 'it' : 'them'} to this role`}
+          </Button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function DeleteRoleButton({ onDelete }: { onDelete: () => Promise<void> }) {
   const action = useAsyncAction(onDelete);
   return (

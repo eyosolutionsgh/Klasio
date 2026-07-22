@@ -19,6 +19,8 @@ export default function PortalShell({
   userName,
   userEmail,
   role,
+  job,
+  permissions,
   termLabel,
   tier,
   entitlements,
@@ -30,6 +32,10 @@ export default function PortalShell({
   userName: string;
   userEmail?: string;
   role: string;
+  /** The staff role's name — the person's job, shown in the header under their name. */
+  job?: string | null;
+  /** Passed straight through to the menu, which shows only what these can open. */
+  permissions: string[];
   termLabel: string;
   tier: string;
   entitlements: string[];
@@ -84,6 +90,7 @@ export default function PortalShell({
         hasLogo={hasLogo}
         entitlements={entitlements}
         role={role}
+        permissions={permissions}
         termLabel={termLabel}
         tier={tier}
         open={open}
@@ -124,7 +131,7 @@ export default function PortalShell({
 
           {/* The package moved to the foot of the sidebar; the user menu is what is left here. */}
           <div className="flex items-center gap-2 shrink-0 ml-auto">
-            <UserMenu name={userName} role={role} email={userEmail} />
+            <UserMenu name={userName} role={role} job={job} email={userEmail} />
           </div>
         </header>
         <main className="flex-1 px-4 py-6 lg:px-8 lg:py-8 max-w-6xl w-full">{children}</main>

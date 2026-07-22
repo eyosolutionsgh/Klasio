@@ -221,15 +221,15 @@ It is a bot, and it is doing a job your office is doing by hand today. Most of w
 
 ### What the assistant handles on its own
 
-| A parent asks | It answers |
-| --- | --- |
-| What do I owe? | The current balance, and a short statement of what was billed and paid |
-| Did the results come out? | Their child's terminal report, once you have published it |
-| Has my child been absent? | The attendance record for the term |
-| My child is unwell today | Records the absence and tells the class teacher |
-| My sister is collecting today | Logs a pickup change for your office to approve |
-| What's happening this term? | Your published notices and calendar |
-| I want to speak to someone | Hands the conversation to your staff, with what was already said |
+| A parent asks                 | It answers                                                             |
+| ----------------------------- | ---------------------------------------------------------------------- |
+| What do I owe?                | The current balance, and a short statement of what was billed and paid |
+| Did the results come out?     | Their child's terminal report, once you have published it              |
+| Has my child been absent?     | The attendance record for the term                                     |
+| My child is unwell today      | Records the absence and tells the class teacher                        |
+| My sister is collecting today | Logs a pickup change for your office to approve                        |
+| What's happening this term?   | Your published notices and calendar                                    |
+| I want to speak to someone    | Hands the conversation to your staff, with what was already said       |
 
 ### What this is worth to a school
 
@@ -296,14 +296,17 @@ Built for a cheap phone with patchy signal.
 ## 17. Staff, roles and payroll
 
 - Staff accounts — who may sign in, and as what
-- **Thirteen ready-made roles**: head teacher, assistant head, head of department, class teacher, subject teacher, exams officer, bursar, accounts clerk, registrar, front desk, school nurse, librarian, IT administrator
+- **Thirteen ready-made roles**: head teacher, assistant head, head of department, class teacher, subject teacher, exams officer, bursar, accounts clerk, registrar, front desk, school nurse, librarian, system administrator
 - **Create your own roles** and name them whatever your school calls them
+- **When Klasio adds a permission to a standard role, your copy says so** and offers to add it — naming exactly what would change. Never applied on its own: a role you deliberately narrowed stays narrow
 - **Adjust one person** without changing the role everyone else shares
 - **Nobody can hand out authority they do not hold themselves** — otherwise whoever manages staff could quietly make themselves a bursar
-- **Separation of duties is real**: your head can see the fee position but cannot take money, set fees or grant discounts; an accounts clerk can record a payment but cannot confirm their own bank deposits; your IT administrator can run the system without seeing a child's record or a single cedi
-- **Staff only see the buttons they can actually use**
-- **The proprietor's account cannot be narrowed or locked out** by anyone, including by mistake
-- Changing a password signs that person out on every device — what you want the day a laptop goes missing
+- **Employ a system administrator** so the proprietor does not have to run accounts: they open accounts, build roles and hand out any access the school needs — including the bursar's — while holding none of it themselves. Every grant beyond their own reach is recorded against their name, because they answer for it
+- **Separation of duties is real**: your head can see the fee position but cannot take money, set fees or grant discounts; an accounts clerk can record a payment but cannot confirm their own bank deposits; your system administrator can run the system without seeing a child's record or a single cedi
+- **You describe a person once.** There is no "account type" to pick beside the role — you give someone a job (Bursar, Class Teacher, System Administrator) and that is what decides everything. Making a second proprietor is a deliberate, separate act
+- **Staff only see the menu items they can actually open** — not the ones their job title suggests
+- **The proprietor's account cannot be narrowed or locked out** by anyone, including by mistake, and only a proprietor can make another proprietor
+- Resetting someone's password signs them out on every device and sends _them_ the link to choose a new one — the administrator never sees it, so restoring somebody's access is never a way to acquire it
 - Repeated wrong passwords lock out the attempt
 - Password reset by email link or SMS code, whichever suits the person
 - **Payroll** with SSNIT tiers and GRA PAYE
@@ -375,45 +378,45 @@ Prices in Ghana cedis. Valid for 2026/2027.
 
 ### Paid once, at installation
 
-| | |
-| --- | --- |
+|                                                                                           |                |
+| ----------------------------------------------------------------------------------------- | -------------- |
 | Deployment — server, setup, branding, staff training, first billing run and first reports | **GHS 10,000** |
-| Migration from clean spreadsheets | 3,000 |
-| Migration from spreadsheets and paper | 6,000 |
-| Migration from paper only | 10,000 |
+| Migration from clean spreadsheets                                                         | 3,000          |
+| Migration from spreadsheets and paper                                                     | 6,000          |
+| Migration from paper only                                                                 | 10,000         |
 
 Migration is quoted in the first meeting, after we have seen your records.
 
 ### Every year
 
-| Package | Per year | Per month |
-| --- | --- | --- |
-| **Standard** | **9,600** | 800 |
-| **Plus** | **18,000** | 1,500 |
-| **Premium** | **30,000** | 2,500 |
+| Package      | Per year   | Per month |
+| ------------ | ---------- | --------- |
+| **Standard** | **9,600**  | 800       |
+| **Plus**     | **18,000** | 1,500     |
+| **Premium**  | **30,000** | 2,500     |
 
 Includes the licence, your server, daily backups, all updates and support. No hosting bill, no per-user fee. **Your enrolment never changes what you pay.**
 
 ### What each covers
 
-| | Standard | Plus | Premium |
-| --- | --- | --- | --- |
-| Student records, classes, promotion | ✓ | ✓ | ✓ |
-| Attendance and the daily register | ✓ | ✓ | ✓ |
-| Marks, SBA and GES terminal reports | ✓ | ✓ | ✓ |
-| Fees, cash, bank deposits, receipts, defaulters | ✓ | ✓ | ✓ |
-| Notice board, bulk SMS, parent and student portals | ✓ | ✓ | ✓ |
-| WhatsApp assistant for parents | ✓ | ✓ | ✓ |
-| Staff roles, change log, exports | ✓ | ✓ | ✓ |
-| Admissions, custom fields, document checklists | | ✓ | ✓ |
-| Attendance trends and absence texts | | ✓ | ✓ |
-| Scholarships, payment plans, fee reminders | | ✓ | ✓ |
-| Online payments and reconciliation | | ✓ | ✓ |
-| Drop-off, pickup and child safety | | ✓ | ✓ |
-| Timetable, learning materials, calendar | | ✓ | ✓ |
-| GES and NaSIA termly returns | | ✓ | ✓ |
-| Intelligent assistance (section 21) | | | ✓ |
-| Payroll, transport, car line, computer-based exams | | | ✓ |
+|                                                    | Standard | Plus | Premium |
+| -------------------------------------------------- | -------- | ---- | ------- |
+| Student records, classes, promotion                | ✓        | ✓    | ✓       |
+| Attendance and the daily register                  | ✓        | ✓    | ✓       |
+| Marks, SBA and GES terminal reports                | ✓        | ✓    | ✓       |
+| Fees, cash, bank deposits, receipts, defaulters    | ✓        | ✓    | ✓       |
+| Notice board, bulk SMS, parent and student portals | ✓        | ✓    | ✓       |
+| WhatsApp assistant for parents                     | ✓        | ✓    | ✓       |
+| Staff roles, change log, exports                   | ✓        | ✓    | ✓       |
+| Admissions, custom fields, document checklists     |          | ✓    | ✓       |
+| Attendance trends and absence texts                |          | ✓    | ✓       |
+| Scholarships, payment plans, fee reminders         |          | ✓    | ✓       |
+| Online payments and reconciliation                 |          | ✓    | ✓       |
+| Drop-off, pickup and child safety                  |          | ✓    | ✓       |
+| Timetable, learning materials, calendar            |          | ✓    | ✓       |
+| GES and NaSIA termly returns                       |          | ✓    | ✓       |
+| Intelligent assistance (section 21)                |          |      | ✓       |
+| Payroll, transport, car line, computer-based exams |          |      | ✓       |
 
 Each package includes the one before it. Single features can be added to a lower package.
 

@@ -25,8 +25,21 @@ enum ReportTemplate {
   MODERN
 }
 
+/// What kind of principal an account is — no longer what job the person does.
+///
+/// This began as the whole access model and is now down to one question: is this the proprietor,
+/// ordinary staff, a guardian, or a student? What a member of staff may actually do comes from
+/// their StaffRole and its permissions. HEAD/BURSAR/TEACHER/FRONT_DESK are kept because existing
+/// accounts carry them and they cost nothing; new staff accounts are simply STAFF, because asking
+/// a school to pick one of five job titles that grant nothing was asking them to describe a person
+/// twice and get it wrong once.
 enum Role {
+  /// The proprietor. The only value that still confers anything: they hold every permission,
+  /// cannot be narrowed, and only a proprietor may create or manage another.
   OWNER
+  /// Anyone else who signs in to run the school. Their StaffRole says what they may do.
+  STAFF
+  /// Retained for accounts created before the account-type choice was retired.
   HEAD
   BURSAR
   TEACHER

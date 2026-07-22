@@ -59,6 +59,22 @@ export default defineConfig({
       NALO_SMS_ENDPOINT: '',
       NALO_SMS_USERNAME: '',
       NALO_SMS_PASSWORD: '',
+      /**
+       * The same trap, one channel over, and it went unnoticed for as long as no spec sent email.
+       *
+       * `MAILERSEND_API_TOKEN` sits in `apps/api/.env` beside the SMS credentials and is loaded
+       * the same way, so the first spec that reset a staff password put a real message through the
+       * school's real account — addressed to `@integration.test`, which exists nowhere, so it
+       * bounces against the sending domain's reputation.
+       *
+       * Blank plus `ALLOW_MOCK_EMAIL` gives the mock provider, which records the message and
+       * delivers nothing. The flag is required because an unconfigured provider otherwise refuses
+       * to start: a mock that quietly reported success is how an invited school never receives
+       * its only onboarding link.
+       */
+      MAILERSEND_API_TOKEN: '',
+      MAILERSEND_FROM_EMAIL: '',
+      ALLOW_MOCK_EMAIL: 'true',
       // Leave the BullMQ sweep off: it would re-query PENDING intents on a timer and settle
       // payments underneath the tests.
       REDIS_URL: '',

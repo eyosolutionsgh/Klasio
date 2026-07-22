@@ -16,9 +16,11 @@ export default async function PortalLayout({ children }: { children: React.React
       userName={me.user.name}
       userEmail={me.user.email}
       role={me.user.role}
+      job={me.user.staffRole?.name ?? null}
       termLabel={termLabel}
       tier={me.school.tier}
       entitlements={me.entitlements ?? []}
+      permissions={me.permissions ?? []}
     >
       {/*
         In the layout rather than on the dashboard, so a lapse reaches whoever is next in the

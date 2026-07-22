@@ -15,18 +15,23 @@ import {
   SearchIcon,
   UserIcon,
 } from '@/components/icons';
-import { roleLabel } from '@/lib/roles';
 import { DEFAULT_PER_PAGE, listHref, one, type ListSearchParams } from '@/lib/list';
+import NoAccess from '@/components/NoAccess';
 
 /**
  * Staff accounts, and what each person may do.
  *
  * Two things govern access and they are not the same:
  *
- * - **Account type** (proprietor, head teacher, bursar, teaching staff, administrative staff) is the coarse legacy role. It still
- *   decides who may manage whose account, and the proprietor's is special.
- * - **The staff role** is the bundle of permissions the school defined on Roles & permissions. That is
- *   what actually decides what the person can reach.
+ * - **The role** is the bundle of permissions the school defined on Roles & permissions. It is
+ *   what decides what the person can reach, and it is the only thing this screen asks for.
+ * - **Whether they are the proprietor.** The one distinction the account itself still carries:
+ *   the proprietor holds everything, cannot be narrowed, and only a proprietor can make another.
+ *
+ * There used to be an "account type" as well — head teacher, bursar, teaching staff, administrative
+ * staff — a second, coarser job title that granted nothing. It made schools describe the same
+ * person twice, and the second description was often wrong: a system administrator had to be filed
+ * as "front desk", because the list had no word for what they were.
  *
  * Per-person adjustments exist for exceptions, not as the ordinary way to grant access. A
  * revocation always wins over the role, so it is safe to take something away and it will not creep
@@ -69,9 +74,6 @@ interface PermissionDef {
   caution?: string;
 }
 
-const ROLES = ['OWNER', 'HEAD', 'BURSAR', 'TEACHER', 'FRONT_DESK'];
-const label = roleLabel;
-
 /**
  * Which columns the list may be ordered by, and how each compares.
  *
@@ -87,7 +89,6 @@ const label = roleLabel;
 const STAFF_SORTS: Record<string, (a: StaffUser, b: StaffUser) => number> = {
   name: (a, b) => a.name.localeCompare(b.name),
   email: (a, b) => a.email.localeCompare(b.email),
-  role: (a, b) => label(a.role).localeCompare(label(b.role)),
   // An account with no role sorts as an empty string, which lands the "cannot do anything"
   // accounts together at one end — where somebody auditing access wants to find them.
   staffRole: (a, b) => (a.staffRole?.name ?? '').localeCompare(b.staffRole?.name ?? ''),
@@ -131,21 +132,40 @@ export default function StaffPage() {
   const [users, setUsers] = useState<StaffUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [held, setHeld] = useState<string[]>([]);
+  /** `GET /roles/mine` reports the caller's own account type; only a proprietor may make one. */
+  const [isProprietor, setIsProprietor] = useState(false);
   const [permissions, setPermissions] = useState<PermissionDef[]>([]);
   const [error, setError] = useState<string | null>(null);
   /** Shown once, never retrievable again — the API only ever returns it on create/reset. */
-  const [credential, setCredential] = useState<{ email: string; password: string } | null>(null);
+  const [credential, setCredential] = useState<{
+    email: string;
+    password: string;
+    /** True when this had to be shown because the reset could not be delivered to its owner. */
+    undelivered?: boolean;
+  } | null>(null);
+  const [sentTo, setSentTo] = useState<{ name: string; where: string } | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [role, setRole] = useState('TEACHER');
   const [staffRoleId, setStaffRoleId] = useState('');
 
+  /**
+   * A refusal is a state, not a missing result.
+   *
+   * `if (res.ok)` alone left a 403 looking exactly like a school with no staff — the screen
+   * rendered in full and announced "No staff accounts yet" to someone who simply may not see it.
+   */
+  const [denied, setDenied] = useState(false);
   const load = useCallback(async () => {
     const res = await fetch(`/api/proxy/users?includeInactive=${includeInactive}`);
-    if (res.ok) setUsers(await res.json());
+    if (res.ok) {
+      setUsers(await res.json());
+      setDenied(false);
+    } else if (res.status === 403) {
+      setDenied(true);
+    }
   }, [includeInactive]);
 
   useEffect(() => {
@@ -162,6 +182,7 @@ export default function StaffPage() {
       const mine = mineRes.ok ? await mineRes.json() : { permissions: [] };
       const mineHeld: string[] = mine.permissions ?? [];
       setHeld(mineHeld);
+      setIsProprietor(mine.role === 'OWNER');
       // Permission labels live behind roles.manage. Without it the per-person adjustments are
       // hidden rather than shown as bare codes.
       if (mineHeld.includes('roles.manage')) {
@@ -172,14 +193,18 @@ export default function StaffPage() {
   }, []);
 
   /**
-   * Only roles wholly within the caller's own authority.
+   * Only roles wholly within the caller's own authority — unless administering access is the job.
    *
    * The API refuses the rest ("includes access you do not have yourself"), so offering them would
-   * be offering a button that always fails.
+   * be offering a button that always fails. `users.delegate` lifts that on both sides: a system
+   * administrator exists to put people on roles they could not do themselves, and hiding those
+   * roles here left them looking at "12 roles are not listed" and no way to staff the bursar's
+   * desk — the exact job they were employed for.
    */
+  const delegates = held.includes('users.delegate');
   const grantable = useMemo(
-    () => roles.filter((r) => r.permissions.every((p) => held.includes(p))),
-    [roles, held],
+    () => (delegates ? roles : roles.filter((r) => r.permissions.every((p) => held.includes(p)))),
+    [roles, held, delegates],
   );
   const hiddenRoles = roles.length - grantable.length;
   const roleOptions = useMemo(
@@ -192,8 +217,8 @@ export default function StaffPage() {
     [grantable],
   );
   const grantablePermissions = useMemo(
-    () => permissions.filter((p) => held.includes(p.code)),
-    [permissions, held],
+    () => (delegates ? permissions : permissions.filter((p) => held.includes(p.code))),
+    [permissions, held, delegates],
   );
 
   /**
@@ -207,7 +232,7 @@ export default function StaffPage() {
     const needle = q.trim().toLowerCase();
     return users.filter((u) => {
       if (status === 'inactive' && u.active) return false;
-      if (roleFilter && u.role !== roleFilter) return false;
+      if (roleFilter && u.staffRoleId !== roleFilter) return false;
       if (!needle) return true;
       return (
         u.name.toLowerCase().includes(needle) ||
@@ -261,7 +286,6 @@ export default function StaffPage() {
     const data = await send('', {
       name,
       email,
-      role,
       phone: phone || undefined,
       ...(staffRoleId ? { staffRoleId } : {}),
     });
@@ -277,11 +301,29 @@ export default function StaffPage() {
     }
   });
 
-  /** The temporary password is the whole point of the reset, so it goes straight to the card. */
+  /**
+   * A reset now goes to the person, not to whoever pressed the button.
+   *
+   * The account is cut off immediately — old password dead, every session ended — and its owner
+   * is emailed a link to choose a new one. An administrator who never sees a credential cannot
+   * sign in as the bursar, which is what keeps handing out access separate from having it.
+   *
+   * The password only comes back here when delivery could not happen at all (a LAN box with no
+   * mail credentials), and then it is shown as the hand-over of last resort that it is.
+   */
   async function resetPassword(u: StaffUser) {
     const d = await send(`/${u.id}/reset-password`, {});
     if (!d) throw new Error('reset rejected');
-    if (d.temporaryPassword) setCredential({ email: d.email, password: d.temporaryPassword });
+    if (d.temporaryPassword) {
+      setCredential({ email: d.email, password: d.temporaryPassword, undelivered: true });
+    } else {
+      setSentTo({ name: u.name, where: d.sentTo ?? d.email });
+    }
+  }
+
+  async function makeProprietor(u: StaffUser) {
+    const d = await send(`/${u.id}`, { role: 'OWNER' }, 'PATCH');
+    if (!d) throw new Error('promotion rejected');
   }
 
   async function toggleActive(u: StaffUser) {
@@ -297,6 +339,8 @@ export default function StaffPage() {
     ].filter(Boolean);
     return parts.length > 0 ? parts.join(', ') : null;
   };
+
+  if (denied) return <NoAccess what="staff accounts" />;
 
   return (
     <div>
@@ -314,16 +358,16 @@ export default function StaffPage() {
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <label className="text-[13px]">
-            <span className="block text-oat mb-1">Account type</span>
+            <span className="block text-oat mb-1">Role</span>
             <select
               value={roleFilter}
               onChange={(e) => go({ role: e.target.value || undefined })}
               className={field}
             >
-              <option value="">All types</option>
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {label(r)}
+              <option value="">All roles</option>
+              {roles.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
                 </option>
               ))}
             </select>
@@ -374,12 +418,35 @@ export default function StaffPage() {
         </div>
       </div>
 
+      {sentTo && (
+        <div className="card p-5 mt-5 border-gold/50 rise">
+          <p className="text-sm font-medium">
+            {sentTo.name} has been signed out everywhere, and sent a link to choose a new password
+          </p>
+          <p className="text-xs text-oat mt-1">
+            Sent to {sentTo.where}. The link expires shortly and can be used once. Their old
+            password no longer works — nobody, including you, holds the new one.
+          </p>
+          <button
+            onClick={() => setSentTo(null)}
+            className="mt-3 text-[12px] text-oat hover:text-brand transition underline underline-offset-2"
+          >
+            Done
+          </button>
+        </div>
+      )}
+
       {credential && (
         <div className="card p-5 mt-5 border-gold/50 rise">
-          <p className="text-sm font-medium">Temporary password — shown once</p>
+          <p className="text-sm font-medium">
+            {credential.undelivered
+              ? 'Could not send it — hand this over in person'
+              : 'Temporary password — shown once'}
+          </p>
           <p className="text-xs text-oat mt-1">
-            Give this to {credential.email}. It is stored encrypted and cannot be shown again; issue
-            a new one if it is lost.
+            {credential.undelivered
+              ? `This box could not reach ${credential.email}, so the password is shown here instead. Give it to them directly and have them change it.`
+              : `Give this to ${credential.email}. It is stored encrypted and cannot be shown again; issue a new one if it is lost.`}
           </p>
           <p className="font-display text-2xl tabular mt-3 select-all">{credential.password}</p>
           <button
@@ -402,11 +469,8 @@ export default function StaffPage() {
               <SortHeader column="email" base="/settings/staff" params={params}>
                 Email
               </SortHeader>
-              <SortHeader column="role" base="/settings/staff" params={params}>
-                Account type
-              </SortHeader>
               <SortHeader column="staffRole" base="/settings/staff" params={params}>
-                Staff role
+                Role
               </SortHeader>
               <SortHeader column="status" base="/settings/staff" params={params}>
                 Status
@@ -425,27 +489,10 @@ export default function StaffPage() {
                   {u.email}
                   {u.phone && <span className="block text-[11px] tabular">{u.phone}</span>}
                 </td>
-                <td data-label="Account type" className="px-5 py-3">
-                  {u.manageable ? (
-                    <select
-                      value={u.role}
-                      onChange={(e) => send(`/${u.id}`, { role: e.target.value }, 'PATCH')}
-                      className={`${field} py-1`}
-                    >
-                      {ROLES.map((r) => (
-                        <option key={r} value={r}>
-                          {label(r)}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span>{label(u.role)}</span>
-                  )}
-                </td>
-                <td data-label="Staff role" className="px-5 py-3">
+                <td data-label="Role" className="px-5 py-3">
                   {u.role === 'OWNER' ? (
                     <>
-                      <span className="font-medium">Full access</span>
+                      <span className="font-medium">Proprietor — full access</span>
                       <span className="block text-[11px] text-oat">
                         The proprietor always reaches everything. It cannot be narrowed.
                       </span>
@@ -484,7 +531,12 @@ export default function StaffPage() {
                       </button>
                     )}
                     {u.manageable && (
-                      <RowActions user={u} onReset={resetPassword} onToggleActive={toggleActive} />
+                      <RowActions
+                        user={u}
+                        onReset={resetPassword}
+                        onToggleActive={toggleActive}
+                        onMakeOwner={isProprietor ? makeProprietor : undefined}
+                      />
                     )}
                   </div>
                 </td>
@@ -492,10 +544,10 @@ export default function StaffPage() {
             ))}
             {shown.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-5 py-10 text-center text-oat">
+                <td colSpan={5} className="px-5 py-10 text-center text-oat">
                   {users.length === 0
                     ? 'No staff accounts yet.'
-                    : 'No accounts match. Try a different account type, status or search term.'}
+                    : 'No accounts match. Try a different role, status or search term.'}
                 </td>
               </tr>
             )}
@@ -556,8 +608,11 @@ export default function StaffPage() {
             A temporary password is generated and shown once — hand it over and ask them to change
             it. Give them a staff role now: without one the account can sign in and do nothing.
           </p>
+          {/* Each field grows to share the row rather than sitting at a fixed width: a full
+              Ghanaian name and a school address both ran out of room and scrolled inside their
+              own box. They wrap onto a second row before they shrink below a readable width. */}
           <div className="flex flex-wrap items-end gap-3 mt-4">
-            <label className="text-[13px]">
+            <label className="text-[13px] flex-1 min-w-[14rem]">
               <span className="block text-oat mb-1">Full name</span>
               <div className="relative">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
@@ -568,11 +623,11 @@ export default function StaffPage() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Ms. Efua Sarpong"
-                  className={`${field} w-52 pl-10`}
+                  className={`${field} w-full pl-10`}
                 />
               </div>
             </label>
-            <label className="text-[13px]">
+            <label className="text-[13px] flex-1 min-w-[15rem]">
               <span className="block text-oat mb-1">Email</span>
               <div className="relative">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
@@ -584,11 +639,11 @@ export default function StaffPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="efua@school.gh"
-                  className={`${field} w-56 pl-10`}
+                  className={`${field} w-full pl-10`}
                 />
               </div>
             </label>
-            <label className="text-[13px]">
+            <label className="text-[13px] flex-1 min-w-[11rem]">
               <span className="block text-oat mb-1">Phone</span>
               <div className="relative">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-oat/70">
@@ -598,23 +653,15 @@ export default function StaffPage() {
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="024 123 4567"
-                  className={`${field} w-36 pl-10`}
+                  className={`${field} w-full pl-10`}
                 />
               </div>
             </label>
-            <label className="text-[13px]">
-              <span className="block text-oat mb-1">Account type</span>
-              <select value={role} onChange={(e) => setRole(e.target.value)} className={field}>
-                {ROLES.map((r) => (
-                  <option key={r} value={r}>
-                    {label(r)}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {/* No account type is asked for. The job below is the answer, and it is the one the
+                API enforces; a proprietor is made deliberately from the row menu instead. */}
             <Combobox
-              label="Staff role"
-              className="w-56"
+              label="Role"
+              className="flex-1 min-w-[14rem]"
               options={roleOptions}
               value={staffRoleId}
               onChange={setStaffRoleId}
@@ -639,7 +686,7 @@ export default function StaffPage() {
 }
 
 /**
- * The two per-row requests.
+ * The per-row requests.
  *
  * Its own component because each row needs its own pending/done state, and hooks cannot be called
  * inside the map that renders the table.
@@ -648,16 +695,46 @@ function RowActions({
   user,
   onReset,
   onToggleActive,
+  onMakeOwner,
 }: {
   user: StaffUser;
   onReset: (u: StaffUser) => Promise<void>;
   onToggleActive: (u: StaffUser) => Promise<void>;
+  /** Only a proprietor may make another one, so only they are offered it. */
+  onMakeOwner?: (u: StaffUser) => Promise<void>;
 }) {
   const reset = useAsyncAction(() => onReset(user));
   const toggle = useAsyncAction(() => onToggleActive(user));
+  const promote = useAsyncAction(() => onMakeOwner!(user));
 
   return (
     <>
+      {/*
+        Deliberate and separate, where an "account type" dropdown used to sit. Making a second
+        proprietor is the only account change that hands out authority nobody can take back — it
+        should be an act, not a value picked from a list of five beside four that do nothing.
+      */}
+      {onMakeOwner && user.role !== 'OWNER' && (
+        <Button
+          size="sm"
+          variant="secondary"
+          state={promote.state}
+          onClick={() => {
+            if (
+              confirm(
+                `Make ${user.name} a proprietor?\n\nThey will hold every permission in the school, permanently — a proprietor's access cannot be narrowed by anyone, including you.`,
+              )
+            ) {
+              return promote.run();
+            }
+          }}
+          pendingLabel="Making…"
+          doneLabel="Now a proprietor"
+          failedLabel="Couldn't do that"
+        >
+          Make proprietor
+        </Button>
+      )}
       {/* "Reset" is not one of the conjugated verbs, so the wording is spelled out. */}
       <Button
         size="sm"

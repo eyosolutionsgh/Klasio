@@ -254,7 +254,11 @@ export const PERMISSIONS = [
     caution: 'Sensitive: these follow a child through the school.',
   },
   { code: 'registers.visitors', label: 'Keep the visitors book', group: 'Registers' },
-  { code: 'registers.feeding', label: 'Collect and reconcile daily feeding money', group: 'Registers' },
+  {
+    code: 'registers.feeding',
+    label: 'Collect and reconcile daily feeding money',
+    group: 'Registers',
+  },
   {
     code: 'records.configure',
     label: 'Set up custom fields and checklists',
@@ -276,6 +280,13 @@ export const PERMISSIONS = [
     label: 'Create and edit roles',
     group: 'Administration',
     caution: 'Changes what every holder of a role can do.',
+  },
+  {
+    code: 'users.delegate',
+    label: 'Give others access this person does not have themselves',
+    group: 'Administration',
+    caution:
+      'The system administrator’s permission. Whoever holds it can put anybody on any role — including the bursar’s — while holding none of that access themselves. Every use is recorded against their name.',
   },
   { code: 'audit.view', label: 'See the audit log', group: 'Administration' },
   { code: 'returns.view', label: 'Produce GES and NaSIA returns', group: 'Administration' },
@@ -531,14 +542,47 @@ export const ROLE_PRESETS: RolePreset[] = [
   },
   {
     key: 'IT_ADMIN',
-    name: 'IT Administrator',
+    name: 'System Administrator',
     description:
-      'Manages accounts and access. Deliberately holds no student, academic or money permissions.',
+      'Employed to run accounts and access, so the proprietor does not have to. Hands out any role — including the bursar’s — while holding no student, academic or money access themselves.',
     // An account administrator does not need to read children's records to do their job, and
     // giving them that access by habit is how "admin" quietly becomes "everything".
-    permissions: ['users.view', 'users.manage', 'roles.manage', 'audit.view', 'school.branding'],
+    //
+    // `users.delegate` is what makes the job possible at all: without it the rule that nobody
+    // hands out what they do not hold would confine this role to handing out its own five
+    // permissions, which is not a system administrator — it is a spectator. See canGrant below.
+    permissions: [
+      'users.view',
+      'users.manage',
+      'users.delegate',
+      'roles.manage',
+      'audit.view',
+      'school.branding',
+    ],
   },
 ];
+
+/**
+ * What a preset has gained since this school's copy of it was made.
+ *
+ * A school's roles are created once — at setup, or by the migration that introduced them — and
+ * never touched again. Every permission added to a preset afterwards (payroll and fee clearance
+ * for the bursar, the six registers for teachers) therefore reaches new schools only. The people
+ * who have been paying longest are the ones who cannot see the newest work: the feature ships, the
+ * menu item never appears, and nothing anywhere says why.
+ *
+ * Returned rather than applied. A school that deliberately narrowed a role must not have it
+ * quietly widened by an upgrade — that would turn "least privilege" into a promise that expires.
+ * So this reports, the school decides. Codes the role never had and the preset never had are not
+ * this function's business: only what the preset holds and the role does not.
+ */
+export function behindPreset(presetKey: string | null, permissions: string[]): string[] {
+  if (!presetKey) return [];
+  const preset = ROLE_PRESETS.find((p) => p.key === presetKey);
+  if (!preset) return [];
+  const held = new Set(permissions);
+  return sanitizePermissions(preset.permissions.filter((code) => !held.has(code)));
+}
 
 /**
  * The proprietor holds every permission, always.
@@ -554,7 +598,7 @@ export function permissionsForOwner(): string[] {
 }
 
 /**
- * Can `granter` give away `codes`?
+ * Can `granter` give away `codes`? Returns the ones they may not.
  *
  * You cannot grant what you do not hold. Without this, anyone with `users.manage` could invent a
  * role with `fees.record_payment`, assign it to themselves, and quietly become a cashier — which
@@ -563,4 +607,30 @@ export function permissionsForOwner(): string[] {
 export function canGrant(granterPermissions: string[], codes: string[]): string[] {
   const held = new Set(granterPermissions);
   return codes.filter((c) => !held.has(c));
+}
+
+/**
+ * The one exception, and why it is safe to have one.
+ *
+ * A school employs someone to run accounts so the proprietor does not have to. That job *is*
+ * handing out access the administrator has no business using: staffing the bursar's desk means
+ * granting `fees.record_payment` to somebody else. Under `canGrant` alone the only account that
+ * could ever do it is the proprietor's — which is precisely the work they hired out.
+ *
+ * `users.delegate` separates **administering** access from **holding** it. A delegate can put
+ * anyone on any role and still not read a child's record or a cedi themselves, because granting a
+ * permission never grants it to the granter. What it does not do is make them invisible: every
+ * delegated grant is audited by name, and over-granting is the delegate's answer to give.
+ *
+ * Two things it deliberately does not bypass:
+ * - the proprietor's account, which no role may narrow (`roles.assign` refuses OWNER outright);
+ * - who may mint another proprietor — that stays with proprietors (`canAssignRole`).
+ */
+export function isDelegate(granterPermissions: string[]): boolean {
+  return granterPermissions.includes('users.delegate');
+}
+
+/** What `granter` may not hand out — nothing at all, if they administer access on the school's behalf. */
+export function ungrantable(granterPermissions: string[], codes: string[]): string[] {
+  return isDelegate(granterPermissions) ? [] : canGrant(granterPermissions, codes);
 }

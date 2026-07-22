@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
   ALL_PERMISSIONS,
+  behindPreset,
   canGrant,
+  isDelegate,
   isPermission,
   PERMISSIONS,
   permissionsForOwner,
   ROLE_PRESETS,
   sanitizePermissions,
+  ungrantable,
 } from './permissions';
+import { effectivePermissions } from './effective-permissions';
 
 const preset = (key: string) => ROLE_PRESETS.find((r) => r.key === key)!;
 
@@ -107,11 +111,37 @@ describe('separation of duties', () => {
     expect(canPublish.sort()).toEqual(['EXAMS_OFFICER', 'HEAD']);
   });
 
-  it('gives the IT administrator no access to children or money', () => {
-    // An account administrator does not need student records to do their job.
-    const it = preset('IT_ADMIN').permissions;
-    expect(it.filter((p) => p.startsWith('students.') || p.startsWith('fees.'))).toEqual([]);
-    expect(it).toContain('users.manage');
+  it('gives the system administrator no access to children or money', () => {
+    // An account administrator does not need student records to do their job. This is the promise
+    // FEATURES.md makes about the role, so it is asserted rather than intended.
+    const admin = preset('IT_ADMIN').permissions;
+    expect(
+      admin.filter(
+        (p) =>
+          p.startsWith('students.') ||
+          p.startsWith('fees.') ||
+          p.startsWith('marks.') ||
+          p.startsWith('reports.') ||
+          p.startsWith('hr.'),
+      ),
+    ).toEqual([]);
+    expect(admin).toContain('users.manage');
+  });
+
+  it('lets the system administrator hand out what it cannot use itself', () => {
+    // The two halves of the job, and they must both hold: they can staff the bursar's desk
+    // (delegate) without ever being able to touch the ledger (no fees.* above).
+    const admin = preset('IT_ADMIN').permissions;
+    expect(admin).toContain('users.delegate');
+    expect(isDelegate(admin)).toBe(true);
+    expect(ungrantable(admin, preset('BURSAR').permissions)).toEqual([]);
+  });
+
+  it('gives delegation to nobody else — not even the head', () => {
+    const delegates = ROLE_PRESETS.filter((r) => r.permissions.includes('users.delegate')).map(
+      (r) => r.key,
+    );
+    expect(delegates).toEqual(['IT_ADMIN']);
   });
 
   it('gives only the proprietor and IT admin the power to hand out access', () => {
@@ -147,5 +177,62 @@ describe('canGrant', () => {
 
   it('lets an owner grant anything', () => {
     expect(canGrant(permissionsForOwner(), ALL_PERMISSIONS)).toEqual([]);
+  });
+});
+
+describe('behindPreset', () => {
+  it('reports what a preset has gained since a school copied it', () => {
+    // A school set up before payroll shipped: its Bursar row is frozen at what the preset held
+    // then, so the permission exists in code, guards a route, and reaches nobody.
+    const asShipped = preset('BURSAR').permissions.filter((p) => p !== 'hr.payroll');
+    expect(behindPreset('BURSAR', asShipped)).toEqual(['hr.payroll']);
+  });
+
+  it('says nothing about a role that is level with its preset', () => {
+    expect(behindPreset('BURSAR', preset('BURSAR').permissions)).toEqual([]);
+  });
+
+  it('cannot tell a narrowed role from an outdated one — which is why it only offers', () => {
+    // Honest about the limitation: a role narrowed on purpose looks identical to one left behind,
+    // because nothing records why a permission is absent. That is exactly why catching up is
+    // offered with the codes named rather than applied automatically — the school knows which of
+    // the two it is, and the code cannot.
+    const narrowed = preset('BURSAR').permissions.filter((p) => p !== 'fees.reverse');
+    expect(behindPreset('BURSAR', narrowed)).toEqual(['fees.reverse']);
+  });
+
+  it('leaves a role the school invented alone', () => {
+    // No presetKey, nothing to be behind.
+    expect(behindPreset(null, ['fees.view'])).toEqual([]);
+    expect(behindPreset('NOT_A_PRESET', ['fees.view'])).toEqual([]);
+  });
+});
+
+describe('delegated administration', () => {
+  const admin = ['users.view', 'users.manage', 'users.delegate', 'roles.manage'];
+
+  it('lets a delegate hand out everything in the catalogue', () => {
+    // Their job is staffing every desk in the school, which means granting the money permissions
+    // they are deliberately barred from holding.
+    expect(ungrantable(admin, ALL_PERMISSIONS)).toEqual([]);
+  });
+
+  it('still refuses everyone else', () => {
+    const withoutDelegation = ['users.view', 'users.manage', 'roles.manage'];
+    expect(ungrantable(withoutDelegation, ['fees.record_payment'])).toEqual([
+      'fees.record_payment',
+    ]);
+    expect(isDelegate(withoutDelegation)).toBe(false);
+  });
+
+  it('does not grant the delegate the access they hand out', () => {
+    // The whole safety of the exception: granting is not holding. Nothing about `users.delegate`
+    // widens what its holder may do — only what they may give.
+    expect(admin).not.toContain('fees.record_payment');
+    expect(
+      effectivePermissions({ role: 'FRONT_DESK', rolePermissions: admin }).includes(
+        'fees.record_payment',
+      ),
+    ).toBe(false);
   });
 });

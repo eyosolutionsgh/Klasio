@@ -7,11 +7,19 @@ import { createPortal } from 'react-dom';
 import SchoolCrest from './SchoolCrest';
 
 /**
- * `needs` hides an item the package does not include; `roles` hides one this person may not use.
+ * `needs` hides an item the school's package does not include; `holds` hides one this person may
+ * not use.
  *
  * Both are presentation only — the API is the authority and refuses either way. Hiding matters
  * because the alternative is worse than a locked door: an unentitled request 401s the portal
  * session and dumps the user back at the login screen, which reads as the app breaking.
+ *
+ * `holds` names the **permission the destination page actually requires**, not a list of job
+ * titles. It used to be `roles: ['OWNER','HEAD']`, which was wrong in both directions at once: a
+ * nurse was shown Marks Entry and Payroll, and the school's system administrator — who holds
+ * `users.manage` but sits on no leadership role — was shown no Settings at all, so the one screen
+ * they exist to use was the one screen they could not reach. Keying off the same code the route
+ * checks is what keeps the menu and the API from disagreeing.
  */
 type Group = 'Daily' | 'Academic' | 'Finance' | 'Communication' | 'Setup';
 
@@ -21,7 +29,8 @@ interface NavItem {
   icon: string;
   tip: string;
   needs?: string;
-  roles?: string[];
+  /** One permission, or several of which any one is enough (a hub page reachable two ways). */
+  holds?: string | string[];
   /** Absent means the item sits above the groups, on its own. Only Dashboard does. */
   group?: Group;
 }
@@ -33,9 +42,6 @@ interface NavItem {
  */
 const GROUPS: Group[] = ['Daily', 'Academic', 'Finance', 'Communication', 'Setup'];
 
-const ADMIN = ['OWNER', 'HEAD'];
-const FINANCE = ['OWNER', 'HEAD', 'BURSAR'];
-
 const NAV: NavItem[] = [
   {
     href: '/dashboard',
@@ -45,6 +51,7 @@ const NAV: NavItem[] = [
   },
   {
     href: '/students',
+    holds: 'students.view',
     label: 'Students',
     icon: 'M12 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z',
     tip: 'Student records and guardians',
@@ -52,15 +59,16 @@ const NAV: NavItem[] = [
   },
   {
     href: '/admissions',
+    holds: 'admissions.view',
     label: 'Admissions',
     icon: 'M15 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4zM6 8V5H4v3H1v2h3v3h2v-3h3V8H6z',
     tip: 'Applications from first enquiry to enrolment',
     needs: 'sis.admissions',
-    roles: ADMIN,
     group: 'Daily',
   },
   {
     href: '/attendance',
+    holds: 'attendance.view',
     label: 'Attendance',
     icon: 'M9 16.2l-3.5-3.5L4 14.2 9 19.2 20 8.2l-1.5-1.4L9 16.2z',
     tip: 'Mark and review the daily register',
@@ -68,6 +76,7 @@ const NAV: NavItem[] = [
   },
   {
     href: '/marks',
+    holds: ['marks.enter', 'marks.view'],
     label: 'Marks Entry',
     icon: 'M3 17.2V21h3.8L17.8 9.9l-3.7-3.7L3 17.2zM20.7 7c.4-.4.4-1 0-1.4l-2.3-2.3c-.4-.4-1-.4-1.4 0l-1.8 1.8 3.7 3.7L20.7 7z',
     tip: 'Enter SBA and exam scores',
@@ -75,6 +84,7 @@ const NAV: NavItem[] = [
   },
   {
     href: '/timetable',
+    holds: 'timetable.view',
     label: 'Timetable',
     icon: 'M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z',
     tip: 'The weekly grid for a class or a teacher',
@@ -83,6 +93,7 @@ const NAV: NavItem[] = [
   },
   {
     href: '/reports',
+    holds: 'reports.view',
     label: 'Terminal Reports',
     icon: 'M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z',
     tip: 'Generate and print GES terminal reports',
@@ -90,6 +101,7 @@ const NAV: NavItem[] = [
   },
   {
     href: '/exams',
+    holds: ['marks.view', 'assessment.configure'],
     label: 'Examinations',
     icon: 'M9 2a1 1 0 00-1 1v1H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-2V3a1 1 0 00-1-1H9zm1 2h4v2h-4V4zM7 9h10v2H7V9zm0 4h10v2H7v-2zm0 4h6v2H7v-2z',
     tip: 'Question banks and computer-based tests',
@@ -98,6 +110,14 @@ const NAV: NavItem[] = [
   },
   {
     href: '/registers',
+    holds: [
+      'registers.logbook',
+      'registers.lesson_notes',
+      'registers.duty',
+      'registers.discipline',
+      'registers.visitors',
+      'registers.feeding',
+    ],
     label: 'Registers',
     icon: 'M4 4h12a2 2 0 012 2v14a2 2 0 01-2 2H4V4zm2 2v14h10V6H6zm2 3h6v2H8V9zm0 4h6v2H8v-2zM19 4h1v18h-1V4z',
     tip: 'Log book, duty roster, visitors, discipline and lesson notes',
@@ -105,14 +125,15 @@ const NAV: NavItem[] = [
   },
   {
     href: '/fees',
+    holds: 'fees.view',
     label: 'Fees',
     icon: 'M11.8 10.9c-2.3-.6-3-1.2-3-2.1 0-1.1 1-1.8 2.7-1.8 1.8 0 2.4.8 2.5 2h2.2c-.1-1.6-1.1-3.1-3-3.6V3.2h-3v2.2c-1.9.4-3.4 1.6-3.4 3.5 0 2.3 1.9 3.4 4.6 4 2.4.6 2.9 1.4 2.9 2.3 0 .7-.5 1.7-2.7 1.7-2 0-2.8-.9-3-2H6.4c.1 2 1.6 3.2 3.4 3.6v2.3h3v-2.2c1.9-.4 3.5-1.5 3.5-3.5 0-2.8-2.4-3.7-4.5-4.2z',
     tip: 'Billing, payments and defaulters',
-    roles: FINANCE,
     group: 'Finance',
   },
   {
     href: '/pickup',
+    holds: 'pickup.view',
     label: 'Dismissal',
     icon: 'M12 2a5 5 0 015 5v3h1a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2v-8a2 2 0 012-2h1V7a5 5 0 015-5zm0 2a3 3 0 00-3 3v3h6V7a3 3 0 00-3-3zm0 9a2 2 0 00-1 3.7V18h2v-1.3A2 2 0 0012 13z',
     tip: 'Check who is collecting and log every release',
@@ -121,6 +142,7 @@ const NAV: NavItem[] = [
   },
   {
     href: '/payroll',
+    holds: 'hr.payroll',
     label: 'Payroll',
     icon: 'M12 2a4 4 0 110 8 4 4 0 010-8zm0 10c4.4 0 8 1.8 8 4v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2c0-2.2 3.6-4 8-4zm5-6h4v2h-4V6zm0 4h4v2h-4v-2z',
     tip: 'Salaries, SSNIT, PAYE and payslips',
@@ -129,6 +151,7 @@ const NAV: NavItem[] = [
   },
   {
     href: '/transport',
+    holds: ['transport.manage', 'transport.operate'],
     label: 'Transport',
     icon: 'M4 16c0 .9.4 1.7 1 2.2V20a1 1 0 001 1h1a1 1 0 001-1v-1h8v1a1 1 0 001 1h1a1 1 0 001-1v-1.8c.6-.5 1-1.3 1-2.2V6c0-3.5-3.6-4-8-4s-8 .5-8 4v10zm3.5 1a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm9 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3zM6 11V6h12v5H6z',
     tip: 'Bus routes, manifests and boarding scans',
@@ -137,6 +160,7 @@ const NAV: NavItem[] = [
   },
   {
     href: '/announcements',
+    holds: 'comms.announce',
     label: 'Announcements',
     icon: 'M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.1-1.6-5.6-4.5-6.3V4c0-.8-.7-1.5-1.5-1.5S10.5 3.2 10.5 4v.7C7.6 5.4 6 7.9 6 11v5l-2 2v1h16v-1l-2-2z',
     tip: 'Notices for staff and guardians',
@@ -144,6 +168,7 @@ const NAV: NavItem[] = [
   },
   {
     href: '/calendar',
+    holds: 'calendar.view',
     label: 'Calendar',
     icon: 'M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2zm0 16H5V10h14v10zm-7-7h5v5h-5v-5z',
     tip: 'Term dates, examinations and school events',
@@ -151,6 +176,7 @@ const NAV: NavItem[] = [
   },
   {
     href: '/resources',
+    holds: 'resources.view',
     label: 'Resources',
     icon: 'M4 6H2v14a2 2 0 002 2h14v-2H4V6zm16-4H8a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V4a2 2 0 00-2-2zm-2 9H10V9h8v2zm-3 4h-5v-2h5v2zm3-8H10V5h8v2z',
     tip: 'Notes and past questions shared with a class',
@@ -159,6 +185,7 @@ const NAV: NavItem[] = [
   },
   {
     href: '/messaging',
+    holds: 'comms.sms',
     label: 'Messaging',
     icon: 'M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-7 9h-2V9h2v2zm0-4h-2V5h2v2z',
     tip: 'Send bulk SMS to guardians',
@@ -167,6 +194,7 @@ const NAV: NavItem[] = [
   },
   {
     href: '/whatsapp',
+    holds: 'comms.whatsapp',
     label: 'WhatsApp',
     icon: 'M12 2a10 10 0 00-8.6 15L2 22l5.2-1.4A10 10 0 1012 2zm0 2a8 8 0 110 16 8 8 0 01-4.2-1.2l-.4-.2-2.6.7.7-2.5-.3-.4A8 8 0 0112 4zm-3.3 4.3c-.2 0-.4 0-.6.3l-.5.9c-.4.9.1 2 .8 2.9a8 8 0 003.4 2.8c1.3.5 1.9.4 2.4.2l.9-.6c.2-.2.2-.4.1-.6l-1-1c-.2-.2-.4-.2-.6 0l-.6.5c-.2.2-.4.2-.6.1a6 6 0 01-2.4-2.2c-.1-.2-.1-.4.1-.6l.5-.5c.2-.2.1-.4 0-.6l-.9-1.4c-.1-.2-.3-.2-.5-.2z',
     tip: 'Replies to families who wrote to the school — you cannot start a chat',
@@ -175,104 +203,104 @@ const NAV: NavItem[] = [
   },
   {
     href: '/settings/school',
+    holds: 'school.settings',
     label: 'School Setup',
     icon: 'M12 3L2 8l10 5 8-4v6h2V8L12 3zM6 13.2V17c0 1.7 2.7 3 6 3s6-1.3 6-3v-3.8l-6 3-6-3z',
     tip: 'Academic years, terms, levels, classes and subjects',
-    roles: ADMIN,
     group: 'Setup',
   },
   {
     href: '/settings/branding',
+    holds: 'school.branding',
     label: 'Profile & Branding',
     icon: 'M12 3l2.4 5 5.6.8-4 3.9 1 5.5-5-2.6-5 2.6 1-5.5-4-3.9 5.6-.8L12 3z',
     tip: 'Your crest, colour and contact details',
-    roles: ADMIN,
     group: 'Setup',
   },
   {
     href: '/settings/records',
+    holds: 'records.configure',
     label: 'Records Setup',
     icon: 'M19 3h-4.2A3 3 0 0012 1a3 3 0 00-2.8 2H5a2 2 0 00-2 2v16a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm-7 0a1 1 0 110 2 1 1 0 010-2zm-2 15l-3-3 1.4-1.4L10 15.2l5.6-5.6L17 11l-7 7z',
     tip: 'Extra student fields, required documents and the remark bank',
-    roles: ADMIN,
     group: 'Setup',
   },
   {
     href: '/settings/fees',
+    holds: 'fees.structure',
     label: 'Fee Structure',
     icon: 'M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z',
     tip: 'What each student is billed per term',
-    roles: FINANCE,
     group: 'Finance',
   },
   {
     href: '/settings/staff',
+    holds: 'users.view',
     label: 'Staff Accounts',
     icon: 'M16 11c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 3-1.34 3-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z',
     tip: 'Staff accounts and what each role may do',
-    roles: ADMIN,
     group: 'Setup',
   },
   {
     href: '/settings/roles',
+    holds: 'roles.manage',
     label: 'Roles & Permissions',
     icon: 'M12 1L3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5l-9-4zm0 4a2.5 2.5 0 110 5 2.5 2.5 0 010-5zm0 6.5c1.9 0 4.5.9 4.5 2.6V16h-9v-1.9c0-1.7 2.6-2.6 4.5-2.6z',
     tip: 'What each role may do, and who holds it',
-    roles: ADMIN,
     group: 'Setup',
   },
   {
     href: '/settings/social',
+    holds: 'comms.social',
     label: 'Social Accounts',
     icon: 'M18 16.1c-.8 0-1.5.3-2 .8l-7.1-4.2c.1-.2.1-.5.1-.7s0-.5-.1-.7L16 7.2c.5.5 1.2.8 2 .8 1.7 0 3-1.3 3-3s-1.3-3-3-3-3 1.3-3 3c0 .2 0 .5.1.7L8 9.9c-.5-.5-1.2-.9-2-.9-1.7 0-3 1.3-3 3s1.3 3 3 3c.8 0 1.5-.3 2-.8l7.1 4.2c-.1.2-.1.4-.1.6 0 1.6 1.3 2.9 2.9 2.9s2.9-1.3 2.9-2.9-1.2-2.9-2.8-2.9z',
     tip: 'Facebook, Instagram and more — post announcements straight to them',
     needs: 'comms.social',
-    roles: ADMIN,
     group: 'Communication',
   },
   {
     href: '/settings/gateways',
+    holds: 'fees.gateways',
     label: 'Payment Setup',
     icon: 'M12 1L3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5l-9-4zm0 6a2 2 0 110 4 2 2 0 010-4zm0 5c1.7 0 5 .8 5 2.5V16H7v-1.5C7 12.8 10.3 12 12 12z',
     tip: 'Connect your Hubtel or Paystack account',
     needs: 'fees.online',
-    roles: FINANCE,
     group: 'Finance',
   },
   {
     href: '/settings/reconciliation',
+    holds: 'fees.reconcile',
     label: 'Reconciliation',
     icon: 'M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4zM12 3.5l-1.9 1.1 1.9 3.3 1.9-3.3L12 3.5zm0 17l1.9-1.1-1.9-3.3-1.9 3.3 1.9 1.1z',
     tip: 'Match a gateway settlement file against the payments you hold',
     needs: 'fees.reconciliation',
-    roles: FINANCE,
     group: 'Finance',
   },
   {
     href: '/settings/returns',
+    holds: 'returns.view',
     label: 'Termly Returns',
     icon: 'M19 3h-4.2A3 3 0 0012 1a3 3 0 00-2.8 2H5a2 2 0 00-2 2v16a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm-7 0a1 1 0 110 2 1 1 0 010-2zM7 9h10v2H7V9zm0 4h10v2H7v-2zm0 4h7v2H7v-2z',
     tip: 'The counts GES and NaSIA ask for each term',
     needs: 'platform.ges-returns',
-    roles: ADMIN,
     group: 'Setup',
   },
   {
     href: '/settings/licence',
+    holds: 'school.settings',
     label: 'Licence',
     icon: 'M12 1L3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5l-9-4zm0 10.9h7c-.5 4-3.1 7.6-7 8.9V12H5V6.3l7-3.1v8.7z',
     // Deliberately no `needs`: the page that says what this school is entitled to cannot itself
     // be gated on an entitlement, or a lapsed school loses the screen it needs to fix the lapse.
     tip: 'What this school is licensed for, and how to renew',
-    roles: ADMIN,
     group: 'Setup',
   },
   {
     href: '/audit',
+    holds: 'audit.view',
     label: 'Audit Log',
     icon: 'M12 1L3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5l-9-4zm-2 16l-4-4 1.4-1.4L10 14.2l6.6-6.6L18 9l-8 8z',
     tip: 'Who changed what, and when',
-    roles: ADMIN,
     group: 'Setup',
   },
 ];
@@ -289,6 +317,7 @@ export default function Sidebar({
   hasLogo,
   entitlements,
   role,
+  permissions,
   termLabel,
   tier,
   open = false,
@@ -298,6 +327,8 @@ export default function Sidebar({
   hasLogo: boolean;
   entitlements: string[];
   role: string;
+  /** What this person may do. The menu shows only what their permissions can actually open. */
+  permissions: string[];
   /** e.g. "2025/2026 · Term 3" — standing context, so it lives at the foot rather than the top. */
   termLabel: string;
   tier: string;
@@ -306,10 +337,18 @@ export default function Sidebar({
   onClose?: () => void;
 }) {
   const pathname = usePathname();
+  const held = new Set(permissions);
+  const mayUse = (item: NavItem) => {
+    if (!item.holds) return true;
+    // The proprietor holds everything, unconditionally — the API resolves it that way too, so a
+    // menu that consulted a list of codes would be the one place in the product where they did
+    // not. Any-of, because a hub page like Registers is legitimately reachable six ways.
+    if (role === 'OWNER') return true;
+    const codes = Array.isArray(item.holds) ? item.holds : [item.holds];
+    return codes.some((c) => held.has(c));
+  };
   const visible = NAV.filter(
-    (item) =>
-      (!item.needs || entitlements.includes(item.needs)) &&
-      (!item.roles || item.roles.includes(role)),
+    (item) => (!item.needs || entitlements.includes(item.needs)) && mayUse(item),
   );
 
   const ungrouped = visible.filter((i) => !i.group);

@@ -60,6 +60,7 @@ import IORedis from 'ioredis';
 import { PrismaService, withTenant } from '../prisma/prisma.service';
 import { markSchedule, scheduleTotals } from '../common/installments';
 import { concessionsFor, rankSiblings } from '../common/concessions';
+import { holdersOf } from '../common/holders';
 import { SmsModule, SmsService } from '../sms/sms.module';
 import { IntegrationsModule, IntegrationsService } from '../integrations/integrations.module';
 import {
@@ -2468,12 +2469,11 @@ export class RemindersQueue implements OnModuleInit, OnModuleDestroy {
         if (!term) return;
 
         // The job acts as the school itself; sendReminders only needs the tenant and an actor id.
+        // Someone who could have sent these by hand, so the audit trail names a plausible actor
+        // rather than whoever happens to sit high in an enum. The proprietor always qualifies, so
+        // this can only come back empty for a school with no active accounts at all.
         const actor = await this.db.user.findFirst({
-          where: {
-            schoolId: job.schoolId,
-            role: { in: ['OWNER', 'HEAD', 'BURSAR'] },
-            active: true,
-          },
+          where: { schoolId: job.schoolId, active: true, ...holdersOf('comms.reminders') },
         });
         if (!actor) return;
 

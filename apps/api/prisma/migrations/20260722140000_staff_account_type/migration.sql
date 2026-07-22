@@ -1,0 +1,12 @@
+-- Retire the account-type choice.
+--
+-- The Role enum began as the access model and is now down to one question: proprietor, staff,
+-- guardian or student. Everything a member of staff may do comes from their StaffRole, so asking
+-- a school to also pick head/bursar/teacher/front desk was asking them to describe the same person
+-- twice — and the second description granted nothing, which is how a system administrator ended up
+-- labelled "front desk" on screen.
+--
+-- Additive only. HEAD/BURSAR/TEACHER/FRONT_DESK stay in the type and on the rows that already
+-- carry them: rewriting live accounts would buy nothing (nothing reads them for authority) and
+-- would throw away the only record of what those schools originally chose.
+ALTER TYPE "Role" ADD VALUE IF NOT EXISTS 'STAFF';

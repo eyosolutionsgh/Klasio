@@ -334,6 +334,101 @@ export class AuthService {
   }
 
   /**
+   * Issue a reset to a named account, on someone else's instruction.
+   *
+   * The administrator's version of `forgotPassword`, and deliberately the *same* machinery: one
+   * expiring, single-use, session-killing row, superseding any outstanding ones. What differs is
+   * only what may be said out loud. `forgotPassword` answers an unauthenticated stranger, so it
+   * must never reveal whether an address exists or whether delivery worked; this caller is a
+   * signed-in administrator who is already looking at the account, so it reports the truth —
+   * without which the caller cannot know to fall back to handing something over in person.
+   *
+   * It mints no password and returns no credential. That is the point: an administrator who never
+   * sees a password cannot sign in as the bursar, so restoring somebody's access stops being a
+   * way to acquire it.
+   */
+  async issueResetFor(
+    user: { id: string; name: string; email: string; phone: string | null; schoolId: string },
+    channel: 'email' | 'sms',
+  ): Promise<{ delivered: boolean; channel: 'email' | 'sms'; reason?: string }> {
+    if (channel === 'sms' && !user.phone) {
+      return { delivered: false, channel, reason: 'no-phone' };
+    }
+    const school = await this.db.system.school.findUnique({ where: { id: user.schoolId } });
+    if (!school) return { delivered: false, channel, reason: 'no-school' };
+
+    await this.db.system.passwordReset.updateMany({
+      where: { userId: user.id, consumedAt: null, supersededAt: null },
+      data: { supersededAt: new Date() },
+    });
+    const expiresAt = new Date(Date.now() + RESET_TTL_MINUTES * 60_000);
+
+    if (channel === 'sms') {
+      const code = String(randomInt(0, 10 ** RESET_CODE_DIGITS)).padStart(RESET_CODE_DIGITS, '0');
+      const codeSalt = publicToken(16);
+      await this.db.system.passwordReset.create({
+        data: {
+          schoolId: user.schoolId,
+          userId: user.id,
+          channel: 'SMS',
+          codeSalt,
+          tokenHash: hashResetCode(codeSalt, code),
+          expiresAt,
+        },
+      });
+      const sent = await withTenant(user.schoolId, () =>
+        this.sms.sendOtp({
+          schoolId: user.schoolId,
+          phone: user.phone!,
+          code,
+          ttlMinutes: RESET_TTL_MINUTES,
+          purpose: 'staff-reset',
+        }),
+      ).catch((e) => {
+        this.log.error(
+          `Admin-issued reset SMS threw for user ${user.id}: ${(e as Error)?.message}`,
+        );
+        return { ok: false };
+      });
+      return { delivered: sent.ok, channel, ...(sent.ok ? {} : { reason: 'send-failed' }) };
+    }
+
+    const token = publicToken(32);
+    await this.db.system.passwordReset.create({
+      data: {
+        schoolId: user.schoolId,
+        userId: user.id,
+        channel: 'EMAIL',
+        tokenHash: hashResetToken(token),
+        expiresAt,
+      },
+    });
+    const base = process.env.PUBLIC_BASE_URL ?? 'http://localhost:3000';
+    try {
+      await this.email.send({
+        to: user.email,
+        toName: user.name,
+        kind: 'password-reset',
+        message: renderPasswordReset({
+          name: user.name,
+          schoolName: school.name,
+          resetUrl: `${base}/reset-password?token=${encodeURIComponent(token)}`,
+          expiresInMinutes: RESET_TTL_MINUTES,
+          crest: await this.email.loadCrest(school.logoUrl),
+        }),
+      });
+      return { delivered: true, channel };
+    } catch (e) {
+      // A box on a school LAN with no mail credentials is a supported deployment, not a fault.
+      // Saying so lets the caller fall back rather than leaving somebody locked out.
+      this.log.error(
+        `Admin-issued reset email failed for user ${user.id}: ${(e as Error)?.message}`,
+      );
+      return { delivered: false, channel, reason: 'send-failed' };
+    }
+  }
+
+  /**
    * Redeem a reset link.
    *
    * Bumps `tokenVersion`, so every session that old password had already opened dies with it —
@@ -448,7 +543,16 @@ export class AuthService {
     const [user, school, currentTerm] = await Promise.all([
       this.db.user.findUniqueOrThrow({
         where: { id: auth.sub },
-        select: { id: true, name: true, email: true, role: true },
+        // The staff role's name is the person's job — "Bursar", "System Administrator". The
+        // `role` enum beside it says only what kind of principal they are, so the chrome has
+        // something true to put under their name instead of "FRONT DESK".
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          staffRole: { select: { name: true } },
+        },
       }),
       this.db.school.findUniqueOrThrow({ where: { id: auth.schoolId } }),
       this.db.term.findFirst({
@@ -561,5 +665,9 @@ export class AuthController {
   imports: [EmailModule, SmsModule],
   controllers: [PublicAuthController, AuthController],
   providers: [AuthService],
+  // UsersModule resets staff passwords through `issueResetFor`, so that an administrator restoring
+  // access never handles a credential. Exported rather than reimplemented: a second copy of the
+  // reset flow is a second place for its expiry, supersede and single-use rules to drift.
+  exports: [AuthService],
 })
 export class AuthModule {}
