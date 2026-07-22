@@ -6,17 +6,10 @@ import Combobox from '@/components/Combobox';
 import Pagination from '@/components/Pagination';
 import SortHeader from '@/components/SortHeader';
 import { Button, useAsyncAction } from '@/components/Button';
-import {
-  KeyIcon,
-  MailIcon,
-  PhoneIcon,
-  PlusIcon,
-  SaveIcon,
-  SearchIcon,
-  UserIcon,
-} from '@/components/icons';
+import { MailIcon, PhoneIcon, PlusIcon, SaveIcon, SearchIcon, UserIcon } from '@/components/icons';
 import { DEFAULT_PER_PAGE, listHref, one, type ListSearchParams } from '@/lib/list';
 import NoAccess from '@/components/NoAccess';
+import RowMenu from '@/components/RowMenu';
 
 /**
  * Staff accounts, and what each person may do.
@@ -520,24 +513,47 @@ export default function StaffPage() {
                   </span>
                 </td>
                 <td className="px-5 py-3 whitespace-nowrap">
-                  <div className="flex items-center justify-end gap-2">
-                    {u.role !== 'OWNER' && u.manageable && (
-                      // A local panel toggle, not a request — it keeps its link treatment.
-                      <button
-                        onClick={() => setEditing(editing === u.id ? null : u.id)}
-                        className="text-[12.5px] text-brand hover:underline underline-offset-2 mr-1"
-                      >
-                        {editing === u.id ? 'Close' : 'Access'}
-                      </button>
-                    )}
-                    {u.manageable && (
-                      <RowActions
-                        user={u}
-                        onReset={resetPassword}
-                        onToggleActive={toggleActive}
-                        onMakeOwner={isProprietor ? makeProprietor : undefined}
-                      />
-                    )}
+                  <div className="flex items-center justify-end">
+                    <RowMenu
+                      label={u.name}
+                      actions={[
+                        {
+                          label: editing === u.id ? 'Close access panel' : 'Adjust access',
+                          hidden: u.role === 'OWNER' || !u.manageable,
+                          onSelect: () => setEditing(editing === u.id ? null : u.id),
+                        },
+                        {
+                          label: 'Reset password',
+                          hidden: !u.manageable,
+                          confirm: `Reset ${u.name}'s password? They are signed out everywhere and sent a link to choose a new one — you will not see it.`,
+                          confirmLabel: 'Yes, reset it',
+                          pendingLabel: 'Resetting…',
+                          doneLabel: 'Password reset',
+                          failedLabel: "Couldn't reset",
+                          onSelect: () => resetPassword(u),
+                        },
+                        {
+                          label: 'Make proprietor',
+                          hidden: !isProprietor || !u.manageable || u.role === 'OWNER',
+                          confirm: `Make ${u.name} a proprietor? They would hold every permission in the school, permanently — nobody could narrow it afterwards, including you.`,
+                          confirmLabel: 'Yes, make proprietor',
+                          pendingLabel: 'Making…',
+                          doneLabel: 'Now a proprietor',
+                          onSelect: () => makeProprietor(u),
+                        },
+                        {
+                          label: u.active ? 'Deactivate' : 'Reactivate',
+                          hidden: !u.manageable,
+                          danger: u.active,
+                          confirm: u.active
+                            ? `Deactivate ${u.name}? They can no longer sign in. Their records stay.`
+                            : undefined,
+                          pendingLabel: u.active ? 'Deactivating…' : 'Reactivating…',
+                          doneLabel: u.active ? 'Deactivated' : 'Reactivated',
+                          onSelect: () => toggleActive(u),
+                        },
+                      ]}
+                    />
                   </div>
                 </td>
               </tr>
@@ -682,83 +698,6 @@ export default function StaffPage() {
         </form>
       )}
     </div>
-  );
-}
-
-/**
- * The per-row requests.
- *
- * Its own component because each row needs its own pending/done state, and hooks cannot be called
- * inside the map that renders the table.
- */
-function RowActions({
-  user,
-  onReset,
-  onToggleActive,
-  onMakeOwner,
-}: {
-  user: StaffUser;
-  onReset: (u: StaffUser) => Promise<void>;
-  onToggleActive: (u: StaffUser) => Promise<void>;
-  /** Only a proprietor may make another one, so only they are offered it. */
-  onMakeOwner?: (u: StaffUser) => Promise<void>;
-}) {
-  const reset = useAsyncAction(() => onReset(user));
-  const toggle = useAsyncAction(() => onToggleActive(user));
-  const promote = useAsyncAction(() => onMakeOwner!(user));
-
-  return (
-    <>
-      {/*
-        Deliberate and separate, where an "account type" dropdown used to sit. Making a second
-        proprietor is the only account change that hands out authority nobody can take back — it
-        should be an act, not a value picked from a list of five beside four that do nothing.
-      */}
-      {onMakeOwner && user.role !== 'OWNER' && (
-        <Button
-          size="sm"
-          variant="secondary"
-          state={promote.state}
-          onClick={() => {
-            if (
-              confirm(
-                `Make ${user.name} a proprietor?\n\nThey will hold every permission in the school, permanently — a proprietor's access cannot be narrowed by anyone, including you.`,
-              )
-            ) {
-              return promote.run();
-            }
-          }}
-          pendingLabel="Making…"
-          doneLabel="Now a proprietor"
-          failedLabel="Couldn't do that"
-        >
-          Make proprietor
-        </Button>
-      )}
-      {/* "Reset" is not one of the conjugated verbs, so the wording is spelled out. */}
-      <Button
-        size="sm"
-        variant="secondary"
-        state={reset.state}
-        onClick={reset.run}
-        icon={<KeyIcon />}
-        pendingLabel="Resetting…"
-        doneLabel="Password reset"
-        failedLabel="Couldn't reset"
-      >
-        Reset password
-      </Button>
-      <Button
-        size="sm"
-        variant={user.active ? 'danger' : 'secondary'}
-        state={toggle.state}
-        onClick={toggle.run}
-        pendingLabel={user.active ? 'Deactivating…' : 'Reactivating…'}
-        doneLabel={user.active ? 'Deactivated' : 'Reactivated'}
-      >
-        {user.active ? 'Deactivate' : 'Reactivate'}
-      </Button>
-    </>
   );
 }
 

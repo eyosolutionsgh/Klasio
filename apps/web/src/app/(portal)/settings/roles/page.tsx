@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import NoAccess from '@/components/NoAccess';
+import RowMenu from '@/components/RowMenu';
 import { Button, useAsyncAction, type ActionState } from '@/components/Button';
-import { EditIcon, PlusIcon, RefreshIcon, SaveIcon, TrashIcon } from '@/components/icons';
+import { PlusIcon, RefreshIcon, SaveIcon } from '@/components/icons';
 
 /**
  * Roles, as the school defines them.
@@ -287,34 +288,45 @@ export default function RolesPage() {
                   {r.staffCount}
                 </td>
                 <td className="px-5 py-3 text-right whitespace-nowrap">
-                  {canManage && (
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        icon={<EditIcon />}
-                        className="mr-2"
-                        onClick={() => {
-                          setMessage(null);
-                          setError(null);
-                          setDraft({
-                            id: r.id,
-                            name: r.name,
-                            description: r.description ?? '',
-                            permissions: [...r.permissions],
-                          });
-                        }}
-                      >
-                        Edit
-                      </Button>
-                      <DeleteRoleButton
-                        onDelete={async () => {
-                          if (!(await send(`/${r.id}`, undefined, 'DELETE')))
-                            throw new Error('rejected');
-                        }}
-                      />
-                    </>
-                  )}
+                  <div className="flex justify-end">
+                    <RowMenu
+                      label={r.name}
+                      actions={[
+                        {
+                          label: 'Edit this role',
+                          hidden: !canManage,
+                          onSelect: () => {
+                            setMessage(null);
+                            setError(null);
+                            setDraft({
+                              id: r.id,
+                              name: r.name,
+                              description: r.description ?? '',
+                              permissions: [...r.permissions],
+                            });
+                          },
+                        },
+                        {
+                          label: 'Delete this role',
+                          hidden: !canManage,
+                          danger: true,
+                          // The API refuses a role somebody holds; saying so here saves the trip.
+                          confirm:
+                            r.staffCount > 0
+                              ? `${r.staffCount} ${r.staffCount === 1 ? 'person holds' : 'people hold'} “${r.name}”. Move them to another role first — deleting would strip them back to nothing.`
+                              : `Delete “${r.name}”? It is not in use, so nobody loses access.`,
+                          confirmLabel: r.staffCount > 0 ? undefined : 'Yes, delete it',
+                          disabled: r.staffCount > 0,
+                          pendingLabel: 'Deleting…',
+                          doneLabel: 'Deleted',
+                          onSelect: async () => {
+                            if (!(await send(`/${r.id}`, undefined, 'DELETE')))
+                              throw new Error('rejected');
+                          },
+                        },
+                      ]}
+                    />
+                  </div>
                 </td>
               </tr>
             ))}
@@ -565,20 +577,5 @@ function CatchUp({
         </>
       )}
     </div>
-  );
-}
-
-function DeleteRoleButton({ onDelete }: { onDelete: () => Promise<void> }) {
-  const action = useAsyncAction(onDelete);
-  return (
-    <Button
-      onClick={action.run}
-      state={action.state}
-      variant="danger"
-      size="sm"
-      icon={<TrashIcon />}
-    >
-      Delete
-    </Button>
   );
 }

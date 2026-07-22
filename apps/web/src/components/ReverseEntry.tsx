@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { Button, useAsyncAction } from './Button';
+import RowMenu from './RowMenu';
 import { RefreshIcon } from './icons';
 
 const field =
@@ -56,12 +57,20 @@ export default function ReverseEntry({
 
   if (!open) {
     return (
-      <button
-        onClick={() => setOpen(true)}
-        className="no-print text-[11px] text-oat hover:text-danger hover:underline underline-offset-2 transition"
-      >
-        Reverse
-      </button>
+      /* In the row's menu like every other row action. The reversal form is the stop here — it
+         asks for a reason before it will submit — so the menu item opens it rather than
+         confirming first, which would be two questions for one decision. */
+      <RowMenu
+        label={label}
+        actions={[
+          {
+            label: 'Reverse this entry',
+            danger: true,
+            icon: <RefreshIcon />,
+            onSelect: () => setOpen(true),
+          },
+        ]}
+      />
     );
   }
   if (!mounted) return null;

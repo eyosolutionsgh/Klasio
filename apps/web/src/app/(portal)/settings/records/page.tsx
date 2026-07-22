@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import RowMenu from '@/components/RowMenu';
 import { Button, useAsyncAction } from '@/components/Button';
 import { PlusIcon, SaveIcon } from '@/components/icons';
 
@@ -374,23 +375,37 @@ export default function RecordsSettingsPage() {
                       {f.required ? 'Yes' : '—'}
                     </td>
                     <td className="py-2.5 text-right whitespace-nowrap">
-                      {canConfigureRecords && (
-                        <button
-                          onClick={() => {
-                            setEditField({ ...f, options: f.options ?? [] });
-                            setMessage(null);
-                          }}
-                          className="text-[12px] font-medium text-brand hover:underline"
-                        >
-                          Change
-                        </button>
-                      )}
-                      <button
-                        onClick={() => send(`records/fields/${f.id}`, undefined, 'DELETE')}
-                        className="ml-3 text-[12px] text-clay hover:underline"
-                      >
-                        Remove
-                      </button>
+                      <div className="flex justify-end">
+                        {/* Both items behind the same permission. Remove used to sit outside the
+                            guard, so somebody who could not configure records was still offered
+                            the one destructive control on the row — which the API then refused. */}
+                        <RowMenu
+                          label={f.label}
+                          actions={[
+                            {
+                              label: 'Change this field',
+                              hidden: !canConfigureRecords,
+                              onSelect: () => {
+                                setEditField({ ...f, options: f.options ?? [] });
+                                setMessage(null);
+                              },
+                            },
+                            {
+                              label: 'Remove this field',
+                              hidden: !canConfigureRecords,
+                              danger: true,
+                              confirm: `Remove “${f.label}”? It stops being asked for on new records. What has already been recorded against it stays.`,
+                              confirmLabel: 'Yes, remove it',
+                              pendingLabel: 'Removing…',
+                              doneLabel: 'Removed',
+                              onSelect: async () => {
+                                if (!(await send(`records/fields/${f.id}`, undefined, 'DELETE')))
+                                  throw new Error('rejected');
+                              },
+                            },
+                          ]}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ),
@@ -567,23 +582,36 @@ export default function RecordsSettingsPage() {
                       {r.required ? 'Yes' : 'Optional'}
                     </td>
                     <td className="py-2.5 text-right whitespace-nowrap">
-                      {canConfigureRecords && (
-                        <button
-                          onClick={() => {
-                            setEditReq(r);
-                            setMessage(null);
-                          }}
-                          className="text-[12px] font-medium text-brand hover:underline"
-                        >
-                          Change
-                        </button>
-                      )}
-                      <button
-                        onClick={() => send(`records/requirements/${r.id}`, undefined, 'DELETE')}
-                        className="ml-3 text-[12px] text-clay hover:underline"
-                      >
-                        Remove
-                      </button>
+                      <div className="flex justify-end">
+                        <RowMenu
+                          label={r.label}
+                          actions={[
+                            {
+                              label: 'Change this document',
+                              hidden: !canConfigureRecords,
+                              onSelect: () => {
+                                setEditReq(r);
+                                setMessage(null);
+                              },
+                            },
+                            {
+                              label: 'Remove this document',
+                              hidden: !canConfigureRecords,
+                              danger: true,
+                              confirm: `Remove “${r.label}” from the checklist? Documents already uploaded against it stay on the students' records.`,
+                              confirmLabel: 'Yes, remove it',
+                              pendingLabel: 'Removing…',
+                              doneLabel: 'Removed',
+                              onSelect: async () => {
+                                if (
+                                  !(await send(`records/requirements/${r.id}`, undefined, 'DELETE'))
+                                )
+                                  throw new Error('rejected');
+                              },
+                            },
+                          ]}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ),

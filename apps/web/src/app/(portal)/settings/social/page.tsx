@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import RowMenu from '@/components/RowMenu';
 import { Button, useAsyncAction } from '@/components/Button';
-import { AlertIcon, KeyIcon, TrashIcon } from '@/components/icons';
+import { AlertIcon, KeyIcon } from '@/components/icons';
 
 interface Account {
   id: string;
@@ -67,7 +68,9 @@ export default function SocialPage() {
   });
 
   async function disconnect(id: string) {
-    await fetch(`/api/proxy/social/accounts/${id}`, { method: 'DELETE' });
+    const res = await fetch(`/api/proxy/social/accounts/${id}`, { method: 'DELETE' });
+    // Thrown rather than ignored, so a refusal reaches the menu instead of looking like success.
+    if (!res.ok) throw new Error('rejected');
     load();
   }
 
@@ -107,13 +110,22 @@ export default function SocialPage() {
                   </span>
                 </td>
                 <td className="px-5 py-3 text-right">
-                  <button
-                    onClick={() => disconnect(a.id)}
-                    className="inline-flex items-center gap-1.5 text-xs text-danger hover:underline min-h-9"
-                  >
-                    <TrashIcon aria-hidden />
-                    Disconnect
-                  </button>
+                  <div className="flex justify-end">
+                    <RowMenu
+                      label={a.displayName}
+                      actions={[
+                        {
+                          label: 'Disconnect this account',
+                          danger: true,
+                          confirm: `Disconnect ${a.displayName}? Nothing already posted is removed, but the school can no longer post to it until it is reconnected.`,
+                          confirmLabel: 'Yes, disconnect',
+                          pendingLabel: 'Disconnecting…',
+                          doneLabel: 'Disconnected',
+                          onSelect: () => disconnect(a.id),
+                        },
+                      ]}
+                    />
+                  </div>
                 </td>
               </tr>
             ))}

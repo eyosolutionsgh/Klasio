@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import RowMenu from '@/components/RowMenu';
 import FeeRollover, { type TermOption } from '@/components/FeeRollover';
 import ReminderSettings from '@/components/ReminderSettings';
 import ConcessionRules from '@/components/ConcessionRules';
@@ -138,8 +139,12 @@ export default function FeeStructurePage() {
 
   async function remove(id: string) {
     const res = await fetch(`/api/proxy/fees/items/${id}`, { method: 'DELETE' });
-    if (res.ok) load();
-    else setMessage('Could not remove that item.');
+    if (!res.ok) {
+      setMessage('Could not remove that item.');
+      // Thrown, not swallowed: the menu settles on "Couldn't remove" from this.
+      throw new Error('rejected');
+    }
+    load();
   }
 
   /**
@@ -317,28 +322,34 @@ export default function FeeStructurePage() {
                       {money(i.amount)}
                     </td>
                     <td className="px-5 py-3 text-right whitespace-nowrap">
-                      {canStructure && (
-                        <>
-                          <button
-                            onClick={() => {
-                              setEditingId(i.id);
-                              setDraft({ ...i });
-                              setMessage(null);
-                            }}
-                            data-tip="Re-prices future bills; bills already issued are unchanged"
-                            className="tip text-[12.5px] font-medium text-brand hover:underline underline-offset-2"
-                          >
-                            Change
-                          </button>
-                          <button
-                            onClick={() => remove(i.id)}
-                            data-tip="Removes it from future bills; bills already issued are unchanged"
-                            className="tip ml-3 text-[12.5px] text-clay hover:underline underline-offset-2"
-                          >
-                            Remove
-                          </button>
-                        </>
-                      )}
+                      <div className="flex justify-end">
+                        <RowMenu
+                          label={i.name}
+                          actions={[
+                            {
+                              label: 'Change the amount',
+                              hidden: !canStructure,
+                              onSelect: () => {
+                                setEditingId(i.id);
+                                setDraft({ ...i });
+                                setMessage(null);
+                              },
+                            },
+                            {
+                              label: 'Remove from the fee structure',
+                              hidden: !canStructure,
+                              danger: true,
+                              // What the old tooltip said, where it now matters most: at the point
+                              // of deciding, rather than on hover over a control already clicked.
+                              confirm: `Remove “${i.name}”? It comes off future bills. Bills already issued are unchanged, and nothing already paid is affected.`,
+                              confirmLabel: 'Yes, remove it',
+                              pendingLabel: 'Removing…',
+                              doneLabel: 'Removed',
+                              onSelect: () => remove(i.id),
+                            },
+                          ]}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ),

@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, useAsyncAction } from '@/components/Button';
+import { Button } from '@/components/Button';
 import { CashIcon, CloseIcon } from '@/components/icons';
+import RowMenu from '@/components/RowMenu';
 import { DEFAULT_PER_PAGE, type Page } from '@/lib/list';
 
 interface Deposit {
@@ -185,9 +186,6 @@ function DepositRow({
   review: (id: string, action: 'confirm' | 'reject') => Promise<void>;
   money: (n: number) => string;
 }) {
-  const confirm = useAsyncAction(() => review(d.id, 'confirm'));
-  const reject = useAsyncAction(() => review(d.id, 'reject'));
-
   return (
     <tr className="border-b border-mist/60 last:border-0">
       <td data-label="Student" className="px-6 py-2.5">
@@ -217,31 +215,40 @@ function DepositRow({
         )}
       </td>
       <td className="px-6 py-2.5">
-        <div className="flex flex-wrap items-center justify-end gap-1.5">
-          {/* Cash, not a tick: confirming is what puts the money on the student's ledger. */}
-          <Button
-            size="sm"
-            onClick={confirm.run}
-            state={confirm.state}
-            icon={<CashIcon />}
-            pendingLabel="Confirming…"
-            doneLabel="Confirmed!"
-            failedLabel="Couldn't confirm"
-          >
-            Confirm
-          </Button>
-          <Button
-            size="sm"
-            variant="danger"
-            onClick={reject.run}
-            state={reject.state}
-            icon={<CloseIcon />}
-            pendingLabel="Rejecting…"
-            doneLabel="Rejected!"
-            failedLabel="Couldn't reject"
-          >
-            Reject
-          </Button>
+        <div className="flex items-center justify-end">
+          <RowMenu
+            label={`${d.student}'s deposit`}
+            actions={[
+              {
+                // Confirming is what puts the money on the student's ledger, so it asks first —
+                // the whole point of a two-step deposit control is that this step is deliberate.
+                label: 'Confirm this deposit',
+                icon: <CashIcon />,
+                confirm: `Confirm ${money(d.amount)} for ${d.student}? It goes onto the ledger as a payment received, and reversing it later is a separate entry.`,
+                confirmLabel: 'Yes, confirm it',
+                pendingLabel: 'Confirming…',
+                doneLabel: 'Confirmed!',
+                failedLabel: "Couldn't confirm",
+                onSelect: () => review(d.id, 'confirm'),
+              },
+              {
+                label: 'Reject this deposit',
+                icon: <CloseIcon />,
+                danger: true,
+                confirm: `Reject ${money(d.amount)} for ${d.student}? Nothing reaches the ledger, and whoever lodged it will need to lodge it again.`,
+                confirmLabel: 'Yes, reject it',
+                pendingLabel: 'Rejecting…',
+                doneLabel: 'Rejected!',
+                failedLabel: "Couldn't reject",
+                onSelect: () => review(d.id, 'reject'),
+              },
+              {
+                label: 'View the proof',
+                hidden: !d.hasProof,
+                href: `/api/proxy/fees/deposits/${d.id}/proof`,
+              },
+            ]}
+          />
         </div>
       </td>
     </tr>

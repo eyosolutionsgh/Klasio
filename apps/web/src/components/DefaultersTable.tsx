@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import FileField from './FileField';
 import SortHeader from './SortHeader';
 import { Button, useAsyncAction } from './Button';
+import RowMenu from './RowMenu';
 import { ChoiceCards } from './ChoiceCards';
 import { CalendarIcon, CashIcon, UploadIcon } from './icons';
 import type { ListSearchParams } from '@/lib/list';
@@ -232,58 +233,39 @@ export default function DefaultersTable({
                   {money(d.balance)}
                 </td>
                 <td className="px-6 py-2.5 text-right">
-                  {/*
-                    No `state` on any of these: the three sit once per row, so a single
-                    hook would light every row's button at once. Two only open a dialog,
-                    and the pay link reports through the toast as it always did.
-                  */}
-                  <div className="flex flex-wrap items-center justify-end gap-1.5">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => setDepositFor(d)}
-                      data-tip="Record a bank deposit with proof for a bursar to confirm"
-                      className="tip"
-                    >
-                      Bank deposit
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => createPayLink(d)}
-                      data-tip="Create a pay-online link to send to the guardian"
-                      className="tip"
-                    >
-                      Pay link
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        setPayFor(d);
-                        setAmount(String(d.balance));
-                      }}
-                    >
-                      Record payment
-                    </Button>
-                    {canClear && termId && (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => {
-                          setClearFor(d);
-                          setClearReason('');
-                        }}
-                        data-tip="Let this family read their report despite the balance"
-                        className="tip"
-                      >
-                        Release report
-                      </Button>
-                    )}
+                  <div className="flex items-center justify-end">
+                    {/*
+                      What the hover tips used to say is now the item's own wording — a menu has
+                      room for a phrase where a row of buttons only had room for two words.
+                    */}
+                    <RowMenu
+                      label={d.name}
+                      actions={[
+                        {
+                          label: 'Record a payment',
+                          onSelect: () => {
+                            setPayFor(d);
+                            setAmount(String(d.balance));
+                          },
+                        },
+                        {
+                          label: 'Lodge a bank deposit',
+                          onSelect: () => setDepositFor(d),
+                        },
+                        {
+                          label: 'Create a pay-online link',
+                          onSelect: () => createPayLink(d),
+                        },
+                        {
+                          label: 'Release the report despite the balance',
+                          hidden: !canClear || !termId,
+                          onSelect: () => {
+                            setClearFor(d);
+                            setClearReason('');
+                          },
+                        },
+                      ]}
+                    />
                   </div>
                 </td>
               </tr>
@@ -411,8 +393,8 @@ export default function DefaultersTable({
           <form onSubmit={grantClearance.run} className="card w-full max-w-lg p-7 rise">
             <h2 className="font-display text-2xl">Release {clearFor.name}&apos;s report</h2>
             <p className="text-sm text-oat mt-1">
-              Their family owes {money(clearFor.balance)}. Releasing lets them read this
-              term&apos;s terminal report anyway, and changes nothing about what they owe.
+              Their family owes {money(clearFor.balance)}. Releasing lets them read this term&apos;s
+              terminal report anyway, and changes nothing about what they owe.
             </p>
             <label className="block mt-5">
               <span className="text-xs uppercase tracking-widest text-oat">Why</span>
