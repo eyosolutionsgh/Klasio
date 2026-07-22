@@ -82,12 +82,24 @@ describe('family and student portals', () => {
     });
     const targetClassId = mine.student.classId as string;
 
-    // A guardian with no child in that class — the one who must not see it.
+    /**
+     * A guardian with **no** child in that class — the one who must not see it.
+     *
+     * The `none` clause is the whole point, and its absence made this test fail at random. The
+     * seed gives siblings a shared guardian, so "has a child outside the class" does not mean
+     * "has no child inside it": the same parent can have one in each, in which case they see the
+     * notice legitimately and the assertion is wrong rather than the code. Which guardian
+     * `findFirst` returned depended on row order, which every other spec in the suite quietly
+     * changes — so it passed or failed according to what had run before it.
+     */
     const other = await db.studentGuardian.findFirstOrThrow({
       where: {
         custodyFlag: { not: 'BLOCKED' },
         student: { schoolId, status: 'ACTIVE', classId: { not: targetClassId } },
-        guardian: { id: { not: mine.guardianId } },
+        guardian: {
+          id: { not: mine.guardianId },
+          students: { none: { student: { classId: targetClassId } } },
+        },
       },
       include: { guardian: true },
     });
