@@ -69,7 +69,7 @@ import {
   RequireEntitlement,
   RequirePermission,
 } from '../common/auth';
-import { ensureSchedule, verifyQstashSignature } from '../common/qstash';
+import { describeRejectedCallback, ensureSchedule, verifyQstashSignature } from '../common/qstash';
 import { receiptPdf, statementPdf, tableReportPdf } from '../common/pdf';
 import { statementLines } from '../common/statement';
 import { toCsv, toXlsx, Cell } from '../common/export';
@@ -2500,14 +2500,27 @@ export class RemindersQueue implements OnModuleInit, OnModuleDestroy {
  */
 @Controller('fees/internal')
 export class FeesQstashController {
+  private readonly logger = new Logger('RemindersQueue');
+
   constructor(private queue: RemindersQueue) {}
 
   @Post('qstash/reminders-tick')
   @Public()
   async qstashTick(@Req() req: RawRequest) {
+    const signature = req.headers['upstash-signature'];
     const raw = (req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}))).toString('utf8');
-    const ok = await verifyQstashSignature(req.headers['upstash-signature'], raw);
-    if (!ok) throw new UnauthorizedException('Invalid QStash signature');
+    const ok = await verifyQstashSignature(signature, raw);
+    if (!ok) {
+      this.logger.warn(
+        describeRejectedCallback({
+          label: 'fee reminders tick',
+          signature,
+          rawBody: req.rawBody,
+          verifiedOver: raw,
+        }),
+      );
+      throw new UnauthorizedException('Invalid QStash signature');
+    }
     await this.queue.runNow();
     return { ok: true };
   }

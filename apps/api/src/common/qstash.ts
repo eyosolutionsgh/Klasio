@@ -96,6 +96,34 @@ function client(): Receiver {
   return receiver;
 }
 
+/**
+ * Why a callback was rejected, in the terms that actually distinguish the causes.
+ *
+ * A 401 on a QStash callback has three quite different meanings — no signing key configured, no
+ * signature sent, or a signature over bytes that are not the bytes we verified — and the response
+ * is identical in all three. This says which, without printing the signature, whose whole value is
+ * that it is not written down anywhere.
+ *
+ * `rawBody` is the one worth watching: QStash signs exactly what it sent, and a platform that
+ * parses the request before the framework sees it leaves us reconstructing the body and verifying
+ * against something the sender never signed.
+ */
+export function describeRejectedCallback(input: {
+  label: string;
+  signature?: string;
+  rawBody?: Buffer;
+  verifiedOver: string;
+}): string {
+  return [
+    `QStash callback "${input.label}" rejected:`,
+    `signingKey=${qstashConfigured() ? 'set' : 'MISSING'}`,
+    `signatureHeader=${input.signature ? 'present' : 'MISSING'}`,
+    `rawBody=${input.rawBody ? `${input.rawBody.length}B` : 'ABSENT (reconstructed)'}`,
+    `verifiedOver=${JSON.stringify(input.verifiedOver.slice(0, 40))}`,
+    `(${input.verifiedOver.length}B)`,
+  ].join(' ');
+}
+
 /** `body` must be the exact raw bytes received — QStash signs over them, not a re-serialised copy. */
 export async function verifyQstashSignature(
   signature: string | undefined,

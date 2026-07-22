@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { ensureSchedule, qstashConfigured } from './qstash';
+import { describeRejectedCallback, ensureSchedule, qstashConfigured } from './qstash';
 
 /**
  * These lock in the property the additive design rests on: on a deployment that does not use
@@ -68,6 +68,30 @@ describe('qstash configuration', () => {
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain('API_PUBLIC_URL');
     expect(warnings[0]).toContain('the-sweep');
+  });
+
+  it('tells the three causes of a rejected callback apart, without printing the signature', () => {
+    // A 401 is identical for all three; the log is the only thing that distinguishes them.
+    process.env.QSTASH_CURRENT_SIGNING_KEY = 'sig_test';
+    const noSignature = describeRejectedCallback({
+      label: 'sweep',
+      rawBody: Buffer.from('{}'),
+      verifiedOver: '{}',
+    });
+    expect(noSignature).toContain('signatureHeader=MISSING');
+    expect(noSignature).toContain('signingKey=set');
+
+    const reconstructed = describeRejectedCallback({
+      label: 'sweep',
+      signature: 'v0=secretlooking',
+      rawBody: undefined,
+      verifiedOver: '{}',
+    });
+    // The case that matters: verifying against bytes the sender never signed.
+    expect(reconstructed).toContain('rawBody=ABSENT (reconstructed)');
+    expect(reconstructed).toContain('signatureHeader=present');
+    // The signature is a credential; its value must never reach a log.
+    expect(reconstructed).not.toContain('secretlooking');
   });
 
   it('stays silent where QStash is simply not in use', async () => {

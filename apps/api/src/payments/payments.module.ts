@@ -38,7 +38,7 @@ import { hasEntitlement } from '../common/entitlements';
 import { createHmac } from 'crypto';
 import { balanceOf } from '../common/ledger';
 import { nextInSequence, refNumber } from '../common/sequences';
-import { ensureSchedule, verifyQstashSignature } from '../common/qstash';
+import { describeRejectedCallback, ensureSchedule, verifyQstashSignature } from '../common/qstash';
 
 class ConnectGatewayDto {
   @IsIn(['HUBTEL', 'PAYSTACK', 'FLUTTERWAVE']) provider: 'HUBTEL' | 'PAYSTACK' | 'FLUTTERWAVE';
@@ -943,14 +943,27 @@ export class PaymentsQueue implements OnModuleInit, OnModuleDestroy {
  */
 @Controller('payments/internal')
 export class PaymentsQstashController {
+  private readonly logger = new Logger('PaymentsQueue');
+
   constructor(private queue: PaymentsQueue) {}
 
   @Post('qstash/sweep')
   @Public()
   async qstashSweep(@Req() req: RawRequest) {
+    const signature = req.headers['upstash-signature'];
     const raw = (req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}))).toString('utf8');
-    const ok = await verifyQstashSignature(req.headers['upstash-signature'], raw);
-    if (!ok) throw new UnauthorizedException('Invalid QStash signature');
+    const ok = await verifyQstashSignature(signature, raw);
+    if (!ok) {
+      this.logger.warn(
+        describeRejectedCallback({
+          label: 'payments sweep',
+          signature,
+          rawBody: req.rawBody,
+          verifiedOver: raw,
+        }),
+      );
+      throw new UnauthorizedException('Invalid QStash signature');
+    }
     return this.queue.sweepOnce();
   }
 }
