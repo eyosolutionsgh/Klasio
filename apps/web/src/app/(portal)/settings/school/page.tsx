@@ -391,8 +391,8 @@ export default function SchoolSetupPage() {
         />
         <p className="text-[11px] text-oat mt-3">
           Staff always see every report — this only affects the family and pupil portals and the
-          WhatsApp assistant. Your bursar can release any individual child from the fees screen,
-          for a stated reason, without changing this setting.
+          WhatsApp assistant. Your bursar can release any individual child from the fees screen, for
+          a stated reason, without changing this setting.
         </p>
       </section>
 
@@ -683,8 +683,10 @@ export default function SchoolSetupPage() {
       {/* Levels & classes */}
       <section className="card p-6 rise rise-3">
         <h2 className="font-display text-xl">Levels &amp; classes</h2>
+        {/* min-w-0 on each column: a grid track is sized by its content unless told otherwise, so
+            without it the "Add" row set the column width and its button was clipped by the card. */}
         <div className="grid md:grid-cols-2 gap-6 mt-4">
-          <div>
+          <div className="min-w-0">
             <p className="text-[13px] font-medium mb-2">Levels</p>
             <ul className="space-y-1 text-sm">
               {levels.map((l) =>
@@ -750,13 +752,13 @@ export default function SchoolSetupPage() {
                 ),
               )}
             </ul>
-            <form className="flex gap-2 mt-3" onSubmit={levelAction.run}>
+            <form className="flex flex-wrap gap-2 mt-3" onSubmit={levelAction.run}>
               <input
                 required
                 value={levelName}
                 onChange={(e) => setLevelName(e.target.value)}
                 placeholder="Basic 1"
-                className={`${field} flex-1`}
+                className={`${field} flex-1 min-w-[7rem]`}
               />
               <select
                 value={levelCat}
@@ -775,7 +777,7 @@ export default function SchoolSetupPage() {
             </form>
           </div>
 
-          <div>
+          <div className="min-w-0">
             <p className="text-[13px] font-medium mb-2">Classes</p>
             <ul className="space-y-1 text-sm">
               {classes.map((c) =>
@@ -845,13 +847,13 @@ export default function SchoolSetupPage() {
                 ),
               )}
             </ul>
-            <form className="flex gap-2 mt-3" onSubmit={classAction.run}>
+            <form className="flex flex-wrap gap-2 mt-3" onSubmit={classAction.run}>
               <input
                 required
                 value={className}
                 onChange={(e) => setClassName(e.target.value)}
                 placeholder="Basic 1"
-                className={`${field} flex-1`}
+                className={`${field} flex-1 min-w-[7rem]`}
               />
               <select
                 required
