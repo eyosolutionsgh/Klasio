@@ -960,34 +960,33 @@ export default async function GuidePage() {
                     {p.title}
                   </a>
                 </div>
-                {/* The How-to part gets a sub-menu of its flows, grouped as they are on the page,
-                    so a reader can jump straight to the one they need. Only the flows this reader
-                    can reach are listed, since `p.groups` is already filtered. */}
-                {p.id === 'how-to' && (
-                  <div className="ml-5 mt-2 space-y-2.5 border-l border-mist/70 pl-3">
-                    {p.groups.map((g, gi) => (
-                      <div key={g.title ?? gi}>
-                        {g.title && (
-                          <p className="text-[10px] uppercase tracking-wider text-oat/70">
-                            {g.title}
-                          </p>
-                        )}
-                        <ul className="mt-1 space-y-1">
-                          {g.items.map((item) => (
-                            <li key={item.title}>
-                              <a
-                                href={`#${slug(item.title)}`}
-                                className="block text-[12.5px] leading-snug text-oat hover:text-brand"
-                              >
-                                {item.title}
-                              </a>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {/* Every part gets a sub-menu of its items, grouped as they are on the page, so a
+                    reader can jump straight to the one they need. Only what this reader can reach is
+                    listed, since `p.groups` is already filtered. Ids are prefixed with the part, so
+                    two parts naming an item alike cannot collide. */}
+                <div className="ml-5 mt-2 space-y-2.5 border-l border-mist/70 pl-3">
+                  {p.groups.map((g, gi) => (
+                    <div key={g.title ?? gi}>
+                      {g.title && (
+                        <p className="text-[10px] uppercase tracking-wider text-oat/70">
+                          {g.title}
+                        </p>
+                      )}
+                      <ul className="mt-1 space-y-1">
+                        {g.items.map((item) => (
+                          <li key={item.title}>
+                            <a
+                              href={`#${p.id}-${slug(item.title)}`}
+                              className="block text-[12.5px] leading-snug text-oat hover:text-brand"
+                            >
+                              {item.title}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
               </li>
             ))}
           </ol>
@@ -1014,7 +1013,7 @@ export default async function GuidePage() {
                         {group.items.map((item) => (
                           <article
                             key={item.title}
-                            id={slug(item.title)}
+                            id={`${part.id}-${slug(item.title)}`}
                             className="card p-6 scroll-mt-24"
                           >
                             <div className="flex items-start justify-between gap-3 flex-wrap">
