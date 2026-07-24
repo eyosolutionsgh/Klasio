@@ -92,6 +92,12 @@ export const PERMISSIONS = [
   { code: 'timetable.manage', label: 'Build the timetable', group: 'Academics' },
   { code: 'resources.view', label: 'See learning resources', group: 'Academics' },
   { code: 'resources.manage', label: 'Upload and publish learning resources', group: 'Academics' },
+  { code: 'lms.view', label: 'See lessons, assignments and submissions', group: 'Academics' },
+  {
+    code: 'lms.manage',
+    label: 'Publish lessons, set assignments and grade work',
+    group: 'Academics',
+  },
 
   // ── Finance ───────────────────────────────────────────────────────
   { code: 'fees.view', label: 'See fee balances and the ledger', group: 'Finance' },
@@ -152,6 +158,13 @@ export const PERMISSIONS = [
   },
   { code: 'fees.gateways', label: 'Connect payment gateways', group: 'Finance' },
   { code: 'fees.export', label: 'Export financial data', group: 'Finance' },
+  { code: 'canteen.view', label: 'See canteen wallets and balances', group: 'Finance' },
+  {
+    code: 'canteen.manage',
+    label: 'Top up wallets and record canteen spending',
+    group: 'Finance',
+    caution: 'Moves money in and out of a pupil’s canteen wallet.',
+  },
   {
     code: 'billing.manage',
     label: "Change the school's Klasio package",
@@ -179,6 +192,13 @@ export const PERMISSIONS = [
     label: 'Send emergency and lockdown alerts',
     group: 'Safety',
     caution: 'Texts every family and every member of staff at once. Not undoable.',
+  },
+  { code: 'housing.view', label: 'See boarding houses and boarders', group: 'Safety' },
+  {
+    code: 'housing.manage',
+    label: 'Manage houses, rooms, boarders and exeats',
+    group: 'Safety',
+    caution: 'Assigns children to beds, and signs boarders out of and back into school.',
   },
 
   // ── Communication ─────────────────────────────────────────────────
@@ -333,6 +353,9 @@ const TEACHING_CORE = [
   'resources.view',
   // Submitting lesson notes for the head to vet is part of teaching, not an extra privilege.
   'registers.lesson_notes',
+  // Publishing lessons, setting assignments and grading them is teaching too.
+  'lms.view',
+  'lms.manage',
 ];
 
 export const ROLE_PRESETS: RolePreset[] = [
@@ -365,6 +388,8 @@ export const ROLE_PRESETS: RolePreset[] = [
       'safety.emergency',
       'transport.manage',
       'transport.operate',
+      'housing.view',
+      'housing.manage',
       'hr.attendance',
       'hr.leave',
       'comms.announce',
@@ -403,6 +428,8 @@ export const ROLE_PRESETS: RolePreset[] = [
       'resources.manage',
       'pickup.view',
       'safety.emergency',
+      'housing.view',
+      'housing.manage',
       'hr.attendance',
       'hr.leave',
       'comms.announce',
@@ -472,6 +499,8 @@ export const ROLE_PRESETS: RolePreset[] = [
       'fees.deposits',
       'fees.gateways',
       'fees.export',
+      'canteen.view',
+      'canteen.manage',
       'hr.payroll',
       'comms.sms',
       'comms.reminders',
@@ -491,6 +520,9 @@ export const ROLE_PRESETS: RolePreset[] = [
       'fees.record_payment',
       // Lodges the slip a guardian brings to the counter, but cannot confirm it into the ledger.
       'fees.deposit_submit',
+      // The counter also runs the canteen till: top-ups and spends, on the wallet's own ledger.
+      'canteen.view',
+      'canteen.manage',
     ],
   },
   {
@@ -532,7 +564,13 @@ export const ROLE_PRESETS: RolePreset[] = [
     key: 'SCHOOL_NURSE',
     name: 'School Nurse',
     description: 'Sick bay. Sees who is in school and their medical notes, nothing else.',
-    permissions: ['students.view', 'students.medical', 'attendance.view', 'pickup.view'],
+    permissions: [
+      'students.view',
+      'students.medical',
+      'attendance.view',
+      'pickup.view',
+      'housing.view',
+    ],
   },
   {
     key: 'LIBRARIAN',

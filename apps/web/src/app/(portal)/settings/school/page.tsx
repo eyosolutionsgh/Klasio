@@ -6,6 +6,7 @@ import { ChoiceCards } from '@/components/ChoiceCards';
 import CampusSettings from '@/components/CampusSettings';
 import ApiKeysSettings from '@/components/ApiKeysSettings';
 import TermLifecycle from '@/components/TermLifecycle';
+import ConfirmButton from '@/components/ConfirmButton';
 import { CalendarIcon, PlusIcon, SaveIcon } from '@/components/icons';
 
 interface Term {
@@ -420,22 +421,26 @@ export default function SchoolSetupPage() {
                 A year is exactly its terms, so the API refuses to close one while any term inside
                 it is still open — and says which. Reopening asks for a reason, like a term does.
               */}
-              {canClose && (
-                <button
-                  onClick={async () => {
-                    if (y.closedAt) {
-                      const reason = window.prompt(`Why reopen ${y.name}?`)?.trim();
-                      if (!reason || reason.length < 4) return;
-                      await send(`years/${y.id}/reopen`, { reason });
-                    } else {
-                      await send(`years/${y.id}/close`);
-                    }
-                  }}
-                  className="ml-3 text-[12px] font-medium text-brand hover:underline underline-offset-2"
-                >
-                  {y.closedAt ? 'Reopen year' : 'Close year'}
-                </button>
-              )}
+              {canClose &&
+                (y.closedAt ? (
+                  <ConfirmButton
+                    label="Reopen year"
+                    question={`Reopen ${y.name}?`}
+                    confirmLabel="Reopen year"
+                    reason={{ label: 'Why reopen this year?', minLength: 4 }}
+                    triggerClassName="ml-3 text-[12px] font-medium text-brand hover:underline underline-offset-2"
+                    onConfirm={(reason) => send(`years/${y.id}/reopen`, { reason })}
+                  />
+                ) : (
+                  <ConfirmButton
+                    label="Close year"
+                    question={`Close ${y.name}? Every term inside it must already be closed.`}
+                    confirmLabel="Close year"
+                    danger
+                    triggerClassName="ml-3 text-[12px] font-medium text-brand hover:underline underline-offset-2"
+                    onConfirm={() => send(`years/${y.id}/close`)}
+                  />
+                ))}
             </p>
             <ul className="mt-2 space-y-1">
               {y.terms.map((t) =>

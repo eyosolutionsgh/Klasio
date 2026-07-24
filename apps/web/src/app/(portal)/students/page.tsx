@@ -53,7 +53,10 @@ export default async function StudentsPage({
     getMe(),
   ]);
 
-  const canPromote = ['OWNER', 'HEAD'].includes(me.user.role);
+  // The permission the promote/graduate endpoints check, not a job title: a registrar granted
+  // students.lifecycle through a custom role holds no leadership role, and a role-gate would have
+  // hidden the one control they were given the right to use.
+  const canPromote = me.permissions?.includes('students.lifecycle') ?? false;
   const selectedClass = structure.classes.find((c) => c.id === classId);
   return (
     <div>
