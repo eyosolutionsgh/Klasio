@@ -169,7 +169,16 @@ test.describe('EYO SMS portal — end-to-end', () => {
     await expect(page.getByRole('heading', { name: 'Defaulters' })).toBeVisible();
     await page.screenshot({ path: `${SHOTS}/09-fees.png`, fullPage: true });
 
-    await page.getByRole('button', { name: 'Record payment' }).first().click();
+    /*
+      Row actions moved into a per-row ⋯ menu ("put row actions in a menu"), and the action was
+      reworded from "Record payment" to "Record a payment". So the button is no longer in the open
+      — open the first defaulter's menu, then choose the item, which opens the dialog.
+    */
+    await page
+      .getByRole('button', { name: /^Actions for / })
+      .first()
+      .click();
+    await page.getByRole('menuitem', { name: 'Record a payment' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await page.getByLabel('Amount (GHS)').fill('100');
     /*
