@@ -7,6 +7,7 @@ import OfflineBar from '@/components/OfflineBar';
 import { submitOrQueue } from '@/lib/offline';
 import { Button, useAsyncAction } from '@/components/Button';
 import { PlusIcon } from '@/components/icons';
+import ConfirmButton from '@/components/ConfirmButton';
 
 interface Stop {
   id: string;
@@ -150,7 +151,6 @@ export default function TransportPage() {
   });
 
   async function removeRider(r: ManifestRider) {
-    if (!confirm(`Take ${r.name} off this route? Their transport billing stops too.`)) return;
     const res = await fetch(`/api/proxy/transport/riders/${r.studentId}`, { method: 'DELETE' });
     if (res.ok) {
       loadRoutes();
@@ -322,12 +322,14 @@ export default function TransportPage() {
                       <span className="text-[11px] text-oat/60">no scan today</span>
                     )}
                     {canManage && (
-                      <button
-                        onClick={() => removeRider(r)}
-                        className="text-[12px] text-clay hover:underline underline-offset-2"
-                      >
-                        Remove
-                      </button>
+                      <ConfirmButton
+                        label="Remove"
+                        question={`Take ${r.name} off this route? Their transport billing stops too.`}
+                        confirmLabel="Remove"
+                        danger
+                        triggerClassName="text-[12px] text-clay hover:underline underline-offset-2"
+                        onConfirm={() => removeRider(r)}
+                      />
                     )}
                   </div>
                 </li>

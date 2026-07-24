@@ -50,7 +50,9 @@ export default async function ResourcesPage({
     getMe(),
   ]);
 
-  const canManage = ['OWNER', 'HEAD', 'TEACHER'].includes(me.user.role);
+  // Uploading, publishing and deleting all check resources.manage on the API; the librarian and
+  // subject teachers hold it without any of the roles a title-list would have named.
+  const canManage = me.permissions?.includes('resources.manage') ?? false;
 
   return (
     <div>

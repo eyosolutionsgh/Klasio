@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, useAsyncAction } from '@/components/Button';
 import { SaveIcon } from '@/components/icons';
+import ConfirmButton from '@/components/ConfirmButton';
 
 /**
  * The books a school used to keep on a shelf.
@@ -41,9 +42,18 @@ const field =
   'rounded-lg border border-mist bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15';
 
 const fmt = (d: string | null) =>
-  d ? new Date(d).toLocaleDateString('en-GH', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+  d
+    ? new Date(d).toLocaleDateString('en-GH', { day: 'numeric', month: 'short', year: 'numeric' })
+    : '—';
 const fmtTime = (d: string | null) =>
-  d ? new Date(d).toLocaleString('en-GH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+  d
+    ? new Date(d).toLocaleString('en-GH', {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '—';
 
 interface Row {
   id: string;
@@ -101,7 +111,11 @@ export default function RegistersPage() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(Array.isArray(data.message) ? data.message.join('. ') : (data.message ?? 'That did not work.'));
+      setError(
+        Array.isArray(data.message)
+          ? data.message.join('. ')
+          : (data.message ?? 'That did not work.'),
+      );
       throw new Error('rejected');
     }
     load();
@@ -132,7 +146,13 @@ export default function RegistersPage() {
     setNoteBody('');
   });
 
-  const [visitor, setVisitor] = useState({ name: '', organisation: '', purpose: '', toSee: '', phone: '' });
+  const [visitor, setVisitor] = useState({
+    name: '',
+    organisation: '',
+    purpose: '',
+    toSee: '',
+    phone: '',
+  });
   const signIn = useAsyncAction(async () => {
     await post('/registers/visitors', visitor);
     setVisitor({ name: '', organisation: '', purpose: '', toSee: '', phone: '' });
@@ -251,7 +271,12 @@ export default function RegistersPage() {
         <div className="card p-6 mt-6 rise rise-2">
           {held.includes('registers.duty') && (
             <form onSubmit={assignDuty.run} className="flex flex-wrap items-end gap-3">
-              <select value={dutyUser} onChange={(e) => setDutyUser(e.target.value)} required className={field}>
+              <select
+                value={dutyUser}
+                onChange={(e) => setDutyUser(e.target.value)}
+                required
+                className={field}
+              >
                 <option value="">Who is on duty…</option>
                 {staff.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -259,8 +284,20 @@ export default function RegistersPage() {
                   </option>
                 ))}
               </select>
-              <input type="date" value={dutyFrom} onChange={(e) => setDutyFrom(e.target.value)} required className={field} />
-              <input type="date" value={dutyTo} onChange={(e) => setDutyTo(e.target.value)} required className={field} />
+              <input
+                type="date"
+                value={dutyFrom}
+                onChange={(e) => setDutyFrom(e.target.value)}
+                required
+                className={field}
+              />
+              <input
+                type="date"
+                value={dutyTo}
+                onChange={(e) => setDutyTo(e.target.value)}
+                required
+                className={field}
+              />
               <Button type="submit" state={assignDuty.state}>
                 Assign
               </Button>
@@ -276,7 +313,9 @@ export default function RegistersPage() {
                 {r.note ? <span className="text-oat text-xs">· {String(r.note)}</span> : null}
               </li>
             ))}
-            {rows.length === 0 && <li className="py-3 text-sm text-oat">Nobody is rostered yet.</li>}
+            {rows.length === 0 && (
+              <li className="py-3 text-sm text-oat">Nobody is rostered yet.</li>
+            )}
           </ul>
         </div>
       )}
@@ -286,15 +325,33 @@ export default function RegistersPage() {
           <form onSubmit={submitNote.run} className="flex flex-wrap items-end gap-3">
             <label className="flex-1 min-w-[12rem]">
               <span className="text-xs uppercase tracking-widest text-oat">Title</span>
-              <input value={noteTitle} onChange={(e) => setNoteTitle(e.target.value)} required minLength={3} placeholder="Fractions — week 4" className={`${field} mt-1.5 w-full`} />
+              <input
+                value={noteTitle}
+                onChange={(e) => setNoteTitle(e.target.value)}
+                required
+                minLength={3}
+                placeholder="Fractions — week 4"
+                className={`${field} mt-1.5 w-full`}
+              />
             </label>
             <label>
               <span className="text-xs uppercase tracking-widest text-oat">Week beginning</span>
-              <input type="date" value={noteWeek} onChange={(e) => setNoteWeek(e.target.value)} required className={`${field} mt-1.5 block`} />
+              <input
+                type="date"
+                value={noteWeek}
+                onChange={(e) => setNoteWeek(e.target.value)}
+                required
+                className={`${field} mt-1.5 block`}
+              />
             </label>
             <label className="w-full">
               <span className="text-xs uppercase tracking-widest text-oat">Notes</span>
-              <textarea value={noteBody} onChange={(e) => setNoteBody(e.target.value)} rows={2} className={`${field} mt-1.5 w-full`} />
+              <textarea
+                value={noteBody}
+                onChange={(e) => setNoteBody(e.target.value)}
+                rows={2}
+                className={`${field} mt-1.5 w-full`}
+              />
             </label>
             <Button type="submit" state={submitNote.state} icon={<SaveIcon />}>
               Submit for vetting
@@ -320,21 +377,27 @@ export default function RegistersPage() {
                 {held.includes('registers.vet_notes') && r.status === 'SUBMITTED' && (
                   <span className="flex gap-2">
                     <button
-                      onClick={() => post(`/registers/lesson-notes/${r.id}/vet`, { status: 'APPROVED' }, 'PATCH')}
+                      onClick={() =>
+                        post(`/registers/lesson-notes/${r.id}/vet`, { status: 'APPROVED' }, 'PATCH')
+                      }
                       className="text-[12px] font-medium text-brand hover:underline underline-offset-2"
                     >
                       Approve
                     </button>
-                    <button
-                      onClick={() => {
-                        const comment = window.prompt('What needs changing?')?.trim();
-                        if (!comment) return;
-                        post(`/registers/lesson-notes/${r.id}/vet`, { status: 'RETURNED', comment }, 'PATCH');
-                      }}
-                      className="text-[12px] font-medium text-oat hover:text-danger"
-                    >
-                      Return
-                    </button>
+                    <ConfirmButton
+                      label="Return"
+                      question="Return this note for changes?"
+                      confirmLabel="Return"
+                      reason={{ label: 'What needs changing?' }}
+                      triggerClassName="text-[12px] font-medium text-oat hover:text-danger"
+                      onConfirm={(comment) =>
+                        post(
+                          `/registers/lesson-notes/${r.id}/vet`,
+                          { status: 'RETURNED', comment },
+                          'PATCH',
+                        )
+                      }
+                    />
                   </span>
                 )}
                 {r.comment ? (
@@ -366,7 +429,9 @@ export default function RegistersPage() {
                 ) : null}
                 <p className="text-[11px] text-oat mt-0.5">
                   {fmt(String(r.occurredOn))} · {String(r.outcome).replace(/_/g, ' ').toLowerCase()}
-                  {r.guardianInformedAt ? ` · family told ${fmt(String(r.guardianInformedAt))}` : ''}
+                  {r.guardianInformedAt
+                    ? ` · family told ${fmt(String(r.guardianInformedAt))}`
+                    : ''}
                 </p>
               </li>
             ))}
@@ -428,7 +493,11 @@ export default function RegistersPage() {
       {tab === 'feeding' && (
         <div className="card p-6 mt-6 rise rise-2">
           <div className="flex flex-wrap items-end gap-3">
-            <select value={feedClass} onChange={(e) => setFeedClass(e.target.value)} className={field}>
+            <select
+              value={feedClass}
+              onChange={(e) => setFeedClass(e.target.value)}
+              className={field}
+            >
               <option value="">Choose a class…</option>
               {classes.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -436,9 +505,16 @@ export default function RegistersPage() {
                 </option>
               ))}
             </select>
-            <input type="date" value={feedDate} onChange={(e) => setFeedDate(e.target.value)} className={field} />
+            <input
+              type="date"
+              value={feedDate}
+              onChange={(e) => setFeedDate(e.target.value)}
+              className={field}
+            />
             <label>
-              <span className="text-xs uppercase tracking-widest text-oat">Today&rsquo;s amount</span>
+              <span className="text-xs uppercase tracking-widest text-oat">
+                Today&rsquo;s amount
+              </span>
               <input
                 type="number"
                 min="0"
@@ -453,8 +529,9 @@ export default function RegistersPage() {
           {feeding && (
             <>
               <p className="text-sm text-oat mt-4">
-                {feeding.paidCount} paid · <span className="text-danger">{feeding.unpaidCount} outstanding</span> ·
-                collected {feeding.collected.toFixed(2)}
+                {feeding.paidCount} paid ·{' '}
+                <span className="text-danger">{feeding.unpaidCount} outstanding</span> · collected{' '}
+                {feeding.collected.toFixed(2)}
               </p>
               <ul className="mt-3 divide-y divide-mist/60">
                 {feeding.rows.map((r) => (

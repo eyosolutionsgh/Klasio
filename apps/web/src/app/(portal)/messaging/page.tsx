@@ -45,8 +45,10 @@ export default async function MessagingPage({
     getMe(),
   ]);
 
-  // Only the head and the owner may record a purchase, so only they are shown the control.
-  const canTopUp = ['OWNER', 'HEAD'].includes(me.user.role);
+  // Recording a purchase posts to /messaging/sms/topup, which checks comms.sms — the same
+  // permission that admits anyone to this page. A role-gate here hid it from the bursar, who is
+  // exactly the person that buys the credit.
+  const canTopUp = me.permissions?.includes('comms.sms') ?? false;
   // A class with nobody in it cannot be an audience — offering it only produces "No recipients
   // matched" after the message has been written.
   const classes = structure.classes.filter((c) => c.studentCount > 0);

@@ -99,15 +99,17 @@ export default async function StudentDetail({ params }: { params: Promise<{ id: 
   const canEditLifecycle = me.permissions?.includes('students.lifecycle') ?? false;
   const att = s.attendanceSummary;
   const attTotal = Object.values(att).reduce((a, b) => a + b, 0);
-  // Both are presentation only — the API refuses either way. Hiding them keeps a teacher from
-  // triggering a 403 that would read as the portal breaking.
-  const canPlan = ['OWNER', 'HEAD', 'BURSAR'].includes(me.user.role);
-  // A bursar may read a child's scholarships but not revoke one — awarding and revoking are the
-  // head's call, so the button is hidden rather than left to 403.
-  const canAwardConcessions = ['OWNER', 'HEAD'].includes(me.user.role);
-  const canPrintCard =
-    ['OWNER', 'HEAD', 'FRONT_DESK'].includes(me.user.role) &&
-    me.entitlements.includes('sis.idcards');
+  // Presentation only — the API refuses either way. Each mirrors the permission its own endpoint
+  // checks, not a list of job titles: keying off a role hid these from the very people who hold
+  // the permission (a bursar carries fees.structure and fees.concessions; a head does not) while
+  // offering a head a button their request would 403. Setting an installment plan posts to
+  // /fees/installments (fees.structure); awarding/revoking a concession posts to
+  // /fees/concessions/awards (fees.concessions).
+  const canPlan = me.permissions?.includes('fees.structure') ?? false;
+  const canAwardConcessions = me.permissions?.includes('fees.concessions') ?? false;
+  // Printing an ID card needs only students.view — which this page already required to load — plus
+  // the sis.idcards entitlement. So the entitlement alone decides it.
+  const canPrintCard = me.entitlements.includes('sis.idcards');
 
   /**
    * Narrowed once, here, rather than at each use. The API sends both or neither, so binding them

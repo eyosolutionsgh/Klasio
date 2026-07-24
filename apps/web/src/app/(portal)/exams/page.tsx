@@ -7,6 +7,7 @@ import Combobox from '@/components/Combobox';
 import { Button, useAsyncAction } from '@/components/Button';
 import { PlusIcon } from '@/components/icons';
 import AiQuestions from '@/components/AiQuestions';
+import ConfirmButton from '@/components/ConfirmButton';
 
 interface Bank {
   id: string;
@@ -209,13 +210,13 @@ export default function ExamsPage() {
       <div>
         <div className="rise rise-1">
           <h1 className="font-display text-3xl">Examinations</h1>
-              <p className="text-sm text-oat mt-1.5">
-        <Link href="/exams/mocks" className="text-brand underline underline-offset-2">
-          Mock examinations →
-        </Link>{' '}
-        — the BECE rehearsals a candidate class sits, scored as BECE is.
-      </p>
-</div>
+          <p className="text-sm text-oat mt-1.5">
+            <Link href="/exams/mocks" className="text-brand underline underline-offset-2">
+              Mock examinations →
+            </Link>{' '}
+            — the BECE rehearsals a candidate class sits, scored as BECE is.
+          </p>
+        </div>
         <p className="card p-6 mt-6 text-sm text-oat rise rise-2">
           Computer-based tests are part of a higher package. Ask whoever manages your subscription
           about an upgrade.
@@ -353,17 +354,18 @@ export default function ExamsPage() {
                           — answer {String.fromCharCode(65 + q.correctIndex)}
                         </span>
                       </span>
-                      <button
-                        onClick={async () => {
-                          if (!confirm('Remove this question?')) return;
+                      <ConfirmButton
+                        label="Remove"
+                        question="Remove this question?"
+                        confirmLabel="Remove"
+                        danger
+                        triggerClassName="text-[12px] text-clay hover:underline underline-offset-2 shrink-0"
+                        onConfirm={async () => {
                           await fetch(`/api/proxy/exams/questions/${q.id}`, { method: 'DELETE' });
                           loadQuestions();
                           load();
                         }}
-                        className="text-[12px] text-clay hover:underline underline-offset-2 shrink-0"
-                      >
-                        Remove
-                      </button>
+                      />
                     </div>
                   </li>
                 ))}

@@ -21,4 +21,11 @@ export default {
    */
   distDir: process.env.NEXT_DIST_DIR ?? '.next',
   env: { NEXT_PUBLIC_BUILD_ID: buildId },
+  /**
+   * The dev-only route indicator sits bottom-left, directly over the "Powered by Klasio" lockup
+   * at the foot of the sidebar. It renders in development alone (a production build never shows
+   * it), so turning it off costs nothing real and keeps that corner the school's — and keeps it
+   * out of the guide's screenshots. Compile and runtime errors still surface as normal.
+   */
+  devIndicators: false,
 };
