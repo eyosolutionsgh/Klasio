@@ -939,7 +939,7 @@ export default async function GuidePage() {
   }).filter((p) => p.groups.length > 0);
 
   return (
-    <div className="max-w-3xl">
+    <div className="max-w-5xl">
       <div className="rise rise-1">
         <h1 className="font-display text-3xl">User guide</h1>
         <p className="text-sm text-oat mt-1.5">
@@ -948,98 +948,110 @@ export default async function GuidePage() {
         </p>
       </div>
 
-      <nav className="card p-5 mt-6 rise rise-2" aria-label="Guide contents">
-        <p className="text-[11px] uppercase tracking-widest text-oat">On this page</p>
-        <ol className="mt-3 grid sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
-          {parts.map((p, i) => (
-            <li key={p.id} className="flex gap-2.5">
-              <span className="shrink-0 text-oat tabular">{i + 1}.</span>
-              <a href={`#${p.id}`} className="text-brand hover:underline underline-offset-2">
-                {p.title}
-              </a>
-            </li>
-          ))}
-        </ol>
-      </nav>
+      {/*
+        The contents float alongside the guide as a sticky left rail from `lg`; below that they
+        stack above the content, so a phone still gets a table of contents without a side column.
+        `lg:items-start` keeps the rail its natural height so `sticky` actually sticks.
+      */}
+      <div className="mt-8 lg:flex lg:gap-10 lg:items-start">
+        <nav
+          className="mb-8 lg:mb-0 lg:sticky lg:top-24 lg:w-44 lg:shrink-0 rise rise-2"
+          aria-label="Guide contents"
+        >
+          <p className="text-[11px] uppercase tracking-widest text-oat">On this page</p>
+          <ol className="mt-3 space-y-2 text-sm">
+            {parts.map((p, i) => (
+              <li key={p.id} className="flex gap-2.5">
+                <span className="shrink-0 text-oat tabular">{i + 1}.</span>
+                <a href={`#${p.id}`} className="text-brand hover:underline underline-offset-2">
+                  {p.title}
+                </a>
+              </li>
+            ))}
+          </ol>
+        </nav>
 
-      <div className="mt-10 space-y-14">
-        {parts.map((part) => (
-          <section key={part.id} id={part.id} className="scroll-mt-24">
-            <div className="border-l-2 border-brand pl-4">
-              <h2 className="font-display text-2xl">{part.title}</h2>
-              <p className="text-sm text-oat mt-1">{part.blurb}</p>
-            </div>
-
-            <div className="mt-6 space-y-8">
-              {part.groups.map((group, gi) => (
-                <div key={group.title ?? gi}>
-                  {group.title && (
-                    <h3 className="text-[11px] uppercase tracking-widest text-oat mb-3">
-                      {group.title}
-                    </h3>
-                  )}
-                  <div className="space-y-5">
-                    {group.items.map((item) => (
-                      <article key={item.title} className="card p-6">
-                        <div className="flex items-start justify-between gap-3 flex-wrap">
-                          <h4 className="font-display text-lg">{item.title}</h4>
-                          {item.who && (
-                            <span className="shrink-0 rounded-full bg-brand-mist text-brand text-[11px] font-medium px-2.5 py-1">
-                              {item.who}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-sm text-oat mt-1">{item.lead}</p>
-
-                        {item.shots?.map((shot) => (
-                          <Figure key={shot.src} shot={shot} />
-                        ))}
-
-                        {item.gallery && (
-                          <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
-                            {item.gallery.map((g) => (
-                              <figure key={g.src}>
-                                <img
-                                  src={g.src}
-                                  alt={`${g.label}'s menu`}
-                                  loading="lazy"
-                                  className="w-full h-auto rounded-lg border border-mist/60 shadow-sm"
-                                />
-                                <figcaption className="mt-1 text-[11px] text-oat text-center">
-                                  {g.label}
-                                </figcaption>
-                              </figure>
-                            ))}
-                          </div>
-                        )}
-
-                        {item.steps && (
-                          <StepList steps={item.steps} ordered={part.id === 'how-to'} />
-                        )}
-
-                        {item.note && (
-                          <p className="mt-4 rounded-lg bg-brand-mist/60 px-4 py-3 text-[13px] leading-relaxed text-ink/80">
-                            <span className="font-medium text-ink">Good to know — </span>
-                            {item.note}
-                          </p>
-                        )}
-                      </article>
-                    ))}
-                  </div>
+        <div className="min-w-0 flex-1 lg:max-w-3xl">
+          <div className="space-y-14">
+            {parts.map((part) => (
+              <section key={part.id} id={part.id} className="scroll-mt-24">
+                <div className="border-l-2 border-brand pl-4">
+                  <h2 className="font-display text-2xl">{part.title}</h2>
+                  <p className="text-sm text-oat mt-1">{part.blurb}</p>
                 </div>
-              ))}
-            </div>
-          </section>
-        ))}
-      </div>
 
-      <p className="mt-12 text-sm text-oat">
-        Still stuck?{' '}
-        <Link href="/help" className="text-brand underline underline-offset-2">
-          Help &amp; support
-        </Link>{' '}
-        has how to reach us.
-      </p>
+                <div className="mt-6 space-y-8">
+                  {part.groups.map((group, gi) => (
+                    <div key={group.title ?? gi}>
+                      {group.title && (
+                        <h3 className="text-[11px] uppercase tracking-widest text-oat mb-3">
+                          {group.title}
+                        </h3>
+                      )}
+                      <div className="space-y-5">
+                        {group.items.map((item) => (
+                          <article key={item.title} className="card p-6">
+                            <div className="flex items-start justify-between gap-3 flex-wrap">
+                              <h4 className="font-display text-lg">{item.title}</h4>
+                              {item.who && (
+                                <span className="shrink-0 rounded-full bg-brand-mist text-brand text-[11px] font-medium px-2.5 py-1">
+                                  {item.who}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-oat mt-1">{item.lead}</p>
+
+                            {item.shots?.map((shot) => (
+                              <Figure key={shot.src} shot={shot} />
+                            ))}
+
+                            {item.gallery && (
+                              <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                {item.gallery.map((g) => (
+                                  <figure key={g.src}>
+                                    <img
+                                      src={g.src}
+                                      alt={`${g.label}'s menu`}
+                                      loading="lazy"
+                                      className="w-full h-auto rounded-lg border border-mist/60 shadow-sm"
+                                    />
+                                    <figcaption className="mt-1 text-[11px] text-oat text-center">
+                                      {g.label}
+                                    </figcaption>
+                                  </figure>
+                                ))}
+                              </div>
+                            )}
+
+                            {item.steps && (
+                              <StepList steps={item.steps} ordered={part.id === 'how-to'} />
+                            )}
+
+                            {item.note && (
+                              <p className="mt-4 rounded-lg bg-brand-mist/60 px-4 py-3 text-[13px] leading-relaxed text-ink/80">
+                                <span className="font-medium text-ink">Good to know — </span>
+                                {item.note}
+                              </p>
+                            )}
+                          </article>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+
+          <p className="mt-12 text-sm text-oat">
+            Still stuck?{' '}
+            <Link href="/help" className="text-brand underline underline-offset-2">
+              Help &amp; support
+            </Link>{' '}
+            has how to reach us.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
