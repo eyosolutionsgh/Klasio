@@ -3,7 +3,7 @@ import AskData from '@/components/AskData';
 import { api, getMe, money } from '@/lib/api';
 
 interface Stats {
-  term: { id: string; name: string; year: string; nextTermBegins: string | null } | null;
+  term: { id: string; name: string; year: string; endDate: string | null } | null;
   studentCount: number;
   staffCount: number;
   classCount: number;
@@ -56,8 +56,8 @@ export default async function DashboardPage() {
           </h1>
           <p className="text-sm text-oat mt-1.5">
             {stats.term ? `${stats.term.year} · ${stats.term.name}` : 'No term configured'}
-            {stats.term?.nextTermBegins &&
-              ` · Next term begins ${new Date(stats.term.nextTermBegins).toLocaleDateString('en-GH', { day: 'numeric', month: 'long', year: 'numeric' })}`}
+            {stats.term?.endDate &&
+              ` · Term ends ${new Date(stats.term.endDate).toLocaleDateString('en-GH', { day: 'numeric', month: 'long', year: 'numeric' })}`}
           </p>
         </div>
       </div>

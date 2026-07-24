@@ -101,7 +101,7 @@ export class DashboardService {
             id: term.id,
             name: term.name,
             year: term.academicYear.name,
-            nextTermBegins: term.nextTermBegins,
+            endDate: term.endDate,
           }
         : null,
       studentCount,
