@@ -855,6 +855,13 @@ const PARTS: Part[] = [
   },
 ];
 
+/** A stable anchor id for an item, from its title — so the contents can link straight to a flow. */
+const slug = (title: string) =>
+  title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+
 function StepList({ steps, ordered }: { steps: string[]; ordered: boolean }) {
   if (ordered) {
     return (
@@ -940,17 +947,47 @@ export default async function GuidePage() {
       */}
       <div className="mt-8 lg:flex lg:gap-10 lg:items-start">
         <nav
-          className="mb-8 lg:mb-0 lg:sticky lg:top-24 lg:w-44 lg:shrink-0 rise rise-2"
+          className="mb-8 lg:mb-0 lg:sticky lg:top-24 lg:w-56 lg:shrink-0 lg:max-h-[calc(100dvh-8rem)] lg:overflow-y-auto rise rise-2"
           aria-label="Guide contents"
         >
           <p className="text-[11px] uppercase tracking-widest text-oat">On this page</p>
           <ol className="mt-3 space-y-2 text-sm">
             {parts.map((p, i) => (
-              <li key={p.id} className="flex gap-2.5">
-                <span className="shrink-0 text-oat tabular">{i + 1}.</span>
-                <a href={`#${p.id}`} className="text-brand hover:underline underline-offset-2">
-                  {p.title}
-                </a>
+              <li key={p.id}>
+                <div className="flex gap-2.5">
+                  <span className="shrink-0 text-oat tabular">{i + 1}.</span>
+                  <a href={`#${p.id}`} className="text-brand hover:underline underline-offset-2">
+                    {p.title}
+                  </a>
+                </div>
+                {/* The How-to part gets a sub-menu of its flows, grouped as they are on the page,
+                    so a reader can jump straight to the one they need. Only the flows this reader
+                    can reach are listed, since `p.groups` is already filtered. */}
+                {p.id === 'how-to' && (
+                  <div className="ml-5 mt-2 space-y-2.5 border-l border-mist/70 pl-3">
+                    {p.groups.map((g, gi) => (
+                      <div key={g.title ?? gi}>
+                        {g.title && (
+                          <p className="text-[10px] uppercase tracking-wider text-oat/70">
+                            {g.title}
+                          </p>
+                        )}
+                        <ul className="mt-1 space-y-1">
+                          {g.items.map((item) => (
+                            <li key={item.title}>
+                              <a
+                                href={`#${slug(item.title)}`}
+                                className="block text-[12.5px] leading-snug text-oat hover:text-brand"
+                              >
+                                {item.title}
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </li>
             ))}
           </ol>
@@ -975,7 +1012,11 @@ export default async function GuidePage() {
                       )}
                       <div className="space-y-5">
                         {group.items.map((item) => (
-                          <article key={item.title} className="card p-6">
+                          <article
+                            key={item.title}
+                            id={slug(item.title)}
+                            className="card p-6 scroll-mt-24"
+                          >
                             <div className="flex items-start justify-between gap-3 flex-wrap">
                               <h4 className="font-display text-lg">{item.title}</h4>
                               {item.who && (
