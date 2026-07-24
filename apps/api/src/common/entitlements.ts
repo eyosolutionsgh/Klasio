@@ -63,6 +63,13 @@ export const ENTITLEMENTS = {
     'platform.api',
     'platform.multicampus',
     'branding.apps',
+    // Boarding: houses, beds and the exeat book. A duty-of-care feature for boarding schools,
+    // so it sits with transport and the other Advanced safety capabilities.
+    'housing.boarding',
+    // A prepaid canteen wallet per pupil, on its own append-only ledger.
+    'canteen.wallet',
+    // Lessons, assignments and graded submissions — a step beyond the document library.
+    'lms.core',
   ],
 } as const;
 
@@ -144,6 +151,9 @@ export const ENTITLEMENT_LABELS: Record<string, string> = {
   'platform.api': 'API access',
   'platform.multicampus': 'Multi-campus',
   'branding.apps': 'Branded mobile apps',
+  'housing.boarding': 'Boarding & hostels',
+  'canteen.wallet': 'Canteen wallet',
+  'lms.core': 'Lessons & assignments',
 };
 
 /**

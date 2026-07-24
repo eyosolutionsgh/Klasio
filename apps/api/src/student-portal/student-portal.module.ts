@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   CanActivate,
   Controller,
   ExecutionContext,
@@ -16,7 +17,7 @@ import {
   UseGuards,
   createParamDecorator,
 } from '@nestjs/common';
-import { IsString, MinLength } from 'class-validator';
+import { IsString, MaxLength, MinLength } from 'class-validator';
 import * as jwt from 'jsonwebtoken';
 import * as bcrypt from 'bcryptjs';
 import { randomInt } from 'crypto';
@@ -50,6 +51,10 @@ export interface StudentUser {
 class StudentLoginDto {
   @IsString() admissionNo: string;
   @IsString() @MinLength(4) pin: string;
+}
+
+class SubmitDto {
+  @IsString() @MinLength(1) @MaxLength(20000) text: string;
 }
 
 @Injectable()
@@ -363,6 +368,80 @@ export class StudentPortalService {
       await this.scope(auth),
     );
   }
+
+  /** Lessons and assignments set to the pupil's class, each carrying the pupil's own submission. */
+  async lms(auth: StudentUser) {
+    const { classIds } = await this.scope(auth);
+    if (classIds.length === 0) return { lessons: [], assignments: [] };
+    const classId = classIds[0];
+    const [lessons, assignments, subjects, mine] = await Promise.all([
+      this.db.lesson.findMany({
+        where: { schoolId: auth.schoolId, classId },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.db.assignment.findMany({
+        where: { schoolId: auth.schoolId, classId },
+        orderBy: { dueAt: 'asc' },
+      }),
+      this.db.subject.findMany({
+        where: { schoolId: auth.schoolId },
+        select: { id: true, name: true },
+      }),
+      this.db.submission.findMany({ where: { schoolId: auth.schoolId, studentId: auth.sub } }),
+    ]);
+    const subjectName = new Map(subjects.map((s) => [s.id, s.name]));
+    const mineByAssignment = new Map(mine.map((s) => [s.assignmentId, s]));
+    return {
+      lessons: lessons.map((l) => ({
+        id: l.id,
+        title: l.title,
+        subject: subjectName.get(l.subjectId) ?? '—',
+        content: l.content,
+        createdAt: l.createdAt,
+      })),
+      assignments: assignments.map((a) => {
+        const sub = mineByAssignment.get(a.id);
+        return {
+          id: a.id,
+          title: a.title,
+          subject: subjectName.get(a.subjectId) ?? '—',
+          instructions: a.instructions,
+          dueAt: a.dueAt,
+          points: a.points,
+          overdue: !sub && a.dueAt < new Date(),
+          submission: sub
+            ? {
+                text: sub.text,
+                submittedAt: sub.submittedAt,
+                score: sub.score,
+                feedback: sub.feedback,
+              }
+            : null,
+        };
+      }),
+    };
+  }
+
+  /** Submit or resubmit work. Resubmission is allowed until it is graded, then the entry is locked. */
+  async submitAssignment(auth: StudentUser, assignmentId: string, text: string) {
+    const body = (text ?? '').trim();
+    if (body.length < 1) throw new BadRequestException('Write your answer before submitting');
+    const { classIds } = await this.scope(auth);
+    const assignment = await this.db.assignment.findFirst({
+      where: { id: assignmentId, schoolId: auth.schoolId, classId: { in: classIds } },
+    });
+    if (!assignment) throw new NotFoundException('Assignment not found');
+    const existing = await this.db.submission.findUnique({
+      where: { assignmentId_studentId: { assignmentId, studentId: auth.sub } },
+    });
+    if (existing?.score != null) throw new BadRequestException('This has already been graded');
+    await this.db.submission.upsert({
+      where: { assignmentId_studentId: { assignmentId, studentId: auth.sub } },
+      create: { schoolId: auth.schoolId, assignmentId, studentId: auth.sub, text: body },
+      update: { text: body, submittedAt: new Date() },
+    });
+    return { ok: true };
+  }
 }
 
 @Controller('student')
@@ -415,6 +494,18 @@ export class StudentPortalController {
   async resourceFile(@CurrentStudent() s: StudentUser, @Param('id') id: string) {
     // Streamed, not buffered — a shared lesson video must not transit the heap per reader.
     return ResourcesService.asFile(await this.svc.resourceFile(s, id));
+  }
+
+  @UseGuards(StudentGuard)
+  @Get('lms')
+  lms(@CurrentStudent() s: StudentUser) {
+    return this.svc.lms(s);
+  }
+
+  @UseGuards(StudentGuard)
+  @Post('lms/assignments/:id/submit')
+  submit(@CurrentStudent() s: StudentUser, @Param('id') id: string, @Body() dto: SubmitDto) {
+    return this.svc.submitAssignment(s, id, dto.text);
   }
 }
 

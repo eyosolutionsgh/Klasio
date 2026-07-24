@@ -160,6 +160,16 @@ export default function StudentPage() {
         </section>
 
         <section className="card p-6">
+          <h2 className="font-display text-xl">Lessons &amp; assignments</h2>
+          <p className="text-sm text-oat mt-1.5">
+            Lesson notes for your class, and homework to hand in.{' '}
+            <a href="/student/lms" className="text-forest font-medium underline underline-offset-2">
+              Open lessons →
+            </a>
+          </p>
+        </section>
+
+        <section className="card p-6">
           <h2 className="font-display text-xl">My results</h2>
           {me.reports.length === 0 ? (
             <p className="text-sm text-oat mt-2">

@@ -22,6 +22,9 @@ import { PickupModule } from './pickup/pickup.module';
 import { HrModule } from './hr/hr.module';
 import { SyllabusModule } from './syllabus/syllabus.module';
 import { TransportModule } from './transport/transport.module';
+import { HousingModule } from './housing/housing.module';
+import { CanteenModule } from './canteen/canteen.module';
+import { LmsModule } from './lms/lms.module';
 import { ExamsModule } from './exams/exams.module';
 import { AiModule } from './ai/ai.module';
 import { IntegrationsModule } from './integrations/integrations.module';
@@ -70,6 +73,9 @@ import { SetupModule } from './setup/setup.module';
     HrModule,
     SyllabusModule,
     TransportModule,
+    HousingModule,
+    CanteenModule,
+    LmsModule,
     ExamsModule,
     AiModule,
     IntegrationsModule,

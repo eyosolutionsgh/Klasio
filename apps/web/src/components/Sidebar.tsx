@@ -132,6 +132,15 @@ const NAV: NavItem[] = [
     group: 'Finance',
   },
   {
+    href: '/canteen',
+    holds: ['canteen.view', 'canteen.manage'],
+    label: 'Canteen',
+    icon: 'M11 9H9V2H7v7H5V2H3v7c0 2.12 1.66 3.84 3.75 3.97V22h2.5v-9.03C11.34 12.84 13 11.12 13 9V2h-2v7zm5-3v8h2.5v8H21V2c-2.76 0-5 2.24-5 4z',
+    tip: 'Prepaid wallets: top-ups and canteen spending',
+    needs: 'canteen.wallet',
+    group: 'Finance',
+  },
+  {
     href: '/pickup',
     holds: 'pickup.view',
     label: 'Dismissal',
@@ -159,6 +168,15 @@ const NAV: NavItem[] = [
     group: 'Daily',
   },
   {
+    href: '/hostel',
+    holds: ['housing.view', 'housing.manage'],
+    label: 'Boarding',
+    icon: 'M4 21V9l8-6 8 6v12h-6v-7h-4v7H4zm8-11.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z',
+    tip: 'Houses, rooms, boarders and the exeat book',
+    needs: 'housing.boarding',
+    group: 'Daily',
+  },
+  {
     href: '/announcements',
     holds: 'comms.announce',
     label: 'Announcements',
@@ -181,6 +199,15 @@ const NAV: NavItem[] = [
     icon: 'M4 6H2v14a2 2 0 002 2h14v-2H4V6zm16-4H8a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V4a2 2 0 00-2-2zm-2 9H10V9h8v2zm-3 4h-5v-2h5v2zm3-8H10V5h8v2z',
     tip: 'Notes and past questions shared with a class',
     needs: 'resources.documents',
+    group: 'Academic',
+  },
+  {
+    href: '/lms',
+    holds: ['lms.view', 'lms.manage'],
+    label: 'Lessons',
+    icon: 'M12 3L1 9l4 2.18v6L12 21l7-3.82v-6l2-1.09V17h2V9L12 3zm6.82 6L12 12.72 5.18 9 12 5.28 18.82 9zM17 15.99l-5 2.73-5-2.73v-3.72L12 15l5-2.73v3.72z',
+    tip: 'Publish lessons, set assignments and grade submissions',
+    needs: 'lms.core',
     group: 'Academic',
   },
   {
