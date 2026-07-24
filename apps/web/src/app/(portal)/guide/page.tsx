@@ -23,8 +23,6 @@ interface Item {
   holds?: string | string[];
   lead: string;
   shots?: Shot[];
-  /** A grid of small labelled screenshots — used to show every role's menu at once. */
-  gallery?: { src: string; label: string }[];
   steps?: string[];
   note?: string;
 }
@@ -101,22 +99,7 @@ const PARTS: Part[] = [
               'Registrar — enrolment and admissions. Front Desk — dismissal and the visitors’ book. School Nurse — medical notes and boarding welfare. Librarian — learning resources.',
               'System Administrator — staff accounts, roles and settings, without any of the leadership duties.',
             ],
-            gallery: [
-              { src: '/guide/role-head.webp', label: 'Head Teacher' },
-              { src: '/guide/role-asst.webp', label: 'Assistant Head' },
-              { src: '/guide/role-hod.webp', label: 'Head of Department' },
-              { src: '/guide/role-teacher.webp', label: 'Class Teacher' },
-              { src: '/guide/role-subject.webp', label: 'Subject Teacher' },
-              { src: '/guide/role-exams.webp', label: 'Exams Officer' },
-              { src: '/guide/role-bursar.webp', label: 'Bursar' },
-              { src: '/guide/role-clerk.webp', label: 'Accounts Clerk' },
-              { src: '/guide/role-registrar.webp', label: 'Registrar' },
-              { src: '/guide/role-frontdesk.webp', label: 'Front Desk' },
-              { src: '/guide/role-nurse.webp', label: 'School Nurse' },
-              { src: '/guide/role-librarian.webp', label: 'Librarian' },
-              { src: '/guide/role-sysadmin.webp', label: 'System Administrator' },
-            ],
-            note: 'These are starting points, not fixed. A head can widen or narrow any role — see “Assign or revoke permissions” under How-to. Notice how different each menu above is: that is the same feature-gating you see in your own, shorter menu.',
+            note: 'These are starting points, not fixed. A head can widen or narrow any role — see “Assign or revoke permissions” under How-to. Each role sees a menu built from only its permissions, which is why no two look alike.',
           },
           {
             title: 'First run: a brand-new school',
@@ -156,7 +139,10 @@ const PARTS: Part[] = [
             holds: 'school.settings',
             lead: 'The calendar every bill, register and report reads from.',
             shots: [
-              { src: '/guide/setup-year.webp', alt: 'Academic years and terms in School setup.' },
+              {
+                src: '/guide/howto-year.webp',
+                alt: 'The years-and-terms editor, with Make current and the Close buttons.',
+              },
             ],
             steps: [
               'School Setup → Academic years & terms → Add an academic year with its name and start/end dates.',
@@ -166,48 +152,28 @@ const PARTS: Part[] = [
             note: 'Nothing keys off the calendar until a term is marked current, so this is the switch that starts the year.',
           },
           {
-            title: 'Promote a class at year end',
+            title: 'Promote a class, or graduate the leavers',
             who: 'Head Teacher',
             holds: 'students.lifecycle',
-            lead: 'Move a whole class up a year in one reviewed step.',
-            shots: [
-              { src: '/guide/students.webp', alt: 'The students register, filtered to a class.' },
-            ],
-            steps: [
-              'Students → choose the class from the filter.',
-              'Press Promote, pick the class they move into, and check the number of children the move will touch.',
-              'Confirm. Everyone in the class advances together; anyone held back is moved individually instead.',
-            ],
-          },
-          {
-            title: 'Graduate the leavers',
-            who: 'Head Teacher',
-            holds: 'students.lifecycle',
-            lead: 'Send the final year off the active roll without losing them.',
+            lead: 'Move a whole class up a year — or send the final year off the roll — in one reviewed step.',
             shots: [
               {
-                src: '/guide/students.webp',
-                alt: 'The students register with the promote and graduate controls.',
+                src: '/guide/howto-promote.webp',
+                alt: 'The promote control: choose a class and Promote, or Graduate class.',
               },
             ],
             steps: [
-              'Students → the final class → Promote → Graduate.',
-              'The count of leavers is shown; type that number to confirm, because graduating cannot be undone with a click.',
-              'Their records stay readable and exportable — graduating tidies the roll, it does not delete anyone.',
+              'Students → choose the class from the filter, then Promote.',
+              'To move up: pick the class they move into and confirm. Everyone advances together; hold a child back by moving them individually instead.',
+              'To graduate the final year: choose Graduate class and type the count to confirm — graduating cannot be undone with a click.',
             ],
-            note: 'Graduating and promoting are the two irreversible lifecycle moves, so both ask for deliberate confirmation rather than a single tap.',
+            note: 'Promoting and graduating are the two irreversible lifecycle moves, so both ask for deliberate confirmation. Graduating tidies the roll; it never deletes anyone — their records stay readable and exportable.',
           },
           {
             title: 'Close a term, then close the year',
             who: 'Head Teacher',
             holds: 'school.settings',
             lead: 'Freeze the academic record once the term’s work is signed off.',
-            shots: [
-              {
-                src: '/guide/setup-year.webp',
-                alt: 'Term and year close controls in School setup.',
-              },
-            ],
             steps: [
               'School Setup → Academic years & terms → Close term on each term as it ends.',
               'Close year once every term inside it is closed — the app refuses while any term is still open, and says which.',
@@ -227,8 +193,8 @@ const PARTS: Part[] = [
             lead: 'Decide what each pupil owes, then raise the bills.',
             shots: [
               {
-                src: '/guide/fee-structure.webp',
-                alt: 'The fee structure, listing billable items per level.',
+                src: '/guide/howto-billing.webp',
+                alt: 'The Generate term bills panel and its button.',
               },
             ],
             steps: [
@@ -243,12 +209,15 @@ const PARTS: Part[] = [
             holds: ['marks.enter', 'marks.view'],
             lead: 'Continuous-assessment and exam scores, per class and subject.',
             shots: [
-              { src: '/guide/marks.webp', alt: 'The marks-entry grid for a class and subject.' },
+              {
+                src: '/guide/howto-marks.webp',
+                alt: 'The score grid — a column of inputs for each assessment.',
+              },
             ],
             steps: [
               'Marks Entry → choose the class and the subject.',
               'Add the assessments you use — class tests, project work, the end-of-term exam.',
-              'Type each score and Save. On the report, continuous assessment scales to 30 and the exam to 70.',
+              'Type each pupil’s score — they save as you go. On the report, continuous assessment scales to 30 and the exam to 70.',
             ],
             note: '“Read marks from a photo” can lift a whole column off a marked script — check the numbers, then save.',
           },
@@ -258,7 +227,10 @@ const PARTS: Part[] = [
             holds: 'reports.generate',
             lead: 'The GES report card, computed from the marks and released to families.',
             shots: [
-              { src: '/guide/reports.webp', alt: 'The terminal reports list for a class.' },
+              {
+                src: '/guide/howto-reports.webp',
+                alt: 'The class and term pickers with the Generate reports button.',
+              },
               {
                 src: '/guide/report-card.webp',
                 alt: 'A published GES terminal report card.',
@@ -281,8 +253,8 @@ const PARTS: Part[] = [
             lead: 'The counts GES and NaSIA ask for, reconstructed for the term.',
             shots: [
               {
-                src: '/guide/returns.webp',
-                alt: 'Termly returns with per-class candidate counts.',
+                src: '/guide/howto-returns.webp',
+                alt: 'The termly-returns table of per-class counts.',
               },
             ],
             steps: [
@@ -302,7 +274,10 @@ const PARTS: Part[] = [
             holds: 'students.create',
             lead: 'One at a time, or a whole class from a spreadsheet.',
             shots: [
-              { src: '/guide/students.webp', alt: 'The students register with Add and Import.' },
+              {
+                src: '/guide/howto-enrol.webp',
+                alt: 'The register toolbar: Add student, Import and Export.',
+              },
             ],
             steps: [
               'Students → Add a student, or Import a class from the downloadable Excel template (keep the column headings).',
@@ -316,9 +291,6 @@ const PARTS: Part[] = [
             needs: 'sis.admissions',
             holds: 'admissions.manage',
             lead: 'From first enquiry to a seat in class.',
-            shots: [
-              { src: '/guide/admissions.webp', alt: 'The admissions pipeline of applicants.' },
-            ],
             steps: [
               'Admissions → move each applicant through the stages, collecting the required documents.',
               'Admit in one step — it creates the pupil record and issues the next admission number automatically.',
@@ -329,7 +301,12 @@ const PARTS: Part[] = [
             who: 'Class Teacher',
             holds: 'attendance.mark',
             lead: 'The daily register — marked once, re-used on the report.',
-            shots: [{ src: '/guide/attendance.webp', alt: 'The attendance register for a class.' }],
+            shots: [
+              {
+                src: '/guide/howto-attendance.webp',
+                alt: 'A roster row with Present, Late, Absent and Excused, and the Save register button.',
+              },
+            ],
             steps: [
               'Attendance → pick the class and the date.',
               'Tap Present, Late, Absent or Excused for each child — or “All present”, then fix the exceptions.',
@@ -343,8 +320,8 @@ const PARTS: Part[] = [
             lead: 'Money in, at the counter or from the bank.',
             shots: [
               {
-                src: '/guide/fees.webp',
-                alt: 'The fees overview with billed, collected and defaulters.',
+                src: '/guide/howto-payment.webp',
+                alt: 'The Record payment dialog: amount, method, and Record & issue receipt.',
               },
             ],
             steps: [
@@ -359,8 +336,14 @@ const PARTS: Part[] = [
             holds: ['comms.sms', 'comms.announce'],
             lead: 'A notice on the portal, or a text to every phone.',
             shots: [
-              { src: '/guide/messaging.webp', alt: 'The SMS messaging composer.' },
-              { src: '/guide/announcements.webp', alt: 'The announcements composer and list.' },
+              {
+                src: '/guide/howto-messaging.webp',
+                alt: 'The SMS composer, with recipients and the Send button.',
+              },
+              {
+                src: '/guide/howto-announce.webp',
+                alt: 'The announcement composer: title, message and audience.',
+              },
             ],
             steps: [
               'Messaging → pick recipients (a class, a level, a custom list), write the message, and send. SMS is pay-as-you-go from your credit.',
@@ -374,12 +357,6 @@ const PARTS: Part[] = [
             needs: 'safety.pickup',
             holds: 'pickup.view',
             lead: 'Who is collecting each child — checked, and recorded.',
-            shots: [
-              {
-                src: '/guide/pickup.webp',
-                alt: 'The dismissal screen showing who may collect a pupil.',
-              },
-            ],
             steps: [
               'Dismissal → search for the child being collected.',
               'See their approved guardians and delegates, and — in red — anyone BLOCKED from collecting them.',
@@ -394,8 +371,8 @@ const PARTS: Part[] = [
             lead: 'The statutory books an inspector expects, kept legibly.',
             shots: [
               {
-                src: '/guide/registers.webp',
-                alt: 'The registers hub — log book, visitors, discipline and more.',
+                src: '/guide/howto-registers.webp',
+                alt: 'A register entry form.',
               },
             ],
             steps: [
@@ -416,8 +393,8 @@ const PARTS: Part[] = [
             lead: 'Houses and beds, and the exeat book.',
             shots: [
               {
-                src: '/guide/boarding.webp',
-                alt: 'The boarding screen — houses, rooms, boarders and exeats.',
+                src: '/guide/howto-boarding.webp',
+                alt: 'The exeat sign-out form: boarder, reason, destination and due-back.',
               },
             ],
             steps: [
@@ -435,8 +412,8 @@ const PARTS: Part[] = [
             lead: 'A prepaid wallet per pupil, topped up and spent at the counter.',
             shots: [
               {
-                src: '/guide/canteen.webp',
-                alt: 'The canteen screen — wallets, the counter, and recent activity.',
+                src: '/guide/howto-canteen.webp',
+                alt: 'The counter: a pupil’s balance with Top up and Record spend.',
               },
             ],
             steps: [
@@ -453,7 +430,10 @@ const PARTS: Part[] = [
             holds: 'lms.manage',
             lead: 'Beyond a shared file: work handed in from home, and marked.',
             shots: [
-              { src: '/guide/lms.webp', alt: 'The teacher’s lessons and assignments for a class.' },
+              {
+                src: '/guide/howto-lms.webp',
+                alt: 'The Set assignment form: title, instructions, due date and marks.',
+              },
               {
                 src: '/guide/student-lms.webp',
                 alt: 'The pupil’s side — an assignment to submit and a graded one.',
@@ -478,7 +458,7 @@ const PARTS: Part[] = [
             who: 'System Administrator',
             holds: 'users.manage',
             lead: 'A new account, and closing one cleanly.',
-            shots: [{ src: '/guide/staff.webp', alt: 'The staff accounts list with roles.' }],
+            shots: [{ src: '/guide/howto-staff.webp', alt: 'The add-staff form.' }],
             steps: [
               'Staff Accounts → Add a staff member with their email and a role. They set their own password from the invite.',
               'Set someone inactive the day they leave — their sign-in stops at once, including any open session.',
@@ -490,7 +470,12 @@ const PARTS: Part[] = [
             who: 'System Administrator',
             holds: 'roles.manage',
             lead: 'Tune what a role may do, or move a power from one person to another.',
-            shots: [{ src: '/guide/roles.webp', alt: 'The roles and permissions editor.' }],
+            shots: [
+              {
+                src: '/guide/howto-roles.webp',
+                alt: 'The roles matrix — each role with a ⋯ menu to edit its permissions.',
+              },
+            ],
             steps: [
               'Roles & Permissions → pick a role → tick the permissions to grant and untick the ones to remove, then save.',
               'Assign the role to a person on Staff Accounts. Change takes effect on their next action.',
@@ -1004,24 +989,6 @@ export default async function GuidePage() {
                             {item.shots?.map((shot) => (
                               <Figure key={shot.src} shot={shot} />
                             ))}
-
-                            {item.gallery && (
-                              <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
-                                {item.gallery.map((g) => (
-                                  <figure key={g.src}>
-                                    <img
-                                      src={g.src}
-                                      alt={`${g.label}'s menu`}
-                                      loading="lazy"
-                                      className="w-full h-auto rounded-lg border border-mist/60 shadow-sm"
-                                    />
-                                    <figcaption className="mt-1 text-[11px] text-oat text-center">
-                                      {g.label}
-                                    </figcaption>
-                                  </figure>
-                                ))}
-                              </div>
-                            )}
 
                             {item.steps && (
                               <StepList steps={item.steps} ordered={part.id === 'how-to'} />
